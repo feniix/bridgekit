@@ -4,7 +4,7 @@ Reusable TypeBox-backed tool definitions and adapters for exposing one tool impl
 
 ## Runtime support
 
-This package is ESM-only and supports Node.js 18 or newer. Published modules are import-passive and marked as side-effect free; tools are registered or servers are started only when the exported adapter functions are called.
+This package is ESM-only and supports Node.js 20 or newer. Published modules are import-passive and marked as side-effect free; tools are registered or servers are started only when the exported adapter functions are called.
 
 ## Core tools
 
