@@ -26,7 +26,7 @@ export type PiToolRegistration = {
 };
 
 function toPiDetails(result: PortableToolResult): Record<string, unknown> {
-  return result.details ?? result.structuredContent ?? {};
+  return result.structuredContent ?? result.details ?? {};
 }
 
 export class PortableToolExecutionError extends Error {

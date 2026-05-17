@@ -57,9 +57,17 @@ test("registered pi tool delegates execution and maps progress updates", async (
     description: "Echo text for pi tests.",
     parameters: echoParams,
     execute(args, ctx) {
-      ctx.progress?.({ text: "starting", structuredContent: { phase: "start" } });
+      ctx.progress?.({
+        text: "starting",
+        structuredContent: { phase: "start" },
+        details: { legacyPhase: "ignored" },
+      });
       const output = args.uppercase ? args.text.toUpperCase() : args.text;
-      return { text: output, structuredContent: { input: args.text, output } };
+      return {
+        text: output,
+        structuredContent: { input: args.text, output },
+        details: { legacyOutput: "ignored" },
+      };
     },
   });
   const registered: Array<{ execute: Function; name: string }> = [];

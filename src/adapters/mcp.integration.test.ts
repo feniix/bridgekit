@@ -28,13 +28,15 @@ function structuredContent(result: unknown): Record<string, unknown> {
 
 test("MCP server lists and calls portable tools over a transport", async () => {
   let calls = 0;
+  const observedSignals: Array<AbortSignal | undefined> = [];
   const echoTool = definePortableTool({
     name: "echo_test",
     title: "Echo Test",
     description: "Echo text for MCP tests.",
     parameters: echoParams,
-    execute(args) {
+    execute(args, ctx) {
       calls += 1;
+      observedSignals.push(ctx.signal);
       const output = args.uppercase ? args.text.toUpperCase() : args.text;
       return { text: output, structuredContent: { input: args.text, output } };
     },
@@ -70,11 +72,18 @@ test("MCP server lists and calls portable tools over a transport", async () => {
       ],
     );
 
-    const result = await client.callTool({
-      name: "echo_test",
-      arguments: { text: "hello", uppercase: true },
-    });
+    const requestController = new AbortController();
+    const result = await client.callTool(
+      {
+        name: "echo_test",
+        arguments: { text: "hello", uppercase: true },
+      },
+      undefined,
+      { signal: requestController.signal },
+    );
     assert.equal(calls, 1);
+    assert.ok(observedSignals[0] instanceof AbortSignal);
+    assert.equal(observedSignals[0]?.aborted, false);
     assert.deepEqual(result.content, [{ type: "text", text: "HELLO" }]);
     assert.deepEqual(result.structuredContent, { input: "hello", output: "HELLO" });
     assert.equal(result.isError, false);
