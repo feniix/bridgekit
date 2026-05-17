@@ -29,10 +29,10 @@ export interface PortableTool<
   title: string;
   description: string;
   parameters: TParams;
-  execute(
+  execute: (
     args: Static<TParams>,
     ctx: PortableToolContext<THost>,
-  ): PortableToolResult | Promise<PortableToolResult>;
+  ) => PortableToolResult | Promise<PortableToolResult>;
 }
 
 export function definePortableTool<

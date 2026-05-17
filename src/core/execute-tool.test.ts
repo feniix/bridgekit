@@ -4,6 +4,7 @@ import { Type, type Static } from "typebox";
 import {
   definePortableTool,
   executePortableTool,
+  type PortableTool,
   type PortableToolBuiltInHost,
   type PortableToolContext,
   type PortableToolHost,
@@ -60,6 +61,13 @@ test("default portable tool context keeps the built-in host union", async () => 
     void executePortableTool(echoTool, { text: "hello" }, { host: "custom-adapter" });
   }
   void rejectInvalidDefaultHosts;
+
+  function rejectBuiltInOnlyToolInCustomCollections() {
+    // @ts-expect-error Built-in-only tools cannot be treated as custom-host capable.
+    const customHostTools: Array<PortableTool<typeof echoParams, PortableToolHost<"custom-adapter">>> = [echoTool];
+    void customHostTools;
+  }
+  void rejectBuiltInOnlyToolInCustomCollections;
 
   const result = await executePortableTool(echoTool, { text: "hello" }, { host: "mcp" });
 
