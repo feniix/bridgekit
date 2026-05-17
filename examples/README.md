@@ -1,4 +1,4 @@
-# pi-portable-tools examples
+# BridgeKit examples
 
 These examples show the recommended layout for defining portable tools once and wiring them into pi and MCP hosts.
 
@@ -22,7 +22,7 @@ Keep `src/tools.ts` free of pi and MCP imports. Host-specific imports belong onl
 ```ts
 // src/tools.ts
 import { Type } from "typebox";
-import { definePortableTool } from "@feniix/pi-portable-tools";
+import { definePortableTool } from "@feniix/bridgekit";
 
 const reverseParams = Type.Object({
   text: Type.String({ description: "Text to reverse." }),
@@ -70,7 +70,7 @@ Best practices shown here:
 
 ```ts
 // src/pi-extension.ts
-import { registerPiTools } from "@feniix/pi-portable-tools/pi";
+import { registerPiTools } from "@feniix/bridgekit/pi";
 import { tools } from "./tools.js";
 
 export default function extension(pi: Parameters<typeof registerPiTools>[0]) {
@@ -102,7 +102,7 @@ pi behavior:
 ```ts
 #!/usr/bin/env node
 // src/mcp-server.ts
-import { runMcpStdioServer } from "@feniix/pi-portable-tools/mcp";
+import { runMcpStdioServer } from "@feniix/bridgekit/mcp";
 import { tools } from "./tools.js";
 
 await runMcpStdioServer({
@@ -147,7 +147,7 @@ import {
   type PortableTool,
   type PortableToolContext,
   type PortableToolHost,
-} from "@feniix/pi-portable-tools";
+} from "@feniix/bridgekit";
 
 const params = Type.Object({ text: Type.String() });
 

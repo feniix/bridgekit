@@ -1,10 +1,11 @@
 {
-  "name": "@feniix/pi-portable-tools",
+  "name": "@feniix/bridgekit",
   "version": "0.2.0",
-  "description": "Portable TypeBox-backed tool definitions and adapters for pi and MCP hosts.",
+  "description": "BridgeKit defines TypeBox-backed tools once and adapts them to pi, MCP, and other hosts.",
   "keywords": [
     "pi",
     "mcp",
+    "bridgekit",
     "portable-tools",
     "typebox"
   ],
@@ -32,7 +33,7 @@
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b tsconfig.json",
-    "prepack": "npm run build && node ../../scripts/verify-pi-portable-tools-dist.mjs"
+    "prepack": "npm run build && node ../../scripts/verify-bridgekit-dist.mjs"
   },
   "files": [
     "dist/**/*.js",

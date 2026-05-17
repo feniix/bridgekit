@@ -1,6 +1,6 @@
-# pi-portable-tools
+# BridgeKit
 
-Reusable TypeBox-backed tool definitions and adapters for exposing one tool implementation through both pi and MCP hosts.
+BridgeKit provides reusable TypeBox-backed tool definitions and adapters for exposing one tool implementation through pi, MCP, and other hosts.
 
 ## Runtime support
 
@@ -27,9 +27,9 @@ import {
   type PortableToolHost,
   type PortableToolResult,
   type PortableValidationError,
-} from "@feniix/pi-portable-tools";
-import { registerPiTools } from "@feniix/pi-portable-tools/pi";
-import { createMcpServer, runMcpStdioServer } from "@feniix/pi-portable-tools/mcp";
+} from "@feniix/bridgekit";
+import { registerPiTools } from "@feniix/bridgekit/pi";
+import { createMcpServer, runMcpStdioServer } from "@feniix/bridgekit/mcp";
 ```
 
 - Root entrypoint: host-neutral tool definitions, validation, and execution helpers.
@@ -44,7 +44,7 @@ Define tools once in host-neutral files:
 
 ```ts
 import { Type } from "typebox";
-import { definePortableTool } from "@feniix/pi-portable-tools";
+import { definePortableTool } from "@feniix/bridgekit";
 
 export const echoTool = definePortableTool({
   name: "echo",
@@ -74,7 +74,7 @@ Tool definition best practices:
 ## pi adapter
 
 ```ts
-import { registerPiTools } from "@feniix/pi-portable-tools/pi";
+import { registerPiTools } from "@feniix/bridgekit/pi";
 import { echoTool } from "./tools.js";
 
 export default function extension(pi: Parameters<typeof registerPiTools>[0]) {
@@ -87,7 +87,7 @@ Portable validation failures reject with `PortableToolExecutionError` in pi so t
 ## MCP adapter
 
 ```ts
-import { runMcpStdioServer } from "@feniix/pi-portable-tools/mcp";
+import { runMcpStdioServer } from "@feniix/bridgekit/mcp";
 import { echoTool } from "./tools.js";
 
 await runMcpStdioServer({
@@ -114,7 +114,7 @@ Custom adapters opt in explicitly:
 
 ```ts
 import { Type } from "typebox";
-import { definePortableTool, type PortableToolHost } from "@feniix/pi-portable-tools";
+import { definePortableTool, type PortableToolHost } from "@feniix/bridgekit";
 
 const params = Type.Object({ text: Type.String() });
 

@@ -7,7 +7,7 @@ import {
   type PortableToolBuiltInHost,
   type PortableToolContext,
   type PortableToolHost,
-} from "@feniix/pi-portable-tools";
+} from "@feniix/bridgekit";
 import { type Static, Type } from "typebox";
 
 const echoParams = Type.Object({

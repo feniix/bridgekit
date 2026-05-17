@@ -1,5 +1,5 @@
-import { definePortableTool } from "@feniix/pi-portable-tools";
-import { createMcpServer } from "@feniix/pi-portable-tools/mcp";
+import { definePortableTool } from "@feniix/bridgekit";
+import { createMcpServer } from "@feniix/bridgekit/mcp";
 import { Type } from "typebox";
 
 const stringParamTool = definePortableTool({

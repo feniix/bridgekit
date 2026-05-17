@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { definePortableTool } from "@feniix/pi-portable-tools";
-import {
-  isPortableToolExecutionError,
-  PortableToolExecutionError,
-  registerPiTools,
-} from "@feniix/pi-portable-tools/pi";
+import { definePortableTool } from "@feniix/bridgekit";
+import { isPortableToolExecutionError, PortableToolExecutionError, registerPiTools } from "@feniix/bridgekit/pi";
 import { Type } from "typebox";
 
 const echoParams = Type.Object({

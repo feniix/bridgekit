@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { definePortableTool } from "@feniix/pi-portable-tools";
-import { createMcpServer } from "@feniix/pi-portable-tools/mcp";
+import { definePortableTool } from "@feniix/bridgekit";
+import { createMcpServer } from "@feniix/bridgekit/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Type } from "typebox";

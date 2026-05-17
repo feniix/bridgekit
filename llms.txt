@@ -1,4 +1,4 @@
-# @feniix/pi-portable-tools
+# @feniix/bridgekit
 
 Use this package when you need to define a tool once and expose it through both pi and MCP hosts.
 
@@ -12,9 +12,9 @@ Use this package when you need to define a tool once and expose it through both 
 ## Import map
 
 ```ts
-import { definePortableTool, executePortableTool } from "@feniix/pi-portable-tools";
-import { registerPiTools } from "@feniix/pi-portable-tools/pi";
-import { createMcpServer, runMcpStdioServer } from "@feniix/pi-portable-tools/mcp";
+import { definePortableTool, executePortableTool } from "@feniix/bridgekit";
+import { registerPiTools } from "@feniix/bridgekit/pi";
+import { createMcpServer, runMcpStdioServer } from "@feniix/bridgekit/mcp";
 ```
 
 - Root entrypoint: host-neutral tool definitions, validation, and execution helpers.
@@ -27,7 +27,7 @@ Do not deep-import from `dist/` or `src/` in consumer code. Reading published de
 
 ```ts
 import { Type } from "typebox";
-import { definePortableTool } from "@feniix/pi-portable-tools";
+import { definePortableTool } from "@feniix/bridgekit";
 
 export const echoTool = definePortableTool({
   name: "echo",

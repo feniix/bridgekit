@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import * as mcp from "@feniix/pi-portable-tools/mcp";
+import * as mcp from "@feniix/bridgekit/mcp";
 import { signalFromExtra } from "./mcp-signal.js";
 
 test("MCP subpath exposes the supported low-level server API only", () => {
