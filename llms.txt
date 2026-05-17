@@ -1,0 +1,88 @@
+# @feniix/pi-portable-tools
+
+Use this package when you need to define a tool once and expose it through both pi and MCP hosts.
+
+## Read order for agents
+
+1. `README.md` — public API, contracts, best practices, packaging notes.
+2. `llms.txt` — compact agent-facing usage rules and anti-patterns.
+3. `examples/README.md` — copyable end-to-end layouts for shared tools, pi extension wiring, MCP stdio server wiring, and custom hosts.
+4. Published declarations such as `dist/src/index.d.ts`, `dist/src/pi.d.ts`, and `dist/src/mcp.d.ts` — canonical installed-package type contracts. In a source checkout, the matching `src/` files contain implementation context.
+
+## Import map
+
+```ts
+import { definePortableTool, executePortableTool } from "@feniix/pi-portable-tools";
+import { registerPiTools } from "@feniix/pi-portable-tools/pi";
+import { createMcpServer, runMcpStdioServer } from "@feniix/pi-portable-tools/mcp";
+```
+
+- Root entrypoint: host-neutral tool definitions, validation, and execution helpers.
+- `/pi`: pi adapter only.
+- `/mcp`: MCP server adapter only.
+
+Do not deep-import from `dist/` or `src/` in consumer code. Reading published declarations for documentation is fine; imports should use the package entrypoints above.
+
+## Core pattern
+
+```ts
+import { Type } from "typebox";
+import { definePortableTool } from "@feniix/pi-portable-tools";
+
+export const echoTool = definePortableTool({
+  name: "echo",
+  title: "Echo",
+  description: "Echo text.",
+  parameters: Type.Object({ text: Type.String() }),
+  execute(args, ctx) {
+    return {
+      text: args.text,
+      structuredContent: { text: args.text, host: ctx.host },
+    };
+  },
+});
+```
+
+## Best practices
+
+- Keep portable tools host-neutral. Do not import pi or MCP SDKs from files that define tool behavior.
+- Use TypeBox `Type.Object(...)` schemas for MCP-compatible tools.
+- Return `{ text, structuredContent }` for successful results.
+- Use `isError: true` for domain/tool-level failures that should reach the model as tool output.
+- Throw only for unexpected programmer, adapter, or runtime failures.
+- Respect `ctx.signal` in long-running tools.
+- Use `ctx.progress?.(...)` for incremental progress updates when the host supports them.
+- Wire hosts explicitly: pi registration and MCP server startup are separate adapter calls.
+- Keep modules import-passive. Do not register tools or start servers at import time.
+- Keep package runtime Node >=20 and ESM-only.
+
+## Host behavior
+
+- pi invalid arguments and portable `isError: true` results throw `PortableToolExecutionError`, because pi expects native tool failures.
+- MCP invalid arguments and portable `isError: true` results return `CallToolResult` with `isError: true`.
+- MCP preserves `structuredContent`; pi maps `structuredContent` into the pi `details` field. Both adapters fall back to `details` for legacy/debug payloads when `structuredContent` is absent.
+
+## Custom host typing
+
+Default tools accept only built-in hosts: `"pi" | "mcp" | "test"`.
+For a custom adapter, opt in explicitly:
+
+```ts
+const customTool = definePortableTool<typeof params, "custom-host">({
+  // ...
+  execute(args, ctx) {
+    const host: "custom-host" = ctx.host;
+    return { text: host };
+  },
+});
+```
+
+Use `PortableToolHost<"custom-host">` when a value may be either a built-in host or that extension.
+
+## Anti-patterns
+
+- Do not create a separate pi implementation and MCP implementation for the same logic.
+- Do not make tool files read package metadata, environment variables, files, or network resources at import time.
+- Do not expose unsupported high-level MCP helpers such as `registerMcpTools` unless tests prove compatibility with the installed MCP SDK.
+- Do not return host-specific response shapes from portable tool handlers.
+- Do not use `workspace:` or `file:` dependency ranges for packages intended to install from npm.
