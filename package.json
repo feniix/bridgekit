@@ -1,0 +1,37 @@
+{
+  "name": "@feniix/pi-portable-tools",
+  "version": "0.1.0",
+  "description": "Portable TypeBox-backed tool definitions and adapters for pi and MCP hosts.",
+  "keywords": [
+    "pi",
+    "mcp",
+    "portable-tools",
+    "typebox"
+  ],
+  "type": "module",
+  "exports": {
+    ".": { "types": "./dist/src/index.d.ts", "import": "./dist/src/index.js" },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -b tsconfig.json",
+    "prepack": "npm run build && node ../../scripts/verify-pi-portable-tools-dist.mjs"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "!dist/**/*.test.*",
+    "!dist/tsconfig.tsbuildinfo",
+    "README.md"
+  ],
+  "dependencies": {
+    "typebox": "^1.1.31"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": { "optional": true }
+  },
+  "license": "MIT"
+}
