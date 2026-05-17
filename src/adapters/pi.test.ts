@@ -99,6 +99,35 @@ test("registered pi tool delegates execution and maps progress updates", async (
   });
 });
 
+test("registered pi tool maps details when structured content is absent", async () => {
+  const detailsTool = definePortableTool({
+    name: "details_test",
+    title: "Details Test",
+    description: "Details fallback test.",
+    parameters: Type.Object({}),
+    execute() {
+      return { text: "details", details: { source: "details" } };
+    },
+  });
+  const registered: Array<{ execute: Function; name: string }> = [];
+  const pi = {
+    registerTool(tool: { execute: Function; name: string }) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(pi as never, [detailsTool]);
+  const tool = registered.find((candidate) => candidate.name === "details_test");
+  assert.ok(tool);
+
+  const result = await tool.execute("tool-call-details", {}, undefined, undefined, {});
+
+  assert.deepEqual(result, {
+    content: [{ type: "text", text: "details" }],
+    details: { source: "details" },
+  });
+});
+
 test("registered pi tool rejects invalid args without calling the portable handler", async () => {
   let called = false;
   const echoTool = definePortableTool({

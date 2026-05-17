@@ -23,18 +23,13 @@
     "dist/**/*.js",
     "dist/**/*.d.ts",
     "!dist/**/*.test.*",
+    "!dist/**/*.typecheck.*",
     "!dist/tsconfig.tsbuildinfo",
     "README.md"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "typebox": "^1.1.31"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
-  },
-  "peerDependenciesMeta": {
-    "@earendil-works/pi-coding-agent": { "optional": true }
   },
   "license": "MIT"
 }

@@ -65,11 +65,19 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
       } satisfies CallToolResult;
     }
 
-    const result = await executePortableTool(tool, request.params.arguments ?? {}, {
-      host: "mcp",
-      signal: signalFromExtra(extra),
-    });
-    return toMcpResult(result);
+    try {
+      const result = await executePortableTool(tool, request.params.arguments ?? {}, {
+        host: "mcp",
+        signal: signalFromExtra(extra),
+      });
+      return toMcpResult(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        content: [{ type: "text", text: message }],
+        isError: true,
+      } satisfies CallToolResult;
+    }
   });
 
   return server;

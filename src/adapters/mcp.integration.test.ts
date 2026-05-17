@@ -11,6 +11,8 @@ const echoParams = Type.Object({
   uppercase: Type.Optional(Type.Boolean({ description: "Whether to uppercase the text." })),
 });
 
+const emptyParams = Type.Object({});
+
 function textFromContent(content: unknown): string {
   assert.ok(Array.isArray(content), "tool result content must be an array");
   assert.equal(content[0]?.type, "text");
@@ -29,6 +31,24 @@ function structuredContent(result: unknown): Record<string, unknown> {
 test("MCP server lists and calls portable tools over a transport", async () => {
   let calls = 0;
   const observedSignals: Array<AbortSignal | undefined> = [];
+  const detailsOnlyTool = definePortableTool({
+    name: "details_only",
+    title: "Details Only",
+    description: "Returns legacy details without structured content.",
+    parameters: emptyParams,
+    execute() {
+      return { text: "details", details: { source: "details" } };
+    },
+  });
+  const throwingTool = definePortableTool({
+    name: "throw_test",
+    title: "Throw Test",
+    description: "Throws for MCP error mapping tests.",
+    parameters: emptyParams,
+    execute() {
+      throw new Error("boom from portable tool");
+    },
+  });
   const echoTool = definePortableTool({
     name: "echo_test",
     title: "Echo Test",
@@ -46,7 +66,7 @@ test("MCP server lists and calls portable tools over a transport", async () => {
   const server = createMcpServer({
     name: "portable-tools-test",
     version: "0.1.0",
-    tools: [echoTool],
+    tools: [echoTool, detailsOnlyTool, throwingTool],
     instructions: "Use test tools.",
   });
   const client = new Client({ name: "portable-tools-test-client", version: "0.1.0" });
@@ -69,6 +89,18 @@ test("MCP server lists and calls portable tools over a transport", async () => {
           description: "Echo text for MCP tests.",
           inputSchema: echoParams,
         },
+        {
+          name: "details_only",
+          title: "Details Only",
+          description: "Returns legacy details without structured content.",
+          inputSchema: emptyParams,
+        },
+        {
+          name: "throw_test",
+          title: "Throw Test",
+          description: "Throws for MCP error mapping tests.",
+          inputSchema: emptyParams,
+        },
       ],
     );
 
@@ -87,6 +119,15 @@ test("MCP server lists and calls portable tools over a transport", async () => {
     assert.deepEqual(result.content, [{ type: "text", text: "HELLO" }]);
     assert.deepEqual(result.structuredContent, { input: "hello", output: "HELLO" });
     assert.equal(result.isError, false);
+
+    const detailsOnly = await client.callTool({ name: "details_only", arguments: {} });
+    assert.equal(textFromContent(detailsOnly.content), "details");
+    assert.deepEqual(detailsOnly.structuredContent, { source: "details" });
+    assert.equal(detailsOnly.isError, false);
+
+    const thrown = await client.callTool({ name: "throw_test", arguments: {} });
+    assert.equal(thrown.isError, true);
+    assert.match(textFromContent(thrown.content), /boom from portable tool/);
 
     const invalid = await client.callTool({
       name: "echo_test",
