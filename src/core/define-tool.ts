@@ -11,23 +11,33 @@ export interface PortableToolResult {
   isError?: boolean;
 }
 
-export interface PortableToolContext {
-  host: "pi" | "mcp" | "test";
+export type PortableToolBuiltInHost = "pi" | "mcp" | "test";
+
+export type PortableToolHost<TExtension extends string = never> = PortableToolBuiltInHost | TExtension;
+
+export interface PortableToolContext<THost extends string = PortableToolBuiltInHost> {
+  host: THost;
   signal?: AbortSignal;
   progress?: (update: PortableToolResult) => void;
 }
 
-export interface PortableTool<TParams extends TSchema = TSchema> {
+export interface PortableTool<
+  TParams extends TSchema = TSchema,
+  THost extends string = PortableToolBuiltInHost,
+> {
   name: string;
   title: string;
   description: string;
   parameters: TParams;
-  execute(
+  execute: (
     args: Static<TParams>,
-    ctx: PortableToolContext,
-  ): PortableToolResult | Promise<PortableToolResult>;
+    ctx: PortableToolContext<THost>,
+  ) => PortableToolResult | Promise<PortableToolResult>;
 }
 
-export function definePortableTool<TParams extends TSchema>(tool: PortableTool<TParams>): PortableTool<TParams> {
+export function definePortableTool<
+  TParams extends TSchema,
+  THost extends string = PortableToolBuiltInHost,
+>(tool: PortableTool<TParams, THost>): PortableTool<TParams, THost> {
   return tool;
 }
