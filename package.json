@@ -1,6 +1,6 @@
 {
   "name": "@feniix/pi-portable-tools",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Portable TypeBox-backed tool definitions and adapters for pi and MCP hosts.",
   "keywords": [
     "pi",
