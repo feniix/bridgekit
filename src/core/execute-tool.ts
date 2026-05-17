@@ -1,14 +1,19 @@
 import { Check, Errors } from "typebox/value";
 import type { TSchema } from "typebox";
-import type { PortableTool, PortableToolContext, PortableToolResult } from "./define-tool.js";
+import type {
+  PortableTool,
+  PortableToolBuiltInHost,
+  PortableToolContext,
+  PortableToolResult,
+} from "./define-tool.js";
 
 export interface PortableValidationError {
   path: string;
   message: string;
 }
 
-export function validatePortableToolArgs(
-  tool: PortableTool<TSchema>,
+export function validatePortableToolArgs<THost extends string = PortableToolBuiltInHost>(
+  tool: PortableTool<TSchema, THost>,
   args: unknown,
 ): { ok: true } | { ok: false; errors: PortableValidationError[] } {
   if (Check(tool.parameters, args)) {
@@ -24,10 +29,10 @@ export function validatePortableToolArgs(
   };
 }
 
-export async function executePortableTool(
-  tool: PortableTool<TSchema>,
+export async function executePortableTool<THost extends string = PortableToolBuiltInHost>(
+  tool: PortableTool<TSchema, THost>,
   args: unknown,
-  ctx: PortableToolContext,
+  ctx: PortableToolContext<NoInfer<THost>>,
 ): Promise<PortableToolResult> {
   const validation = validatePortableToolArgs(tool, args);
   if (!validation.ok) {
