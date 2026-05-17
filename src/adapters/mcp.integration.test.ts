@@ -40,6 +40,15 @@ test("MCP server lists and calls portable tools over a transport", async () => {
       return { text: "details", details: { source: "details" } };
     },
   });
+  const throwingStringTool = definePortableTool({
+    name: "throw_string_test",
+    title: "Throw String Test",
+    description: "Throws a string for MCP error mapping tests.",
+    parameters: emptyParams,
+    execute() {
+      throw "string boom from portable tool";
+    },
+  });
   const throwingTool = definePortableTool({
     name: "throw_test",
     title: "Throw Test",
@@ -66,7 +75,7 @@ test("MCP server lists and calls portable tools over a transport", async () => {
   const server = createMcpServer({
     name: "portable-tools-test",
     version: "0.1.0",
-    tools: [echoTool, detailsOnlyTool, throwingTool],
+    tools: [echoTool, detailsOnlyTool, throwingTool, throwingStringTool],
     instructions: "Use test tools.",
   });
   const client = new Client({ name: "portable-tools-test-client", version: "0.1.0" });
@@ -101,6 +110,12 @@ test("MCP server lists and calls portable tools over a transport", async () => {
           description: "Throws for MCP error mapping tests.",
           inputSchema: emptyParams,
         },
+        {
+          name: "throw_string_test",
+          title: "Throw String Test",
+          description: "Throws a string for MCP error mapping tests.",
+          inputSchema: emptyParams,
+        },
       ],
     );
 
@@ -128,6 +143,10 @@ test("MCP server lists and calls portable tools over a transport", async () => {
     const thrown = await client.callTool({ name: "throw_test", arguments: {} });
     assert.equal(thrown.isError, true);
     assert.match(textFromContent(thrown.content), /boom from portable tool/);
+
+    const thrownString = await client.callTool({ name: "throw_string_test", arguments: {} });
+    assert.equal(thrownString.isError, true);
+    assert.match(textFromContent(thrownString.content), /string boom from portable tool/);
 
     const invalid = await client.callTool({
       name: "echo_test",
