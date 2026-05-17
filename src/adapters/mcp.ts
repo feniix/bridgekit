@@ -9,6 +9,7 @@ import {
 import type { TObject } from "typebox";
 import type { PortableTool, PortableToolResult } from "../core/define-tool.js";
 import { executePortableTool } from "../core/execute-tool.js";
+import { signalFromExtra } from "./mcp-signal.js";
 
 export interface CreateMcpServerOptions {
   name: string;
@@ -25,14 +26,6 @@ function toMcpResult(result: PortableToolResult): CallToolResult {
     structuredContent: result.structuredContent ?? result.details,
     isError: result.isError ?? false,
   };
-}
-
-function signalFromExtra(extra: unknown): AbortSignal | undefined {
-  if (!extra || typeof extra !== "object" || !("signal" in extra)) {
-    return undefined;
-  }
-  const signal = (extra as { signal?: unknown }).signal;
-  return signal instanceof AbortSignal ? signal : undefined;
 }
 
 export function createMcpServer(options: CreateMcpServerOptions): Server {
