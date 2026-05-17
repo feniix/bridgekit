@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Type, type Static } from "typebox";
 import {
   definePortableTool,
   executePortableTool,
@@ -9,6 +8,7 @@ import {
   type PortableToolContext,
   type PortableToolHost,
 } from "@feniix/pi-portable-tools";
+import { type Static, Type } from "typebox";
 
 const echoParams = Type.Object({
   text: Type.String({ description: "Text to echo." }),

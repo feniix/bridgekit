@@ -1,11 +1,6 @@
-import { Check, Errors } from "typebox/value";
 import type { TSchema } from "typebox";
-import type {
-  PortableTool,
-  PortableToolBuiltInHost,
-  PortableToolContext,
-  PortableToolResult,
-} from "./define-tool.js";
+import { Check, Errors } from "typebox/value";
+import type { PortableTool, PortableToolBuiltInHost, PortableToolContext, PortableToolResult } from "./define-tool.js";
 
 type NoInferPortable<T> = [T][T extends unknown ? 0 : never];
 

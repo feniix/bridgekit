@@ -1,17 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Type } from "typebox";
 import { definePortableTool } from "@feniix/pi-portable-tools";
 import {
   isPortableToolExecutionError,
   PortableToolExecutionError,
   registerPiTools,
 } from "@feniix/pi-portable-tools/pi";
+import { Type } from "typebox";
 
 const echoParams = Type.Object({
   text: Type.String({ description: "Text to echo." }),
   uppercase: Type.Optional(Type.Boolean({ description: "Whether to uppercase the text." })),
 });
+
+type RegisteredPiTool = {
+  name: string;
+  execute: (...args: unknown[]) => Promise<unknown>;
+};
 
 test("registerPiTools registers every portable tool with pi metadata", () => {
   const echoTool = definePortableTool({
@@ -70,9 +75,9 @@ test("registered pi tool delegates execution and maps progress updates", async (
       };
     },
   });
-  const registered: Array<{ execute: Function; name: string }> = [];
+  const registered: RegisteredPiTool[] = [];
   const pi = {
-    registerTool(tool: { execute: Function; name: string }) {
+    registerTool(tool: RegisteredPiTool) {
       registered.push(tool);
     },
   };
@@ -90,9 +95,7 @@ test("registered pi tool delegates execution and maps progress updates", async (
     {},
   );
 
-  assert.deepEqual(updates, [
-    { content: [{ type: "text", text: "starting" }], details: { phase: "start" } },
-  ]);
+  assert.deepEqual(updates, [{ content: [{ type: "text", text: "starting" }], details: { phase: "start" } }]);
   assert.deepEqual(result, {
     content: [{ type: "text", text: "HELLO" }],
     details: { input: "hello", output: "HELLO" },
@@ -109,9 +112,9 @@ test("registered pi tool maps details when structured content is absent", async 
       return { text: "details", details: { source: "details" } };
     },
   });
-  const registered: Array<{ execute: Function; name: string }> = [];
+  const registered: RegisteredPiTool[] = [];
   const pi = {
-    registerTool(tool: { execute: Function; name: string }) {
+    registerTool(tool: RegisteredPiTool) {
       registered.push(tool);
     },
   };
@@ -140,9 +143,9 @@ test("registered pi tool rejects invalid args without calling the portable handl
       return { text: "should not run" };
     },
   });
-  const registered: Array<{ execute: Function; name: string }> = [];
+  const registered: RegisteredPiTool[] = [];
   const pi = {
-    registerTool(tool: { execute: Function; name: string }) {
+    registerTool(tool: RegisteredPiTool) {
       registered.push(tool);
     },
   };

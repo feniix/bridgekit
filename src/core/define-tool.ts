@@ -21,23 +21,16 @@ export interface PortableToolContext<THost extends string = PortableToolBuiltInH
   progress?: (update: PortableToolResult) => void;
 }
 
-export interface PortableTool<
-  TParams extends TSchema = TSchema,
-  THost extends string = PortableToolBuiltInHost,
-> {
+export interface PortableTool<TParams extends TSchema = TSchema, THost extends string = PortableToolBuiltInHost> {
   name: string;
   title: string;
   description: string;
   parameters: TParams;
-  execute: (
-    args: Static<TParams>,
-    ctx: PortableToolContext<THost>,
-  ) => PortableToolResult | Promise<PortableToolResult>;
+  execute: (args: Static<TParams>, ctx: PortableToolContext<THost>) => PortableToolResult | Promise<PortableToolResult>;
 }
 
-export function definePortableTool<
-  TParams extends TSchema,
-  THost extends string = PortableToolBuiltInHost,
->(tool: PortableTool<TParams, THost>): PortableTool<TParams, THost> {
+export function definePortableTool<TParams extends TSchema, THost extends string = PortableToolBuiltInHost>(
+  tool: PortableTool<TParams, THost>,
+): PortableTool<TParams, THost> {
   return tool;
 }

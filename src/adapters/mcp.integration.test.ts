@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { definePortableTool } from "@feniix/pi-portable-tools";
+import { createMcpServer } from "@feniix/pi-portable-tools/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Type } from "typebox";
-import { definePortableTool } from "@feniix/pi-portable-tools";
-import { createMcpServer } from "@feniix/pi-portable-tools/mcp";
 
 const echoParams = Type.Object({
   text: Type.String({ description: "Text to echo." }),

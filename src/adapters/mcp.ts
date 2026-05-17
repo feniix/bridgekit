@@ -2,8 +2,8 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
-  ListToolsRequestSchema,
   type CallToolResult,
+  ListToolsRequestSchema,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { TObject } from "typebox";
