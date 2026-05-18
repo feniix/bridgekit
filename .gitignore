@@ -1,5 +1,10 @@
 node_modules/
-dist/
-tsconfig.tsbuildinfo
-*.tgz
+*.log
 .DS_Store
+.vscode/
+.idea/
+.claude/settings.local.json
+*.tgz
+coverage/
+dist/
+.envrc.local

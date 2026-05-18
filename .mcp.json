@@ -1,0 +1,51 @@
+{
+  "mcpServers": {
+    "exa": {
+      "type": "http",
+      "url": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa,web_search_advanced_exa",
+      "headers": {
+        "x-api-key": "${EXA_API_KEY}"
+      },
+      "env": {
+        "EXA_API_KEY": "${EXA_API_KEY}"
+      }
+    },
+    "ref": {
+      "type": "http",
+      "url": "https://api.ref.tools/mcp",
+      "headers": {
+        "x-ref-api-key": "${REF_API_KEY}"
+      },
+      "env": {
+        "REF_API_KEY": "${REF_API_KEY}"
+      }
+    },
+    "sequential-thinking": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "sequential-thinking@0.7.0",
+        "mcp-sequential-thinking"
+      ]
+    },
+    "code-reasoning": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "github:feniix/code-reasoning#fix-strict-stdio-startup"
+      ]
+    },
+    "serena": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/oraios/serena@v1.3.0",
+        "serena",
+        "start-mcp-server",
+        "--context",
+        "claude-code",
+        "--project-from-cwd"
+      ]
+    }
+  }
+}
