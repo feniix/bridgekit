@@ -19,13 +19,16 @@ function textFromContent(content: unknown): string {
   return content[0].text;
 }
 
+function assertRecord(value: unknown): asserts value is Record<string, unknown> {
+  assert.equal(typeof value, "object");
+  assert.notEqual(value, null);
+}
+
 function structuredContent(result: unknown): Record<string, unknown> {
-  assert.equal(typeof result, "object");
-  assert.notEqual(result, null);
-  const content = (result as { structuredContent?: unknown }).structuredContent;
-  assert.equal(typeof content, "object");
-  assert.notEqual(content, null);
-  return content as Record<string, unknown>;
+  assertRecord(result);
+  const content = result.structuredContent;
+  assertRecord(content);
+  return content;
 }
 
 test("MCP server lists and calls portable tools over a transport", async () => {
