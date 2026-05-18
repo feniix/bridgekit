@@ -189,4 +189,5 @@ For publishable tool packages:
 - Avoid `workspace:` or `file:` ranges in publishable package dependencies.
 - Avoid dangling `sourceMappingURL` comments: either publish maps and useful sources, or disable source maps for package builds.
 - Add a packed-install smoke test that installs tarballs into a temporary project.
+- For BridgeKit itself, run `npm run check`, `npm run test`, `npm run pack:dry-run`, and `npm run package-smoke` before release.
 - Keep imports side-effect free; registration and server startup should happen only in explicit entrypoints.

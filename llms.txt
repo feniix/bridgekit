@@ -54,7 +54,7 @@ export const echoTool = definePortableTool({
 - Use `ctx.progress?.(...)` for incremental progress updates when the host supports them.
 - Wire hosts explicitly: pi registration and MCP server startup are separate adapter calls.
 - Keep modules import-passive. Do not register tools or start servers at import time.
-- Keep package runtime Node >=20 and ESM-only.
+- Keep package runtime Node >=22.19.0 and ESM-only.
 
 ## Host behavior
 

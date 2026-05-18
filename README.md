@@ -4,7 +4,7 @@ BridgeKit provides reusable TypeBox-backed tool definitions and adapters for exp
 
 ## Runtime support
 
-This package is ESM-only and supports Node.js 20 or newer. Published modules are import-passive and marked as side-effect free; tools are registered or servers are started only when the exported adapter functions are called.
+This package is ESM-only and supports Node.js 22.19.0 or newer. Published modules are import-passive and marked as side-effect free; tools are registered or servers are started only when the exported adapter functions are called.
 
 ## For coding agents
 
@@ -144,6 +144,7 @@ Use `PortableToolHost<CustomHost>` for values that may be either a built-in host
 - Keep runtime imports in `dependencies`.
 - Avoid `workspace:` or `file:` dependency ranges in publishable packages.
 - Avoid dangling `sourceMappingURL` comments: publish maps and useful sources together, or disable source maps for package builds.
-- Run a packed-install smoke test in a temporary project.
+- Run `npm run check`, `npm run test`, `npm run pack:dry-run`, and `npm run package-smoke` before publishing.
+- Treat `docs/releasing.md` as the future release handoff; this repository is not configured for automated publish yet.
 
 See `examples/README.md` for complete copyable examples.
