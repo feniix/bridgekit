@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { definePortableTool } from "@feniix/bridgekit";
 import { isPortableToolExecutionError, PortableToolExecutionError, registerPiTools } from "@feniix/bridgekit/pi";
+import { fromPartial } from "@total-typescript/shoehorn";
 import { Type } from "typebox";
 
 const echoParams = Type.Object({
@@ -31,7 +32,7 @@ test("registerPiTools registers every portable tool with pi metadata", () => {
     },
   };
 
-  registerPiTools(pi as never, [echoTool]);
+  registerPiTools(fromPartial(pi), [echoTool]);
 
   assert.deepEqual(
     registered.map((tool) => ({
@@ -78,7 +79,7 @@ test("registered pi tool delegates execution and maps progress updates", async (
     },
   };
 
-  registerPiTools(pi as never, [echoTool]);
+  registerPiTools(fromPartial(pi), [echoTool]);
   const tool = registered.find((candidate) => candidate.name === "echo_test");
   assert.ok(tool);
 
@@ -115,7 +116,7 @@ test("registered pi tool maps details when structured content is absent", async 
     },
   };
 
-  registerPiTools(pi as never, [detailsTool]);
+  registerPiTools(fromPartial(pi), [detailsTool]);
   const tool = registered.find((candidate) => candidate.name === "details_test");
   assert.ok(tool);
 
@@ -146,7 +147,7 @@ test("registered pi tool rejects invalid args without calling the portable handl
     },
   };
 
-  registerPiTools(pi as never, [echoTool]);
+  registerPiTools(fromPartial(pi), [echoTool]);
   const tool = registered.find((candidate) => candidate.name === "echo_test");
   assert.ok(tool);
 

@@ -69,6 +69,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.10",
+    "@total-typescript/shoehorn": "^0.1.2",
     "@types/node": "^22.19.17",
     "typescript": "^5.5.0"
   },
