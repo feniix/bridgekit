@@ -8,7 +8,7 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["src/**/*.ts", "scripts/**/*.mjs", "package.json", "tsconfig.json", "tsconfig.base.json", "biome.json"]
+    "includes": ["src/**/*.ts", "scripts/**/*.mjs", "package.json", "tsconfig.json", "biome.json"]
   },
   "formatter": {
     "enabled": true,
