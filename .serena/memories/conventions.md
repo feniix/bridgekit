@@ -31,4 +31,17 @@ From `README.md` and `llms.txt`:
 ## Tests
 - Live next to source under `src/`.
 - Run via `npm test`, which builds first then executes `scripts/run-built-tests.mjs` against the compiled output in `dist/`.
-- `mcp.typecheck.ts` exists to fail the build if MCP-adapter type contracts regress.
+- Tests import the package by name (`@feniix/bridgekit{,/pi,/mcp}`) via Node self-referencing, so they exercise the published `exports` map. Edits aren't visible to tests until `tsc` re-emits.
+- `*.typecheck.ts` files (`mcp.typecheck.ts`, `pi.typecheck.ts`) are compile-only — they fail the build if adapter type contracts regress, typically using `// @ts-expect-error` to lock in negative type assertions.
+- Use `@total-typescript/shoehorn` for type-narrowing inside tests rather than ad-hoc `as` casts.
+
+## Verify gates
+`scripts/verify-bridgekit-dist.mjs` runs as part of `prepack` and enforces standalone-package invariants:
+- `main`/`types`/`exports` point at built files; `engines.node` is `>=22.19.0`; `sideEffects: false`.
+- No `release`, `publish`, or monorepo-relative scripts.
+- MCP SDK stays on v1 (`^1.x`), TypeBox stays at `^1.1.31`.
+- The string `registerMcpTools` never appears in the published JS (no high-level MCP helper).
+- No dangling `sourceMappingURL` references in shipped JS.
+- All documentation files (`README.md`, `llms.txt`, `examples/README.md`, `docs/extraction.md`, `docs/releasing.md`) are present.
+
+`scripts/smoke-package.mjs` (run via `npm run package-smoke`) packs the tarball, installs it into a temp consumer, asserts the public surface, and proves that deep imports fail with `ERR_PACKAGE_PATH_NOT_EXPORTED`.

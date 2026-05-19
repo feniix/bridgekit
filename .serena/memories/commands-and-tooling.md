@@ -8,6 +8,7 @@
 - `npm run clean` — `node scripts/clean-package-dist.mjs` (clears `dist/`).
 - `npm run build` — clean + `tsc -b`.
 - `npm run test` — build, then `node scripts/run-built-tests.mjs` (runs tests against compiled output in `dist/`).
+- `npm run test:coverage` — build, then `node scripts/run-built-tests-coverage.mjs` (Node's `--experimental-test-coverage`, scoped to `dist/src/**` and excluding `.test.js` / `.typecheck.js`).
 - `npm run verify:dist` — `node scripts/verify-bridgekit-dist.mjs` (sanity-checks the dist layout).
 - `npm run pack:dry-run` — `npm pack --dry-run --json`.
 - `npm run package-smoke` — `node scripts/smoke-package.mjs` (consume the packed tarball).
@@ -37,3 +38,11 @@ Run before publishing:
 
 ## Test runner
 The project uses Node's built-in test runner via `scripts/run-built-tests.mjs` (not vitest/jest). Tests are authored in TS, compiled, then executed from `dist/`.
+
+Tests import the package by name (`@feniix/bridgekit`, `@feniix/bridgekit/pi`, `@feniix/bridgekit/mcp`) using Node self-referencing — this exercises the real `exports` map rather than source layout. **A fresh source edit is invisible to tests until `tsc` re-emits**, so `npm test` always builds first.
+
+To run a single compiled test file directly (after `npm run build`):
+```sh
+node --test dist/src/adapters/mcp.test.js
+node --test --test-name-pattern "validation" dist/src/core/execute-tool.test.js
+```

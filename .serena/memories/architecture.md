@@ -17,8 +17,11 @@ src/
     mcp.test.ts
     mcp.integration.test.ts
     mcp-signal.ts        # signalFromExtra() — AbortSignal helper for MCP extras
-    mcp.typecheck.ts     # compile-only type assertions
+    mcp.typecheck.ts     # compile-only type assertions (MCP-side)
+    pi.typecheck.ts      # compile-only type assertions (pi-side)
 ```
+
+`.typecheck.ts` files are never executed — they exist purely so the build will fail if a type contract regresses. They typically use `// @ts-expect-error` to lock in *negative* type assertions (the build fails if the bad code suddenly typechecks).
 
 ## Core contracts (`src/core/define-tool.ts`)
 

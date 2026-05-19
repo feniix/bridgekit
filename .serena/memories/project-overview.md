@@ -16,3 +16,6 @@ Each entrypoint maps to its own compiled file under `dist/src/`. Splitting these
 
 ## Why this exists
 A tool author writes one host-neutral module (no pi imports, no MCP SDK imports), then any consumer adapter registers it for its host. TypeBox schemas double as runtime validation and as MCP JSON Schema (no conversion step).
+
+## Agent quick start
+`CLAUDE.md` at the repo root is the curated agent briefing — commands, architecture, intentional asymmetries (pi throws / MCP returns `isError`), and the constraints enforced by `scripts/verify-bridgekit-dist.mjs`. Start there before fanning out into `README.md` / `llms.txt`.
