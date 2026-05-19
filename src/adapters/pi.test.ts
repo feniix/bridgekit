@@ -99,6 +99,34 @@ test("registered pi tool delegates execution and maps progress updates", async (
   });
 });
 
+test("registered pi tool maps progress details when structured content is absent", async () => {
+  const detailsProgressTool = definePortableTool({
+    name: "details_progress_test",
+    title: "Details Progress Test",
+    description: "Progress details fallback test.",
+    parameters: Type.Object({}),
+    execute(_args, ctx) {
+      ctx.progress?.({ text: "step", details: { phase: "details-only" } });
+      return { text: "done" };
+    },
+  });
+  const registered: RegisteredPiTool[] = [];
+  const pi = {
+    registerTool(tool: RegisteredPiTool) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [detailsProgressTool]);
+  const tool = registered.find((candidate) => candidate.name === "details_progress_test");
+  assert.ok(tool);
+
+  const updates: unknown[] = [];
+  await tool.execute("tool-call-progress-details", {}, undefined, (update: unknown) => updates.push(update), {});
+
+  assert.deepEqual(updates, [{ content: [{ type: "text", text: "step" }], details: { phase: "details-only" } }]);
+});
+
 test("registered pi tool maps details when structured content is absent", async () => {
   const detailsTool = definePortableTool({
     name: "details_test",
@@ -126,6 +154,42 @@ test("registered pi tool maps details when structured content is absent", async 
     content: [{ type: "text", text: "details" }],
     details: { source: "details" },
   });
+});
+
+test("registered pi tool forwards the AbortSignal and host to the portable context", async () => {
+  let observedHost: string | undefined;
+  let observedSignal: AbortSignal | undefined;
+  const inspectTool = definePortableTool({
+    name: "inspect_ctx",
+    title: "Inspect Ctx",
+    description: "Captures ctx for assertions.",
+    parameters: Type.Object({}),
+    execute(_args, ctx) {
+      observedHost = ctx.host;
+      observedSignal = ctx.signal;
+      return { text: "ok" };
+    },
+  });
+  const registered: RegisteredPiTool[] = [];
+  const pi = {
+    registerTool(tool: RegisteredPiTool) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [inspectTool]);
+  const tool = registered.find((candidate) => candidate.name === "inspect_ctx");
+  assert.ok(tool);
+
+  const controller = new AbortController();
+  await tool.execute("tool-call-ctx", {}, controller.signal, undefined, {});
+
+  assert.equal(observedHost, "pi");
+  assert.equal(observedSignal, controller.signal);
+  assert.equal(observedSignal?.aborted, false);
+
+  controller.abort();
+  assert.equal(observedSignal?.aborted, true);
 });
 
 test("registered pi tool rejects invalid args without calling the portable handler", async () => {
@@ -157,9 +221,10 @@ test("registered pi tool rejects invalid args without calling the portable handl
       assert.equal(called, false);
       assert.ok(error instanceof PortableToolExecutionError);
       if (!isPortableToolExecutionError(error)) return false;
-      assert.match(error.message, /Invalid arguments for echo_test/);
-      assert.deepEqual(error.details.tool, "echo_test");
-      assert.ok(Array.isArray(error.details.validationErrors));
+      assert.equal(error.details.tool, "echo_test");
+      const errors = error.details.validationErrors as Array<{ path: string }>;
+      assert.ok(Array.isArray(errors));
+      assert.equal(errors[0].path, "/text");
       return true;
     },
   );
