@@ -120,7 +120,11 @@ test("executePortableTool returns validation errors without calling the tool", a
   assert.equal(called, false);
   assert.equal(result.isError, true);
   assert.match(result.text, /Invalid arguments for echo_test/);
-  assert.deepEqual(result.structuredContent?.tool, "echo_test");
-  assert.ok(Array.isArray(result.structuredContent?.validationErrors));
-  assert.match(JSON.stringify(result.structuredContent?.validationErrors), /text/);
+  assert.equal(result.structuredContent?.tool, "echo_test");
+  const validationErrors = result.structuredContent?.validationErrors as Array<{ path: string; message: string }>;
+  assert.ok(Array.isArray(validationErrors));
+  assert.equal(validationErrors.length, 1);
+  assert.equal(validationErrors[0].path, "/text");
+  assert.equal(typeof validationErrors[0].message, "string");
+  assert.ok(validationErrors[0].message.length > 0);
 });
