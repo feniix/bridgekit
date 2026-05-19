@@ -47,6 +47,7 @@
     "typecheck": "tsc -b tsconfig.json --pretty false",
     "build": "npm run clean && tsc -b tsconfig.json",
     "test": "npm run build && node scripts/run-built-tests.mjs",
+    "test:coverage": "npm run build && node scripts/run-built-tests-coverage.mjs",
     "verify:dist": "node scripts/verify-bridgekit-dist.mjs",
     "pack:dry-run": "npm pack --dry-run --json",
     "package-smoke": "node scripts/smoke-package.mjs",
