@@ -58,6 +58,10 @@ export const echoTool = definePortableTool({
     };
   },
 });
+
+export function createTools() {
+  return [echoTool];
+}
 ```
 
 Tool definition best practices:
@@ -70,37 +74,60 @@ Tool definition best practices:
 - Respect `ctx.signal` in long-running tools.
 - Use `ctx.progress?.(...)` for incremental updates.
 - Keep modules import-passive; do not register tools or start servers at import time.
+- For stateful tools, export a `createTools()` factory instead of a module-level singleton so each host runtime gets isolated state.
+- TypeBox validation happens before `execute`; use a permissive schema plus domain validation if you need custom guidance for structurally invalid input.
 
 ## pi adapter
 
 ```ts
 import { registerPiTools } from "@feniix/bridgekit/pi";
-import { echoTool } from "./tools.js";
+import { createTools } from "./tools.js";
 
 export default function extension(pi: Parameters<typeof registerPiTools>[0]) {
-  registerPiTools(pi, [echoTool]);
+  registerPiTools(pi, createTools());
 }
 ```
 
-Portable validation failures reject with `PortableToolExecutionError` in pi so the host sees a native tool failure. Progress updates from `ctx.progress?.(...)` map to pi tool updates.
+Portable validation failures and portable results with `isError: true` reject with `PortableToolExecutionError` in pi so the host sees a native tool failure. The error message is the portable `text`, and `.details` is populated from `structuredContent` or `details`. Progress updates from `ctx.progress?.(...)` map to pi tool updates.
 
 ## MCP adapter
 
 ```ts
-import { runMcpStdioServer } from "@feniix/bridgekit/mcp";
-import { echoTool } from "./tools.js";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { type CreateMcpServerOptions, runMcpStdioServer } from "@feniix/bridgekit/mcp";
+import { createTools } from "./tools.js";
 
-await runMcpStdioServer({
-  name: "my-tools",
-  version: "0.1.0",
-  tools: [echoTool],
-  instructions: "Use these tools when text needs processing.",
-});
+export function createMcpServerOptions(): CreateMcpServerOptions {
+  return {
+    name: "my-tools",
+    version: "0.1.0",
+    tools: createTools(),
+    instructions: "Use these tools when text needs processing.",
+  };
+}
+
+export async function runServer(): Promise<void> {
+  await runMcpStdioServer(createMcpServerOptions());
+}
+
+function realpathIfPossible(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+if (process.argv[1] && realpathIfPossible(resolve(process.argv[1])) === realpathIfPossible(fileURLToPath(import.meta.url))) {
+  await runServer();
+}
 ```
 
 The MCP adapter uses low-level `tools/list` and `tools/call` handlers so TypeBox schemas are exposed as JSON Schema directly. It intentionally does not expose a high-level `registerMcpTools` helper.
 
-MCP invalid input and portable `isError: true` results return `CallToolResult` with `isError: true`.
+MCP invalid input and portable `isError: true` results return `CallToolResult` with `isError: true`. Exporting a server-options factory keeps MCP entrypoints import-passive and easy to test without starting stdio.
 
 ## Custom host typing
 
@@ -139,11 +166,14 @@ Use `PortableToolHost<CustomHost>` for values that may be either a built-in host
 
 ## Package and release checklist
 
-- Publish compiled JavaScript plus generated `.d.ts` declarations, not source as runtime code.
+- Publish compiled JavaScript plus generated `.d.ts` declarations for runtime entrypoints.
 - Keep `exports`, `main`, and `types` aligned with built files.
 - Keep runtime imports in `dependencies`.
 - Avoid `workspace:` or `file:` dependency ranges in publishable packages.
 - Avoid dangling `sourceMappingURL` comments: publish maps and useful sources together, or disable source maps for package builds.
+- For MCP stdio bins, ensure the emitted JavaScript starts with a Node shebang, has executable mode (`chmod +x` or equivalent), and is included by `npm pack --dry-run --json`.
+- If a package keeps a source-loaded host entrypoint (for example a pi extension source file), use a package-local MCP build for the npm-launched bin and narrow that build to the MCP entrypoint plus shared host-neutral modules.
+- Declare a compatible Node engine (`>=22.19.0`) in downstream packages that expose BridgeKit-powered MCP bins.
 - Run `npm run check`, `npm run test`, `npm run pack:dry-run`, and `npm run package-smoke` before publishing.
 - Treat `docs/releasing.md` as the future release handoff; this repository is not configured for automated publish yet.
 
