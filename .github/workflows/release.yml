@@ -7,6 +7,13 @@ permissions:
   contents: read
 
 on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       dry_run:
@@ -14,16 +21,22 @@ on:
         required: false
         default: false
         type: boolean
-  push:
-    branches:
-      - main
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: false
 
 jobs:
+  ci_failed:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain skip
+        run: |
+          echo "::notice::Release skipped because CI concluded with '${{ github.event.workflow_run.conclusion }}'."
+
   detect:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     outputs:
       should_publish: ${{ steps.detect.outputs.should_publish }}
@@ -33,58 +46,58 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Detect version bump
+      - name: Detect unpublished version
         id: detect
         shell: bash
         run: |
           set -euo pipefail
 
-          HEAD="${{ github.sha }}"
-          BASE=""
+          NAME="$(jq -r '.name // empty' package.json)"
+          VERSION="$(jq -r '.version // empty' package.json)"
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            BASE="$(git rev-parse --verify HEAD^ 2>/dev/null || true)"
-          else
-            BASE="${{ github.event.before }}"
+          if [[ -z "$NAME" ]]; then
+            echo "::error::package.json has no name field"
+            exit 1
           fi
 
-          NEW_VERSION="$(jq -r '.version // empty' package.json)"
-          if [[ -z "$NEW_VERSION" ]]; then
+          if [[ -z "$VERSION" ]]; then
             echo "::error::package.json has no version field"
             exit 1
           fi
 
-          if [[ -z "$BASE" || "$BASE" == "0000000000000000000000000000000000000000" ]]; then
-            REASON="No base commit to compare (initial commit or missing history); will attempt to publish $NEW_VERSION."
-            echo "should_publish=true" >> "$GITHUB_OUTPUT"
-            echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          set +e
+          NPM_VIEW_OUTPUT="$(npm view "${NAME}@${VERSION}" version 2>&1)"
+          NPM_VIEW_STATUS=$?
+          set -e
+
+          if [[ $NPM_VIEW_STATUS -eq 0 ]]; then
+            REASON="${NAME}@${VERSION} is already published."
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+            echo "::notice::$REASON"
             exit 0
           fi
 
-          OLD_VERSION="$(git show "$BASE:package.json" 2>/dev/null | jq -r '.version // empty' || echo "")"
-
-          if [[ "$OLD_VERSION" == "$NEW_VERSION" ]]; then
-            REASON="No version change between $BASE and $HEAD (still $NEW_VERSION)."
-            echo "should_publish=false" >> "$GITHUB_OUTPUT"
-            echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-            echo "reason=$REASON" >> "$GITHUB_OUTPUT"
-          else
-            REASON="Version bumped from ${OLD_VERSION:-<none>} to $NEW_VERSION."
+          if grep -Eq 'E404|404 Not Found|is not in this registry' <<< "$NPM_VIEW_OUTPUT"; then
+            REASON="${NAME}@${VERSION} is not published yet."
             echo "should_publish=true" >> "$GITHUB_OUTPUT"
-            echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+            echo "::notice::$REASON"
+            exit 0
           fi
+
+          echo "::error::Unable to check npm publication status for ${NAME}@${VERSION}"
+          echo "$NPM_VIEW_OUTPUT"
+          exit $NPM_VIEW_STATUS
 
   checks:
     needs: detect
-    if: needs.detect.outputs.should_publish == 'true'
+    if: needs.detect.outputs.should_publish == 'true' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    outputs:
-      should_publish: ${{ needs.detect.outputs.should_publish }}
-      version: ${{ needs.detect.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -97,19 +110,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Ensure new version is not already published
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          NAME="$(jq -r '.name' package.json)"
-          VERSION="${{ needs.detect.outputs.version }}"
-
-          if npm view "${NAME}@${VERSION}" >/dev/null 2>&1; then
-            echo "::error::${NAME}@${VERSION} is already published. Bump version before publishing."
-            exit 1
-          fi
 
       - name: Lint and typecheck
         run: npm run check
@@ -130,11 +130,17 @@ jobs:
     steps:
       - name: Explain skip
         run: |
-          echo "::notice::Checks skipped: ${{ needs.detect.outputs.reason }}"
+          echo "::notice::Release skipped: ${{ needs.detect.outputs.reason }}"
 
   publish:
-    needs: checks
-    if: needs.checks.outputs.should_publish == 'true' && (github.event.inputs.dry_run != 'true')
+    needs:
+      - detect
+      - checks
+    if: |
+      always() &&
+      needs.detect.outputs.should_publish == 'true' &&
+      github.event.inputs.dry_run != 'true' &&
+      (github.event_name == 'workflow_run' || needs.checks.result == 'success')
     runs-on: ubuntu-latest
     environment: npm-release
     permissions:
@@ -143,6 +149,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -157,8 +165,14 @@ jobs:
         run: npm publish --access public --provenance
 
   publish_skipped:
-    needs: checks
-    if: needs.checks.outputs.should_publish == 'true' && (github.event.inputs.dry_run == 'true')
+    needs:
+      - detect
+      - checks
+    if: |
+      always() &&
+      needs.detect.outputs.should_publish == 'true' &&
+      github.event.inputs.dry_run == 'true' &&
+      (github.event_name == 'workflow_dispatch' && needs.checks.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Explain skip
