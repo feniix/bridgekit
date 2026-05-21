@@ -1,0 +1,164 @@
+name: Release
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run checks only, skip publish"
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.detect.outputs.should_publish }}
+      version: ${{ steps.detect.outputs.version }}
+      reason: ${{ steps.detect.outputs.reason }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect version bump
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          HEAD="${{ github.sha }}"
+          BASE=""
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            BASE="$(git rev-parse --verify HEAD^ 2>/dev/null || true)"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+
+          NEW_VERSION="$(jq -r '.version // empty' package.json)"
+          if [[ -z "$NEW_VERSION" ]]; then
+            echo "::error::package.json has no version field"
+            exit 1
+          fi
+
+          if [[ -z "$BASE" || "$BASE" == "0000000000000000000000000000000000000000" ]]; then
+            REASON="No base commit to compare (initial commit or missing history); will attempt to publish $NEW_VERSION."
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+            echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          OLD_VERSION="$(git show "$BASE:package.json" 2>/dev/null | jq -r '.version // empty' || echo "")"
+
+          if [[ "$OLD_VERSION" == "$NEW_VERSION" ]]; then
+            REASON="No version change between $BASE and $HEAD (still $NEW_VERSION)."
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+            echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+          else
+            REASON="Version bumped from ${OLD_VERSION:-<none>} to $NEW_VERSION."
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+            echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+          fi
+
+  checks:
+    needs: detect
+    if: needs.detect.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ needs.detect.outputs.should_publish }}
+      version: ${{ needs.detect.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Ensure new version is not already published
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          NAME="$(jq -r '.name' package.json)"
+          VERSION="${{ needs.detect.outputs.version }}"
+
+          if npm view "${NAME}@${VERSION}" >/dev/null 2>&1; then
+            echo "::error::${NAME}@${VERSION} is already published. Bump version before publishing."
+            exit 1
+          fi
+
+      - name: Lint and typecheck
+        run: npm run check
+
+      - name: Build and test
+        run: npm test
+
+      - name: Pack dry-run
+        run: npm run pack:dry-run
+
+      - name: Package smoke test
+        run: npm run package-smoke
+
+  checks_skipped:
+    needs: detect
+    if: needs.detect.outputs.should_publish != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain skip
+        run: |
+          echo "::notice::Checks skipped: ${{ needs.detect.outputs.reason }}"
+
+  publish:
+    needs: checks
+    if: needs.checks.outputs.should_publish == 'true' && (github.event.inputs.dry_run != 'true')
+    runs-on: ubuntu-latest
+    environment: npm-release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Publish
+        run: npm publish --access public --provenance
+
+  publish_skipped:
+    needs: checks
+    if: needs.checks.outputs.should_publish == 'true' && (github.event.inputs.dry_run == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain skip
+        run: |
+          echo "::notice::Publish skipped because dry_run=true"
