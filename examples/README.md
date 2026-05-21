@@ -15,6 +15,18 @@ my-tools-package/
 
 Keep `src/tools.ts` free of pi and MCP imports. Host-specific imports belong only in adapter entrypoints.
 
+Some packages have a host that intentionally loads TypeScript source directly, while MCP clients launched from npm need compiled JavaScript. For that mixed mode, keep the same boundaries but use a package-local MCP build:
+
+```text
+my-pi-extension-package/
+  package.json
+  extensions/
+    tools.ts          # host-neutral portable tools
+    index.ts          # source-loaded pi adapter wiring
+    mcp-server.ts     # compiled MCP stdio server wiring
+  tsconfig.mcp.json   # emits mcp-server.ts + shared modules to dist/
+```
+
 ---
 
 ## 1. Define shared portable tools
@@ -54,14 +66,17 @@ export const reverseTextTool = definePortableTool({
   },
 });
 
-export const tools = [reverseTextTool];
+export function createTools() {
+  return [reverseTextTool];
+}
 ```
 
 Best practices shown here:
 
-- The schema is the single source of truth for argument validation.
+- The schema is the single source of truth for structural argument validation.
 - The handler returns portable `{ text, structuredContent }` data.
 - The handler observes `ctx.signal` without importing a host SDK.
+- The `createTools()` factory gives stateful tools a fresh runtime per host instance; stateless packages may still return the same definitions.
 - The file has no import-time registration or server startup.
 
 ---
@@ -71,10 +86,10 @@ Best practices shown here:
 ```ts
 // src/pi-extension.ts
 import { registerPiTools } from "@feniix/bridgekit/pi";
-import { tools } from "./tools.js";
+import { createTools } from "./tools.js";
 
 export default function extension(pi: Parameters<typeof registerPiTools>[0]) {
-  registerPiTools(pi, tools);
+  registerPiTools(pi, createTools());
 }
 ```
 
@@ -92,7 +107,7 @@ In `package.json`:
 pi behavior:
 
 - Valid portable results become pi tool results.
-- Portable results with `isError: true` reject with `PortableToolExecutionError`.
+- Portable results with `isError: true` reject with `PortableToolExecutionError`; tests should assert a rejected execution plus error `.details`.
 - Progress updates from `ctx.progress?.(...)` map to pi updates.
 
 ---
@@ -102,15 +117,42 @@ pi behavior:
 ```ts
 #!/usr/bin/env node
 // src/mcp-server.ts
-import { runMcpStdioServer } from "@feniix/bridgekit/mcp";
-import { tools } from "./tools.js";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { type CreateMcpServerOptions, runMcpStdioServer } from "@feniix/bridgekit/mcp";
+import { createTools } from "./tools.js";
 
-await runMcpStdioServer({
-  name: "my-tools",
-  version: "0.1.0",
-  tools,
-  instructions: "Use these tools when text needs lightweight transformation.",
-});
+export function createMcpServerOptions(): CreateMcpServerOptions {
+  return {
+    name: "my-tools",
+    version: "0.1.0",
+    tools: createTools(),
+    instructions: "Use these tools when text needs lightweight transformation.",
+  };
+}
+
+export async function runServer(): Promise<void> {
+  await runMcpStdioServer(createMcpServerOptions());
+}
+
+function realpathIfPossible(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+function isMainModule(): boolean {
+  const entrypoint = process.argv[1];
+  if (!entrypoint) return false;
+  return realpathIfPossible(resolve(entrypoint)) === realpathIfPossible(fileURLToPath(import.meta.url));
+}
+
+if (isMainModule()) {
+  await runServer();
+}
 ```
 
 In `package.json`:
@@ -120,6 +162,43 @@ In `package.json`:
   "type": "module",
   "bin": {
     "my-tools-mcp": "./dist/src/mcp-server.js"
+  },
+  "scripts": {
+    "build": "tsc -b && chmod +x dist/src/mcp-server.js",
+    "prepack": "npm run build"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@feniix/bridgekit": "^0.2.2",
+    "typebox": "^1.1.31"
+  }
+}
+```
+
+For mixed source-loaded pi + compiled MCP packages, keep the pi source entrypoint and point only the npm `bin` at emitted JavaScript:
+
+```json
+{
+  "type": "module",
+  "pi": {
+    "extensions": ["./extensions/index.ts"]
+  },
+  "bin": {
+    "my-tools-mcp": "./dist/extensions/mcp-server.js"
+  },
+  "files": ["extensions/", "dist/", "README.md", "LICENSE"],
+  "scripts": {
+    "build:mcp": "tsc --project tsconfig.mcp.json && chmod +x dist/extensions/mcp-server.js",
+    "prepack": "npm run build:mcp"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@feniix/bridgekit": "^0.2.2",
+    "typebox": "^1.1.31"
   }
 }
 ```
@@ -130,6 +209,7 @@ MCP behavior:
 - `tools/call` validates arguments before invoking handlers.
 - Invalid arguments and portable `isError: true` results return MCP tool results with `isError: true`.
 - Unexpected thrown errors become MCP tool errors with text content.
+- The module stays import-passive and testable: tests can import `createMcpServerOptions()` without starting stdio.
 
 ---
 
@@ -183,11 +263,14 @@ Use `PortableToolHost<CustomHost>` for values that can be either a built-in host
 
 For publishable tool packages:
 
-- Compile to JavaScript and declarations before packing.
+- Compile runtime entrypoints to JavaScript and declarations before packing.
 - Use `exports` to expose only supported entrypoints.
 - Keep runtime imports in `dependencies`, not only dev dependencies.
+- Declare Node `>=22.19.0` when publishing BridgeKit-powered MCP bins.
 - Avoid `workspace:` or `file:` ranges in publishable package dependencies.
 - Avoid dangling `sourceMappingURL` comments: either publish maps and useful sources, or disable source maps for package builds.
+- Ensure MCP bin output starts with a shebang, is executable (`chmod +x` or equivalent), and appears in `npm pack --dry-run --json` with executable mode.
+- If only the MCP bin needs compiled output, narrow its tsconfig to the MCP entrypoint and shared host-neutral modules instead of compiling unrelated host adapters.
 - Add a packed-install smoke test that installs tarballs into a temporary project.
 - For BridgeKit itself, run `npm run check`, `npm run test`, `npm run pack:dry-run`, and `npm run package-smoke` before release.
 - Keep imports side-effect free; registration and server startup should happen only in explicit entrypoints.
