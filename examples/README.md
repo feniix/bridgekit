@@ -20,6 +20,8 @@ Some packages have a host that intentionally loads TypeScript source directly, w
 ```text
 my-pi-extension-package/
   package.json
+  bin/
+    my-tools-mcp.js   # checked-in npm bin wrapper for local/workspace resilience
   extensions/
     tools.ts          # host-neutral portable tools
     index.ts          # source-loaded pi adapter wiring
@@ -177,7 +179,7 @@ In `package.json`:
 }
 ```
 
-For mixed source-loaded pi + compiled MCP packages, keep the pi source entrypoint and point only the npm `bin` at emitted JavaScript:
+For mixed source-loaded pi + compiled MCP packages, keep the pi source entrypoint and point npm `bin` at a checked-in wrapper rather than directly at generated `dist/` output:
 
 ```json
 {
@@ -186,11 +188,11 @@ For mixed source-loaded pi + compiled MCP packages, keep the pi source entrypoin
     "extensions": ["./extensions/index.ts"]
   },
   "bin": {
-    "my-tools-mcp": "./dist/extensions/mcp-server.js"
+    "my-tools-mcp": "./bin/my-tools-mcp.js"
   },
-  "files": ["extensions/", "dist/", "README.md", "LICENSE"],
+  "files": ["bin/", "extensions/", "dist/", "README.md", "LICENSE"],
   "scripts": {
-    "build:mcp": "tsc --project tsconfig.mcp.json && chmod +x dist/extensions/mcp-server.js",
+    "build:mcp": "tsc --project tsconfig.mcp.json",
     "prepack": "npm run build:mcp"
   },
   "engines": {
@@ -202,6 +204,38 @@ For mixed source-loaded pi + compiled MCP packages, keep the pi source entrypoin
   }
 }
 ```
+
+The wrapper should resolve the generated MCP server relative to the installed package, build it when missing in local/workspace execution, and preserve build failures:
+
+```js
+#!/usr/bin/env node
+import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const serverPath = join(packageRoot, "dist", "extensions", "mcp-server.js");
+
+if (!existsSync(serverPath)) {
+  const build = spawnSync("npm", ["run", "build:mcp", "--silent"], {
+    cwd: packageRoot,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+    timeout: 60_000,
+  });
+
+  if (build.status !== 0 || !existsSync(serverPath)) {
+    console.error("[my-tools] Failed to build the local MCP server. Run `npm run build:mcp` and try again.");
+    process.exit(build.status && build.status !== 0 ? build.status : 1);
+  }
+}
+
+const { runServer } = await import(pathToFileURL(serverPath).href);
+await runServer();
+```
+
+Commit the wrapper with executable mode (`chmod +x bin/my-tools-mcp.js`) and verify `npm pack --dry-run --json` includes it with executable mode.
 
 MCP behavior:
 
@@ -269,7 +303,8 @@ For publishable tool packages:
 - Declare Node `>=22.19.0` when publishing BridgeKit-powered MCP bins.
 - Avoid `workspace:` or `file:` ranges in publishable package dependencies.
 - Avoid dangling `sourceMappingURL` comments: either publish maps and useful sources, or disable source maps for package builds.
-- Ensure MCP bin output starts with a shebang, is executable (`chmod +x` or equivalent), and appears in `npm pack --dry-run --json` with executable mode.
+- Ensure the npm bin entrypoint starts with a shebang, is executable (`chmod +x` or equivalent), and appears in `npm pack --dry-run --json` with executable mode.
+- When a bin depends on generated output, prefer a checked-in wrapper under `bin/` over pointing directly at `dist/`; test existing output, missing output, failed builds, and successful builds that omit the expected file.
 - If only the MCP bin needs compiled output, narrow its tsconfig to the MCP entrypoint and shared host-neutral modules instead of compiling unrelated host adapters.
 - Add a packed-install smoke test that installs tarballs into a temporary project.
 - For BridgeKit itself, run `npm run check`, `npm run test`, `npm run pack:dry-run`, and `npm run package-smoke` before release.

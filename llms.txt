@@ -91,11 +91,13 @@ Use `PortableToolHost<"custom-host">` when a value may be either a built-in host
 Some hosts, such as pi in source-extension packages, may intentionally load TypeScript source while MCP clients launched from npm need compiled JavaScript. In that case:
 
 - Keep the host source entrypoint if that is the package convention, e.g. `pi.extensions: ["./extensions/index.ts"]`.
-- Add a package-local MCP build whose `bin` points at emitted JavaScript, e.g. `./dist/extensions/mcp-server.js`.
+- Add a package-local MCP build and point npm `bin` at a checked-in wrapper under `bin/`, not directly at generated `dist/` output.
+- The wrapper should resolve the package-local generated MCP server, run the package-local build when output is missing in workspace/local execution, and preserve non-zero build failures.
 - Narrow the MCP build to the MCP entrypoint and shared host-neutral modules; avoid compiling pi adapter entrypoints into the standalone MCP path.
 - Put runtime imports used by the compiled MCP bin in `dependencies`, not only peers or dev dependencies.
 - Declare BridgeKit's Node engine requirement in the downstream package (`>=22.19.0`).
-- Ensure the built MCP bin is executable (`chmod +x` or equivalent) and verify the mode with `npm pack --dry-run --json`.
+- Ensure the checked-in wrapper is executable (`chmod +x` or equivalent) and verify the mode with `npm pack --dry-run --json`.
+- Test wrapper behavior for existing output, missing output, failed builds, and builds that exit successfully without creating the expected file.
 
 ## Anti-patterns
 

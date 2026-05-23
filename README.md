@@ -171,8 +171,9 @@ Use `PortableToolHost<CustomHost>` for values that may be either a built-in host
 - Keep runtime imports in `dependencies`.
 - Avoid `workspace:` or `file:` dependency ranges in publishable packages.
 - Avoid dangling `sourceMappingURL` comments: publish maps and useful sources together, or disable source maps for package builds.
-- For MCP stdio bins, ensure the emitted JavaScript starts with a Node shebang, has executable mode (`chmod +x` or equivalent), and is included by `npm pack --dry-run --json`.
-- If a package keeps a source-loaded host entrypoint (for example a pi extension source file), use a package-local MCP build for the npm-launched bin and narrow that build to the MCP entrypoint plus shared host-neutral modules.
+- For MCP stdio bins, ensure the executable entrypoint starts with a Node shebang, has executable mode (`chmod +x` or equivalent), and is included by `npm pack --dry-run --json`.
+- If an npm-launched bin depends on generated output, prefer a checked-in wrapper under `bin/` over pointing `bin` directly at `dist/`; the wrapper should resolve the package-local generated file and may run the package-local build for workspace/local execution.
+- If a package keeps a source-loaded host entrypoint (for example a pi extension source file), use a package-local MCP build behind that wrapper and narrow the build to the MCP entrypoint plus shared host-neutral modules.
 - Declare a compatible Node engine (`>=22.19.0`) in downstream packages that expose BridgeKit-powered MCP bins.
 - Run `npm run check`, `npm run test`, `npm run pack:dry-run`, and `npm run package-smoke` before publishing.
 - Treat `docs/releasing.md` as the future release handoff; this repository is not configured for automated publish yet.
