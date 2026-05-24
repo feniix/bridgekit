@@ -5,7 +5,13 @@ export interface PortableToolResult {
   text: string;
   /** Structured data for hosts that support it. Preferred by both pi and MCP adapters. */
   structuredContent?: Record<string, unknown>;
-  /** Legacy/adapter debug details used only when structuredContent is absent. */
+  /**
+   * Legacy/adapter debug details used only when `structuredContent` is absent.
+   *
+   * @deprecated Slated for removal in 1.0. Prefer `structuredContent` for
+   * machine-readable data. Both adapters still fall back to this field, but
+   * new tool code should not set it.
+   */
   details?: Record<string, unknown>;
   /** Tool-level error flag. Throw for unexpected adapter/runtime failures. */
   isError?: boolean;

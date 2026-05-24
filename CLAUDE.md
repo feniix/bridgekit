@@ -48,7 +48,7 @@ Each of the three entrypoints (`.`, `./pi`, `./mcp`) maps to its own compiled fi
 
 `executePortableTool` validates args via TypeBox `Check`/`Errors`, and on failure **returns** a result with `isError: true` — it does not throw. Adapters decide whether to surface that as a thrown exception or a structured result.
 
-The host generic in `PortableTool<TParams, THost>` uses `NoInferPortable` inside `executePortableTool`'s signature so the host type must come from the tool definition, not from the `ctx` argument. This is what makes the `@ts-expect-error` assertions in `execute-tool.test.ts` work for invalid host narrowing. Don't "fix" the awkward-looking `NoInferPortable<THost>` — removing it silently breaks host typing.
+The host generic in `PortableTool<TParams, THost>` uses TypeScript's built-in `NoInfer<T>` inside `executePortableTool`'s signature so the host type must come from the tool definition, not from the `ctx` argument. This is what makes the `@ts-expect-error` assertions in `execute-tool.test.ts` work for invalid host narrowing. The `NoInfer<THost>` wrap is load-bearing — removing it silently breaks host typing.
 
 ### Adapter asymmetry (intentional)
 

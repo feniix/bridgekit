@@ -2,8 +2,6 @@ import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import type { PortableTool, PortableToolBuiltInHost, PortableToolContext, PortableToolResult } from "./define-tool.js";
 
-type NoInferPortable<T> = [T][T extends unknown ? 0 : never];
-
 export interface PortableValidationError {
   path: string;
   message: string;
@@ -29,7 +27,7 @@ export function validatePortableToolArgs<THost extends string = PortableToolBuil
 export async function executePortableTool<THost extends string = PortableToolBuiltInHost>(
   tool: PortableTool<TSchema, THost>,
   args: unknown,
-  ctx: PortableToolContext<NoInferPortable<THost>>,
+  ctx: PortableToolContext<NoInfer<THost>>,
 ): Promise<PortableToolResult> {
   const validation = validatePortableToolArgs(tool, args);
   if (!validation.ok) {
