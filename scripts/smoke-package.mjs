@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -176,6 +176,51 @@ async function assertTypesCompile(installDir) {
   );
 }
 
+async function assertManifestInvariants() {
+  const packageJson = await readJson(join(repoRoot, "package.json"));
+
+  // inv-side-effects-false: bundlers tree-shake unused subpath imports only when
+  // the manifest declares the package side-effect free. Silent regression on consumers.
+  assert.equal(packageJson.sideEffects, false, "package.json#sideEffects must be false for tree-shaking");
+
+  // inv-no-release-publish-scripts: BridgeKit releases through GitHub Actions
+  // with OIDC trusted publishing. Local `npm publish` or a `release` script
+  // would bypass provenance attestation.
+  const scripts = packageJson.scripts ?? {};
+  assert.equal(
+    scripts.release,
+    undefined,
+    "package.json must not define a release script (releases go through Actions)",
+  );
+  assert.equal(
+    scripts.publish,
+    undefined,
+    "package.json must not define a publish script (releases go through Actions)",
+  );
+
+  // inv-mcp-sdk-major: the MCP adapter is built on SDK v1's low-level Server
+  // semantics. v2 migration is a separate ADR.
+  const mcpRange = packageJson.dependencies?.["@modelcontextprotocol/sdk"];
+  assert.match(mcpRange ?? "", /^\^?1\./, "@modelcontextprotocol/sdk must remain pinned to v1.x");
+
+  // inv-no-source-map-urls: tsconfig.json declares sourceMap: false and the
+  // package does not ship `.map` files. Shipping a sourceMappingURL reference
+  // without the matching .map breaks debuggers downstream.
+  const distDir = join(repoRoot, "dist", "src");
+  for (const path of collectFiles(distDir, (file) => file.endsWith(".js"))) {
+    const contents = await readFile(path, "utf8");
+    assert.doesNotMatch(contents, /sourceMappingURL=/, `${path} must not reference unpublished source maps`);
+  }
+}
+
+function collectFiles(dir, predicate) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return collectFiles(path, predicate);
+    return entry.isFile() && predicate(path) ? [path] : [];
+  });
+}
+
 function assertPackFileList(entry) {
   const files = new Set((entry.files ?? []).map((file) => file.path));
   const required = [
@@ -209,6 +254,8 @@ try {
   await mkdir(packDir, { recursive: true });
   await mkdir(installDir, { recursive: true });
 
+  await assertManifestInvariants();
+
   const pack = await run("npm", ["pack", "--pack-destination", packDir, "--json"]);
   const { entry, tarballPath } = parsePackOutput(pack.stdout, packDir);
   assert.ok(existsSync(tarballPath), `expected BridgeKit tarball to exist: ${tarballPath}`);
@@ -226,6 +273,7 @@ try {
   await assertTypesCompile(installDir);
   await assertUnsupportedDeepImportFails(installDir);
 
+  console.error("✓ manifest invariants (sideEffects, no release/publish scripts, MCP SDK v1, no source maps)");
   console.error("✓ packed tarball file list includes public runtime entries and excludes tests/maps");
   console.error("✓ temporary consumer imports all public runtime subpaths from installed tarball");
   console.error("✓ temporary consumer compiles NodeNext TypeScript against installed declarations");

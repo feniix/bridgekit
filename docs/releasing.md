@@ -102,7 +102,7 @@ npm run check && npm test && npm run pack:dry-run && npm run package-smoke
 
 - Start with a prerelease (`0.x`, or an explicit `-rc.N` tag) if downstream consumers have not yet adopted the standalone package.
 - Promote to `latest` only after manual fixture validation against `pi-experiments` (or the relevant downstream) and consumer smoke tests pass.
-- Do not add `release`, `publish`, changelog-generation, or other registry automation **scripts** in `package.json` — `scripts/verify-bridgekit-dist.mjs` will fail the build. All release logic lives in `.github/workflows/`.
+- Do not add `release`, `publish`, changelog-generation, or other registry automation **scripts** in `package.json` — `scripts/smoke-package.mjs` will fail (see `inv-no-release-publish-scripts` in `docs/packaging-invariants.md`). All release logic lives in `.github/workflows/`.
 
 ## Bad-version response
 
@@ -115,7 +115,7 @@ Match the response to the failure category.
    npm deprecate @feniix/bridgekit@<bad-version> "broken: <reason>; use <good-version>"
    ```
 2. Patch forward with a new version rather than rewriting published artifacts.
-3. Document the incident and add a regression check to `scripts/smoke-package.mjs` or `scripts/verify-bridgekit-dist.mjs`.
+3. Document the incident and add a regression check to `scripts/smoke-package.mjs`.
 
 ### Accidental secret, credential, or PII in the tarball
 
@@ -128,7 +128,7 @@ Match the response to the failure category.
    After 72 hours, npm refuses unpublishes unless you involve npm Support.
 2. **Rotate the leaked credential** immediately — assume it has been scraped. Audit any system the credential could reach.
 3. Whether or not the unpublish succeeded, deprecate the version with an explicit `"contains leaked credential; rotate and upgrade"` message and supersede it with a clean release.
-4. Add a regression check to `scripts/smoke-package.mjs` or `scripts/verify-bridgekit-dist.mjs` that fails the build if the secret pattern re-appears in dist.
+4. Add a regression check to `scripts/smoke-package.mjs` that fails the build if the secret pattern re-appears in dist.
 
 ### Trusted-publisher compromise
 
@@ -140,8 +140,30 @@ If the npm Trusted Publisher rule, the `npm-release` GitHub environment, or the 
 4. For any suspect publish, follow the *accidental secret* procedure above (unpublish if in window, deprecate, rotate any downstream credentials, supersede).
 5. Document the incident and harden the gate — revisit branch protection, environment required-reviewers, and action SHA pinning.
 
+## Compatibility expectations
+
+While BridgeKit is pre-1.0:
+
+- `0.x.0` (minor) bumps may include source-level breaking changes — generic signatures, type narrowing, exported symbol renames. Adapter contract drift is documented in the changelog.
+- `0.x.y` (patch) bumps are bug fixes and additive type changes only. Existing consumer code that compiled and ran on `0.x.0` must still compile and run on `0.x.y`.
+
+From `1.0.0` onward: semver, with explicit `@deprecated` cycles preceding any removal. The current `PortableToolResult#details` deprecation is the first such cycle.
+
+Release-blocking bug categories (any of these warrants holding a release):
+
+- A consumer install fails with `ERR_PACKAGE_PATH_NOT_EXPORTED` for one of the documented entrypoints.
+- TypeScript fails to compile against the published declarations under `strict` + `NodeNext`.
+- The pi/MCP adapter divergence regresses (validated by `src/adapters/compliance.test.ts`).
+- Any `scripts/smoke-package.mjs` assertion fails on the release-target Node versions.
+
+## MCP SDK stance
+
+As of this release, BridgeKit remains on `@modelcontextprotocol/sdk` v1.x. The adapter's low-level `Server` usage and the no-`registerMcpTools` policy both assume v1 semantics. If MCP SDK v2 stabilizes, a v2 migration plan should be authored as a separate ADR with adapter-compliance regression tests as the gate.
+
+## Maintainer & triage
+
+Issue triage: maintainer responsibility is unassigned. Until a triage owner is named, expect best-effort response on issues filed against this repository, with priority on packaging regressions, install failures, and SDK-compatibility breaks.
+
 ## Open items
 
-- Confirm the current MCP SDK status. If MCP SDK v2 is no longer alpha, decide in a separate migration plan whether to keep v1 or migrate.
-- Define pre-1.0 compatibility expectations and release-blocking bug categories.
-- Define the maintainer or maintainer group responsible for triage.
+None at this time. Previous open items (MCP SDK v2 status, pre-1.0 compatibility expectations, maintainer responsibility) are now addressed in the dedicated sections above.
