@@ -14,7 +14,7 @@ BridgeKit is released to npm via GitHub Actions using npm trusted publishing (OI
 3. Merge to `main`. `release.yml` detects the version bump, re-runs the gate, then publishes via OIDC. The `npm view` guard fails the run if that version is somehow already on the registry.
 4. Optional dry-run: `workflow_dispatch` with `dry_run=true` runs all checks but skips the publish step.
 
-No git tags, no GitHub Releases, no changelog automation in this phase. The `package.json#version` field is the source of truth.
+The `package.json#version` field is the source of truth and the release trigger. After a successful npm publish, the `release_github` job in `release.yml` creates a lightweight `v<version>` tag at the published commit and opens a GitHub Release with auto-generated notes (`gh release create --generate-notes`). Tag creation is server-side via the GitHub API, so the tag shows as Verified in the UI. The job is idempotent — if the release already exists (e.g. created manually for a retroactive backfill), it skips. There is no separate changelog automation in this phase; the auto-generated release notes are the changelog.
 
 ### Failure modes to watch for
 
