@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-All scripts are local-only; nothing reaches out to monorepo paths (`scripts/verify-bridgekit-dist.mjs` enforces this).
+All scripts are local-only; the package was extracted from a monorepo and `scripts/smoke-package.mjs` is the contract gate. See `docs/packaging-invariants.md` for the per-check catalog.
 
 - `npm run check` — lint (`biome check .`) + `tsc -b --pretty false`. The standard pre-commit gate.
 - `npm run lint:fix` — `biome check --write .`.
@@ -16,11 +16,11 @@ All scripts are local-only; nothing reaches out to monorepo paths (`scripts/veri
 - `npm test` — builds, then runs Node's built-in test runner against the compiled tests (`scripts/run-built-tests.mjs` collects `dist/src/**/*.test.js`). **You must rebuild before tests will see your edits.**
 - `npm run test:coverage` — same, with `--experimental-test-coverage` scoped to `dist/src/**`.
 - Running a single test: after `npm run build`, invoke directly, e.g. `node --test dist/src/adapters/mcp.test.js` (or pass `--test-name-pattern "..."` to filter by name).
-- `npm run pack:dry-run` — `npm pack --dry-run --json`. The `prepack` hook runs `build` + `verify:dist` automatically.
+- `npm run pack:dry-run` — `npm pack --dry-run --json`. The `prepack` hook runs `build` automatically.
 - `npm run package-smoke` — packs a tarball into a temp dir, installs it into a synthetic consumer, and asserts the public surface (`scripts/smoke-package.mjs`). Run before publishing.
 - Pre-publish full gate: `npm run check && npm run test && npm run pack:dry-run && npm run package-smoke`.
 
-There is intentionally **no** `release` or `publish` script — `verify-bridgekit-dist.mjs` will fail if one is added. See `docs/releasing.md` for the future handoff.
+There is intentionally **no** `release` or `publish` script — `scripts/smoke-package.mjs` will fail if one is added (see `inv-no-release-publish-scripts` in `docs/packaging-invariants.md`). See `docs/releasing.md` for the release flow.
 
 ## Architecture
 
@@ -57,7 +57,7 @@ The host generic in `PortableTool<TParams, THost>` uses TypeScript's built-in `N
 
 Both adapters prefer `structuredContent` over `details`; the latter exists only as a fallback for older callers.
 
-The MCP adapter is built on the SDK's **low-level** `Server` with explicit `ListToolsRequestSchema` / `CallToolRequestSchema` handlers, **not** the high-level `registerTool` helper. This is so TypeBox schemas pass through as MCP `inputSchema` without a JSON Schema conversion step. There is no `registerMcpTools` helper, and `scripts/verify-bridgekit-dist.mjs` asserts the string `registerMcpTools` never appears in the published JS. If you think you want to add a high-level wrapper, read the rationale in `README.md` (MCP adapter section) and `docs/extraction.md` first.
+The MCP adapter is built on the SDK's **low-level** `Server` with explicit `ListToolsRequestSchema` / `CallToolRequestSchema` handlers, **not** the high-level `registerTool` helper. This is so TypeBox schemas pass through as MCP `inputSchema` without a JSON Schema conversion step. There is no `registerMcpTools` helper, and two layers (`scripts/smoke-package.mjs` runtime-key check + `src/adapters/mcp.test.ts` surface assertion) enforce its absence. If you think you want to add a high-level wrapper, read the rationale in `README.md` (MCP adapter section) and `docs/extraction.md` first.
 
 ### Custom hosts
 
@@ -96,10 +96,10 @@ definePortableTool<typeof params, "custom-runtime">({ ... })
 
 - Do not deep-import from `dist/` or `src/` in tests, examples, or docs — use the package entrypoints.
 - Do not collapse the three entrypoints into a single barrel — pi-only consumers must not pull the MCP SDK.
-- Do not add a high-level `registerMcpTools` helper without first proving SDK compatibility; `verify:dist` will fail if its name appears in built output.
+- Do not add a high-level `registerMcpTools` helper without first proving SDK compatibility; `scripts/smoke-package.mjs` and `src/adapters/mcp.test.ts` both enforce its absence.
 - Do not throw inside `executePortableTool` for validation failures — return `isError: true`. The adapters convert as needed.
-- Do not add `workspace:` or `file:` dependency ranges, monorepo-relative script paths, or `release`/`publish` scripts. `verify-bridgekit-dist.mjs` will fail.
-- Do not ship `sourceMappingURL` comments without their maps (source maps are off for builds; `verify-bridgekit-dist.mjs` re-asserts this).
+- Do not add `workspace:` or `file:` dependency ranges, or `release`/`publish` scripts to `package.json`. `scripts/smoke-package.mjs` will fail.
+- Do not ship `sourceMappingURL` comments without their maps. Source maps are off for builds (`tsconfig.json` has `sourceMap: false`) and `scripts/smoke-package.mjs` re-asserts this.
 - Do not register tools or start servers at module top-level — always inside an exported function the host calls explicitly.
 
 ## Read order for deeper context
