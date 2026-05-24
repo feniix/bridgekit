@@ -1,5 +1,10 @@
 import type { TSchema } from "typebox";
-import type { PortableTool, PortableToolResult } from "../core/define-tool.js";
+import type {
+  PortableTool,
+  PortableToolErrorDetails,
+  PortableToolResult,
+  PortableValidationError,
+} from "../core/define-tool.js";
 import { executePortableTool } from "../core/execute-tool.js";
 
 type PiContent = { type: "text"; text: string };
@@ -29,13 +34,28 @@ function toPiDetails(result: PortableToolResult): Record<string, unknown> {
   return result.structuredContent ?? result.details ?? {};
 }
 
+function isValidationDetails(
+  source: Record<string, unknown>,
+): source is { kind: "validation"; tool: string; validationErrors: PortableValidationError[] } {
+  return source.kind === "validation" && typeof source.tool === "string" && Array.isArray(source.validationErrors);
+}
+
+function toPortableToolErrorDetails(result: PortableToolResult): PortableToolErrorDetails {
+  const source = toPiDetails(result);
+  if (isValidationDetails(source)) {
+    return source;
+  }
+  const { kind: _ignored, ...rest } = source;
+  return { kind: "domain", ...rest };
+}
+
 export class PortableToolExecutionError extends Error {
-  readonly details: Record<string, unknown>;
+  readonly details: PortableToolErrorDetails;
 
   constructor(result: PortableToolResult) {
     super(result.text);
     this.name = "PortableToolExecutionError";
-    this.details = toPiDetails(result);
+    this.details = toPortableToolErrorDetails(result);
   }
 }
 

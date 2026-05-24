@@ -1,11 +1,14 @@
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import type { PortableTool, PortableToolBuiltInHost, PortableToolContext, PortableToolResult } from "./define-tool.js";
+import type {
+  PortableTool,
+  PortableToolBuiltInHost,
+  PortableToolContext,
+  PortableToolResult,
+  PortableValidationError,
+} from "./define-tool.js";
 
-export interface PortableValidationError {
-  path: string;
-  message: string;
-}
+export type { PortableValidationError };
 
 export function validatePortableToolArgs<THost extends string = PortableToolBuiltInHost>(
   tool: PortableTool<TSchema, THost>,
@@ -36,6 +39,7 @@ export async function executePortableTool<THost extends string = PortableToolBui
         .map((error) => `${error.path} ${error.message}`)
         .join("; ")}`,
       structuredContent: {
+        kind: "validation",
         tool: tool.name,
         validationErrors: validation.errors,
       },
