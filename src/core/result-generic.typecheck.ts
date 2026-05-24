@@ -1,0 +1,38 @@
+import type { PortableToolErrorDetails, PortableToolResult } from "@feniix/bridgekit";
+
+/**
+ * Compile-only assertions for the `TStructured` generic on `PortableToolResult`
+ * and the discriminated `PortableToolErrorDetails` union. This file is never
+ * executed; the build is the assertion.
+ */
+
+const narrowed: PortableToolResult<{ output: string }> = { text: "hi", structuredContent: { output: "hi" } };
+const narrowedOutput: string = narrowed.structuredContent?.output ?? "";
+void narrowedOutput;
+
+// @ts-expect-error structuredContent must satisfy the declared TStructured shape.
+const wrongValueType: PortableToolResult<{ output: string }> = { text: "hi", structuredContent: { output: 42 } };
+void wrongValueType;
+
+const loose: PortableToolResult = { text: "hi", structuredContent: { anything: 1, somethingElse: "ok" } };
+void loose;
+
+function narrowsErrorDetails(details: PortableToolErrorDetails) {
+  if (details.kind === "validation") {
+    const tool: string = details.tool;
+    const firstPath: string | undefined = details.validationErrors[0]?.path;
+    void tool;
+    void firstPath;
+  } else {
+    const kind: "domain" = details.kind;
+    void kind;
+  }
+}
+void narrowsErrorDetails;
+
+function requiresNarrowingForTypedAccess(details: PortableToolErrorDetails) {
+  // @ts-expect-error Without narrowing on `kind`, validationErrors is `unknown` and is not indexable.
+  const path = details.validationErrors[0].path;
+  void path;
+}
+void requiresNarrowingForTypedAccess;

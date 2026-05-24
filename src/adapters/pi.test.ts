@@ -221,10 +221,11 @@ test("registered pi tool rejects invalid args without calling the portable handl
       assert.equal(called, false);
       assert.ok(error instanceof PortableToolExecutionError);
       if (!isPortableToolExecutionError(error)) return false;
+      assert.equal(error.details.kind, "validation");
+      if (error.details.kind !== "validation") return false;
       assert.equal(error.details.tool, "echo_test");
-      const errors = error.details.validationErrors as Array<{ path: string }>;
-      assert.ok(Array.isArray(errors));
-      assert.equal(errors[0].path, "/text");
+      assert.ok(Array.isArray(error.details.validationErrors));
+      assert.equal(error.details.validationErrors[0].path, "/text");
       return true;
     },
   );

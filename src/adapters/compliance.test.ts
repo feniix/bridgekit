@@ -128,7 +128,7 @@ test("pi adapter: isError=true throws PortableToolExecutionError with structured
       assert.ok(error instanceof PortableToolExecutionError);
       if (!isPortableToolExecutionError(error)) return false;
       assert.equal(error.message, "domain failure");
-      assert.deepEqual(error.details, { reason: "intentional" });
+      assert.deepEqual(error.details, { kind: "domain", reason: "intentional" });
       return true;
     },
   );
@@ -152,10 +152,11 @@ test("pi adapter: invalid args throw with validationErrors in details", async ()
     (error: unknown) => {
       assert.ok(error instanceof PortableToolExecutionError);
       if (!isPortableToolExecutionError(error)) return false;
+      assert.equal(error.details.kind, "validation");
+      if (error.details.kind !== "validation") return false;
       assert.equal(error.details.tool, "compliance_validation");
-      const errors = error.details.validationErrors as Array<{ path: string }>;
-      assert.ok(Array.isArray(errors));
-      assert.equal(errors[0].path, "/text");
+      assert.ok(Array.isArray(error.details.validationErrors));
+      assert.equal(error.details.validationErrors[0].path, "/text");
       return true;
     },
   );

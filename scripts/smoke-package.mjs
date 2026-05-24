@@ -81,6 +81,7 @@ async function assertTypesCompile(installDir) {
         executePortableTool,
         type PortableToolBuiltInHost,
         type PortableToolContext,
+        type PortableToolErrorDetails,
         type PortableToolHost,
         type PortableToolResult,
       } from "@feniix/bridgekit";
@@ -145,15 +146,28 @@ async function assertTypesCompile(installDir) {
 
       const error: unknown = new PortableToolExecutionError({
         text: "bad",
-        structuredContent: { validationErrors: [] },
+        structuredContent: { kind: "validation", tool: "typecheck_tool", validationErrors: [] },
         isError: true,
       });
       if (isPortableToolExecutionError(error)) {
-        const details: Record<string, unknown> = error.details;
-        const validationErrors = error.details.validationErrors;
-        void details;
-        void validationErrors;
+        const details: PortableToolErrorDetails = error.details;
+        if (details.kind === "validation") {
+          const tool: string = details.tool;
+          const validationErrors = details.validationErrors;
+          void tool;
+          void validationErrors;
+        } else {
+          const kind: "domain" = details.kind;
+          void kind;
+        }
       }
+
+      const typed: PortableToolResult<{ output: string }> = {
+        text: "hi",
+        structuredContent: { output: "hi" },
+      };
+      const narrowedOutput: string = typed.structuredContent?.output ?? "";
+      void narrowedOutput;
     `,
   );
 
