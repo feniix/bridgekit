@@ -4,7 +4,55 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.1] - Unreleased
+## [0.8.2] - Unreleased
+
+### Fixed
+
+- Discriminated unions now surface the active branch's
+  `required`/`additionalProperties` hints. When an `anyOf` fires at a path
+  and exactly one branch's discriminator (`Literal`/`const`/`enum`/`Union of
+  Literals`) is satisfied by the input, BridgeKit keeps that branch's
+  sibling errors and suppresses the others. For non-discriminated unions
+  and ambiguous cases, the conservative "suppress all" behavior from 0.8.1
+  is preserved. Resolves
+  [#38](https://github.com/feniix/bridgekit/issues/38).
+
+  Behavior notes for consumers upgrading from 0.8.1:
+
+  - `validationErrors.length` for a discriminated-union failure now reflects
+    the active branch's missing/extra props (typically 1 per missing field),
+    rather than the single `{ field: "(root)", message: ".*anyOf.*" }` entry
+    that 0.8.1 produced. Consumers asserting `validationErrors.length === 1`
+    or checking for `field === "(root)"` on these payloads will need to
+    update; assertions on `field` / `message` for the actual missing prop
+    are the new contract.
+  - The `anyOf`/`oneOf` summary at the union path is **suppressed** when an
+    active branch is resolved. Consumers using `field: "(root)"` as a
+    "union failed" sentinel will not see it for discriminated cases — read
+    the active-branch's specific entry instead. The summary is still
+    emitted in the fallback case (no active branch).
+  - Discriminators expressed as `Type.Union([Type.Literal("a"),
+    Type.Literal("b")])` (the anyOf-of-const idiom) are now recognized as
+    discriminators. 0.8.1 silently treated them as non-discriminators and
+    fell back to suppress-all.
+  - Discriminated unions inside `Type.Array(...)` are now resolved per
+    array element (the path walker descends into `items`). 0.8.1 bailed out
+    on array index segments.
+  - `const` / `enum` error messages now surface the allowed value(s)
+    (`must equal "create"` / `must equal one of "create", "update"`)
+    instead of the opaque `must be equal to constant`. Helps agents pick a
+    valid discriminator value on retry.
+  - Discriminator key lookup uses `Object.hasOwn`, so a schema discriminator
+    whose name happens to be `toString` / `constructor` / etc. won't be
+    matched via the prototype chain.
+
+  Note on nested unions: `field` is the leaf segment of the JSON pointer
+  (`"name"` for `/event/name`), not the full path. For schemas with the
+  same prop name at multiple depths this can be ambiguous; consumers
+  needing full path context should track which tool input branch was
+  active out-of-band.
+
+## [0.8.1] - 2026-05-26
 
 ### Fixed
 
