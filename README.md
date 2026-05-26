@@ -90,7 +90,7 @@ export default function extension(pi: Parameters<typeof registerPiTools>[0]) {
 }
 ```
 
-By default (`errorHandling: "return"`, as of 0.7) the pi adapter mirrors the MCP adapter: portable validation failures and portable `isError: true` results surface as `{ content, details, isError: true }` so consumers can branch on `result.isError` and narrow with `isValidationFailure` / `isDomainFailure`. `details` is populated from `structuredContent` first, then from `details`, then `{}`. Progress updates from `ctx.progress?.(...)` map to pi tool updates.
+By default (`errorHandling: "return"`, as of 0.7) the pi adapter mirrors the MCP adapter: portable validation failures and portable `isError: true` results surface as `{ content, details, isError: true }` so consumers can branch on `result.isError` and narrow with `isValidationFailure` / `isDomainFailure`. Unexpected handler exceptions are caught and surfaced as `{ content: [{type:"text", text: message}], details: {}, isError: true }`, matching MCP. Success-path results include `isError: false` explicitly so consumers can use the same strict-equality checks across both adapters. `details` is populated from `structuredContent` first, then from `details`, then `{}`. Progress updates from `ctx.progress?.(...)` map to pi tool updates.
 
 The pre-0.7 behavior — throw `PortableToolExecutionError` on `isError` — is still available for one deprecation cycle:
 
@@ -98,7 +98,7 @@ The pre-0.7 behavior — throw `PortableToolExecutionError` on `isError` — is 
 registerPiTools(pi, createTools(), { errorHandling: "throw" });
 ```
 
-`errorHandling: "throw"` is marked `@deprecated` and will be removed in 1.0. Migrate by switching to the default and branching on the returned result:
+Selecting `errorHandling: "throw"` emits a `DeprecationWarning` (code `BRIDGEKIT_PI_THROW_DEPRECATED`) once per process. Only the `"throw"` value is deprecated; the `errorHandling` option itself remains. Migrate by switching to the default and branching on the returned result:
 
 ```ts
 // Before (0.6 and earlier)
@@ -118,6 +118,14 @@ if (result.isError) {
   else if (isDomainFailure(result)) { /* handler-level error */ }
 }
 ```
+
+The two modes expose the failure discriminator on different fields. In the
+new default `"return"` mode, prefer the result guards over inspecting a
+`kind` field directly — handler-emitted failures do not carry a synthesized
+`kind`. In the deprecated `"throw"` mode, the discriminator lives on
+`(err as PortableToolExecutionError).details.kind` (`"validation"` or
+`"domain"`). The guards operate on a `PortableToolResult`; they are not
+designed to be called on the pi adapter's wire object.
 
 ## MCP adapter
 

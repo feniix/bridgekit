@@ -273,6 +273,7 @@ function assertPackFileList(entry) {
   const required = [
     "package.json",
     "README.md",
+    "CHANGELOG.md",
     "llms.txt",
     "examples/README.md",
     "dist/src/index.js",

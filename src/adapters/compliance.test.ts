@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { definePortableTool, type PortableTool } from "@feniix/bridgekit";
+import { definePortableTool, isValidationFailure, type PortableTool, type PortableToolResult } from "@feniix/bridgekit";
 import { createMcpServer } from "@feniix/bridgekit/mcp";
 import { isPortableToolExecutionError, PortableToolExecutionError, registerPiTools } from "@feniix/bridgekit/pi";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { fromPartial } from "@total-typescript/shoehorn";
+import { fromAny, fromPartial } from "@total-typescript/shoehorn";
 import { type TObject, Type } from "typebox";
 
 /**
@@ -22,6 +22,17 @@ const echoParams = Type.Object({
 });
 
 const emptyParams = Type.Object({});
+
+type ValidationErrorShape = {
+  kind: "validation";
+  tool: string;
+  validationErrors: Array<{ path: string }>;
+};
+
+type ValidationStructuredShape = {
+  tool: string;
+  validationErrors: Array<{ path: string }>;
+};
 
 const successTool = definePortableTool({
   name: "compliance_success",
@@ -104,7 +115,7 @@ async function withMcpClient(
   }
 }
 
-test("pi adapter (default return mode): success result returns content + details (structuredContent flattened)", async () => {
+test("pi adapter (default return mode): success result returns content + details + isError=false", async () => {
   const tools = registerPi([successTool]);
   const tool = tools.get("compliance_success");
   assert.ok(tool);
@@ -112,6 +123,7 @@ test("pi adapter (default return mode): success result returns content + details
   assert.deepEqual(result, {
     content: [{ type: "text", text: "hello" }],
     details: { echoed: "hello" },
+    isError: false,
   });
 });
 
@@ -145,13 +157,15 @@ test("mcp adapter: isError=true returns CallToolResult with isError=true (does n
   });
 });
 
-test("pi adapter (default return mode): invalid args return isError=true with validationErrors in details", async () => {
+test("pi adapter (default return mode): invalid args return isError=true with content + validationErrors in details", async () => {
   const tools = registerPi([validationTool]);
   const tool = tools.get("compliance_validation");
   assert.ok(tool);
   const result = await tool.execute("call-3", { text: 42 }, undefined, undefined, {});
   assert.equal(result.isError, true);
-  const details = result.details as { kind: string; tool: string; validationErrors: Array<{ path: string }> };
+  assert.equal(result.content[0]?.type, "text");
+  assert.equal(typeof result.content[0]?.text, "string");
+  const details: ValidationErrorShape = fromAny(result.details);
   assert.equal(details.kind, "validation");
   assert.equal(details.tool, "compliance_validation");
   assert.ok(Array.isArray(details.validationErrors));
@@ -162,7 +176,7 @@ test("mcp adapter: invalid args return isError=true with validationErrors in str
   await withMcpClient([validationTool], async (client) => {
     const result = await client.callTool({ name: "compliance_validation", arguments: { text: 42 } });
     assert.equal(result.isError, true);
-    const structured = result.structuredContent as { tool: string; validationErrors: Array<{ path: string }> };
+    const structured: ValidationStructuredShape = fromAny(result.structuredContent);
     assert.equal(structured.tool, "compliance_validation");
     assert.ok(Array.isArray(structured.validationErrors));
     assert.equal(structured.validationErrors[0].path, "/text");
@@ -204,7 +218,7 @@ test("pi adapter (opt-in throw mode): invalid args throw with validationErrors i
   );
 });
 
-test("pi adapter (opt-in throw mode): success result still returns content + details", async () => {
+test("pi adapter (opt-in throw mode): success result still returns content + details + isError=false", async () => {
   const tools = registerPi([successTool], { errorHandling: "throw" });
   const tool = tools.get("compliance_success");
   assert.ok(tool);
@@ -212,5 +226,68 @@ test("pi adapter (opt-in throw mode): success result still returns content + det
   assert.deepEqual(result, {
     content: [{ type: "text", text: "hello" }],
     details: { echoed: "hello" },
+    isError: false,
   });
+});
+
+test("pi adapter (explicit return mode): invalid args return isError=true and do not throw", async () => {
+  const tools = registerPi([validationTool], { errorHandling: "return" });
+  const tool = tools.get("compliance_validation");
+  assert.ok(tool);
+  const result = await tool.execute("call-explicit-return", { text: 42 }, undefined, undefined, {});
+  assert.equal(result.isError, true);
+  const details: ValidationErrorShape = fromAny(result.details);
+  assert.equal(details.kind, "validation");
+  assert.equal(details.tool, "compliance_validation");
+});
+
+test("pi adapter (default return mode): unexpected handler throw surfaces as isError=true", async () => {
+  const throwTool = definePortableTool({
+    name: "compliance_unexpected_throw",
+    title: "Compliance Unexpected Throw",
+    description: "Throws a non-isError error from the handler.",
+    parameters: emptyParams,
+    execute() {
+      throw new Error("kaboom");
+    },
+  });
+  const tools = registerPi([throwTool]);
+  const tool = tools.get("compliance_unexpected_throw");
+  assert.ok(tool);
+  const result = await tool.execute("call-unexpected", {}, undefined, undefined, {});
+  assert.equal(result.isError, true);
+  assert.equal(result.content[0]?.type, "text");
+  assert.equal(result.content[0]?.text, "kaboom");
+});
+
+test("pi adapter (opt-in throw mode): unexpected handler throw still propagates", async () => {
+  const throwTool = definePortableTool({
+    name: "compliance_unexpected_throw_legacy",
+    title: "Compliance Unexpected Throw (legacy)",
+    description: "Throws a non-isError error from the handler.",
+    parameters: emptyParams,
+    execute() {
+      throw new Error("kaboom-legacy");
+    },
+  });
+  const tools = registerPi([throwTool], { errorHandling: "throw" });
+  const tool = tools.get("compliance_unexpected_throw_legacy");
+  assert.ok(tool);
+  await assert.rejects(() => tool.execute("call-unexpected-legacy", {}, undefined, undefined, {}), {
+    message: "kaboom-legacy",
+  });
+});
+
+test("result guards apply to the portable result returned from executePortableTool, not the pi wire result", async () => {
+  // The guards operate on PortableToolResult (the value executePortableTool
+  // produces). The pi adapter's wire object exposes `details` instead of
+  // `structuredContent`, so calling the guards on it always returns false.
+  const tools = registerPi([validationTool]);
+  const tool = tools.get("compliance_validation");
+  assert.ok(tool);
+  const piWire = await tool.execute("call-guard-scope", { text: 42 }, undefined, undefined, {});
+
+  // Calling the guard on the pi wire object: structuredContent is absent.
+  const widened: PortableToolResult = fromAny(piWire);
+  assert.equal(isValidationFailure(widened), false);
 });

@@ -34,6 +34,13 @@ export type PortableDomainFailure = PortableToolResult & { isError: true };
  * Type guard for results produced by `executePortableTool` when TypeBox
  * validation rejected the args.
  *
+ * The guard matches on shape, not provenance: a tool handler that manually
+ * returns `{ isError: true, structuredContent: { kind: "validation", tool, validationErrors } }`
+ * will also satisfy this predicate. BridgeKit cannot authenticate the source of
+ * a result on the wire, so handler-emitted validation-shaped failures are
+ * indistinguishable from BridgeKit-emitted ones. If that ambiguity matters,
+ * keep handler-emitted error shapes distinct from the validation discriminator.
+ *
  * @example
  * const result = await executePortableTool(tool, args, ctx);
  * if (result.isError) {
