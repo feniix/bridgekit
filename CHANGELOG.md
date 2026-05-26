@@ -18,6 +18,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   so MCP SDK clients that Zod-validate `inputSchema.type` continue to accept
   them; existing `Type.Object` consumers see no change in payload shape.
   Resolves [#29](https://github.com/feniix/bridgekit/issues/29).
+- `createMcpServer` construction error now appends Union-specific guidance
+  when the offending tool's parameters lower to `anyOf`/`oneOf` (the
+  `Type.Intersect` recipe is wrong for that shape). The bare allOf-with-mixed-
+  branches case now names the first non-object branch by index in the
+  `type="..."` label instead of the misdirecting `type="allOf"`.
 
 ### Added
 
