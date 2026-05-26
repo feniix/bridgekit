@@ -164,17 +164,30 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
   // `tools/list` returns a pre-computed array and post-construction mutations
   // to the caller's array cannot leak unvalidated schemas onto the wire.
   const byName = new Map(options.tools.map((tool) => [tool.name, tool]));
-  const mcpTools: Tool[] = options.tools.map((tool) => ({
-    name: tool.name,
-    title: tool.title,
-    description: tool.description,
-    inputSchema: toInputSchema(tool.parameters),
-    // MCP advisory hints from `hostExtras.mcp.annotations`. Gated on
-    // `!== undefined` so a tool without hostExtras builds a Tool entry whose
-    // own-property keys are byte-identical to 0.8.x — the annotations key
-    // is absent (not `{}`, not `null`). See RFC §4.
-    ...(tool.hostExtras?.mcp?.annotations !== undefined ? { annotations: tool.hostExtras.mcp.annotations } : {}),
-  }));
+  const mcpTools: Tool[] = options.tools.map((tool) => {
+    const annotations = tool.hostExtras?.mcp?.annotations;
+    // MCP advisory hints from `hostExtras.mcp.annotations`. Two gates:
+    //   1. `annotations !== undefined` — a tool without hostExtras builds a
+    //      Tool entry whose own-property keys are byte-identical to 0.8.x.
+    //   2. `Object.keys(annotations).length > 0` — an explicitly empty
+    //      annotations object is semantically identical to no annotations
+    //      and is omitted from the wire payload (not emitted as `{}`).
+    //
+    // The non-empty branch shallow-clones the annotations object so that
+    // post-construction mutation of the caller's `tool.hostExtras.mcp.annotations`
+    // cannot leak into subsequent `tools/list` responses. The clone is
+    // safe-by-construction because annotation fields are primitive scalars
+    // (the MCP spec defines only `title: string` and four `…Hint: boolean`
+    // fields); no nested mutation surface exists.
+    const hasAnnotations = annotations !== undefined && Object.keys(annotations).length > 0;
+    return {
+      name: tool.name,
+      title: tool.title,
+      description: tool.description,
+      inputSchema: toInputSchema(tool.parameters),
+      ...(hasAnnotations ? { annotations: { ...annotations } } : {}),
+    };
+  });
   const server = new Server(
     { name: options.name, version: options.version },
     {

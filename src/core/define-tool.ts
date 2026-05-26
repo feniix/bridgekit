@@ -92,6 +92,15 @@ export interface McpHostExtras {
    * MCP tool annotations attached to `tools/list` entries. Hints clients may
    * surface to users; do not affect validation or execution.
    *
+   * The annotations object is shallow-cloned at `createMcpServer`
+   * construction; post-construction mutation of the original object does
+   * not affect subsequent `tools/list` responses. Consumers do not need to
+   * defensively clone before passing.
+   *
+   * An empty annotations object (`{}`) is treated as semantically identical
+   * to omitting the field — the resulting `Tool` entry has no `annotations`
+   * key on the wire.
+   *
    * @see https://modelcontextprotocol.io/specification (Tool annotations)
    */
   annotations?: {

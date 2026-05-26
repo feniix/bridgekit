@@ -435,6 +435,83 @@ test("tools/list carries a partial annotations object verbatim (only readOnlyHin
   }
 });
 
+test("post-construction mutation of hostExtras.mcp.annotations does not leak to tools/list", async () => {
+  // The annotations object is held by reference at the call site; without
+  // a snapshot at construction, a consumer mutating it after creating the
+  // server would silently change subsequent tools/list responses. The MCP
+  // adapter shallow-clones the annotations object at construction so the
+  // snapshot guarantee is structural, not by-convention.
+  const annotations: { readOnlyHint?: boolean; destructiveHint?: boolean } = {
+    readOnlyHint: true,
+  };
+  const tool = definePortableTool({
+    name: "snapshotted",
+    title: "Snapshotted",
+    description: "Annotations must be snapshotted at construction.",
+    parameters: Type.Object({ value: Type.String() }),
+    execute(args) {
+      return { text: args.value };
+    },
+    hostExtras: { mcp: { annotations } },
+  });
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createMcpServer({ name: "snapshot-annotations", version: "0.1.0", tools: [tool] });
+  // Mutate the original annotations object after construction. The snapshot
+  // guarantee says this must not affect what tools/list returns.
+  annotations.readOnlyHint = false;
+  annotations.destructiveHint = true;
+
+  const client = new Client({ name: "snapshot-annotations-client", version: "0.1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const list = await client.listTools();
+    assert.deepEqual(
+      list.tools[0]?.annotations,
+      { readOnlyHint: true },
+      "tools/list must reflect the construction-time snapshot, not the mutated original",
+    );
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("createMcpServer omits annotations key when hostExtras.mcp.annotations is an empty object", async () => {
+  // RFC §4 + Finding 10: an explicitly empty annotations object is
+  // semantically identical to no annotations. The wire payload must not
+  // carry an empty `annotations: {}` entry — it would add noise without
+  // semantics and would not round-trip byte-for-byte with the absent case.
+  const tool = definePortableTool({
+    name: "empty_annotations",
+    title: "Empty Annotations",
+    description: "hostExtras.mcp.annotations = {}; must be omitted from tools/list.",
+    parameters: Type.Object({ value: Type.String() }),
+    execute(args) {
+      return { text: args.value };
+    },
+    hostExtras: { mcp: { annotations: {} } },
+  });
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createMcpServer({ name: "empty-annotations-test", version: "0.1.0", tools: [tool] });
+  const client = new Client({ name: "empty-annotations-test-client", version: "0.1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const list = await client.listTools();
+    assert.equal(list.tools.length, 1);
+    const entry = list.tools[0] as Record<string, unknown>;
+    assert.equal(
+      "annotations" in entry,
+      false,
+      `expected no 'annotations' key on Tool entry when annotations: {}; got: ${JSON.stringify(entry)}`,
+    );
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("createMcpServer's tools/list payload is unaffected by post-construction mutation of the tools array", async () => {
   const initialTool = definePortableTool({
     name: "initial",
