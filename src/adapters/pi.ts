@@ -81,6 +81,8 @@ export function isPortableToolExecutionError(error: unknown): error is PortableT
   return error instanceof PortableToolExecutionError;
 }
 
+let throwModeDeprecationWarned = false;
+
 /**
  * Register a set of portable tools with a pi tool registry.
  *
@@ -98,8 +100,6 @@ export function isPortableToolExecutionError(error: unknown): error is PortableT
  * // Deprecated, but available through 0.x.
  * registerPiTools(pi, tools, { errorHandling: "throw" });
  */
-let throwModeDeprecationWarned = false;
-
 export function registerPiTools(
   pi: PiToolRegistration,
   tools: readonly PortableTool<TSchema>[],

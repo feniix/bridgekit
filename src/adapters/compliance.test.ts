@@ -279,8 +279,6 @@ test("result guards apply to the portable result returned from executePortableTo
   const tool = tools.get("compliance_validation");
   assert.ok(tool);
   const piWire = await tool.execute("call-guard-scope", { text: 42 }, undefined, undefined, {});
-
-  // Calling the guard on the pi wire object: structuredContent is absent.
   const widened: PortableToolResult = fromAny(piWire);
   assert.equal(isValidationFailure(widened), false);
 });

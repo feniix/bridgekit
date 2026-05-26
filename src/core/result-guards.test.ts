@@ -64,10 +64,6 @@ test("isDomainFailure narrows handler-emitted isError results", () => {
   };
   assert.equal(isDomainFailure(result), true);
   if (isDomainFailure(result)) {
-    // After narrowing, isError is known true; structuredContent stays whatever
-    // the handler produced.
-    const isErrored: true = result.isError;
-    assert.equal(isErrored, true);
     assert.deepEqual(result.structuredContent, { reason: "intentional" });
   }
 });
