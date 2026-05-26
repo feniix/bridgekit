@@ -55,7 +55,7 @@ export function createTools() {
 ## Best practices
 
 - Keep portable tools host-neutral. Do not import pi or MCP SDKs from files that define tool behavior.
-- Use TypeBox `Type.Object(...)` schemas for MCP-compatible tools.
+- Tool `parameters` for MCP-compatible tools must resolve to a JSON-Schema object at the top level. `Type.Object(...)` is the common case; `Type.Intersect([Type.Object(...), Type.Object(...)])` is also accepted. Non-object top-level shapes throw at `createMcpServer` construction.
 - Return `{ text, structuredContent }` for successful results.
 - Use `isError: true` for domain/tool-level failures that should reach the model as tool output.
 - Throw only for unexpected programmer, adapter, or runtime failures.

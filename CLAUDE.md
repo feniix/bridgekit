@@ -73,7 +73,7 @@ definePortableTool<typeof params, "custom-runtime">({ ... })
 
 - **Modules must be import-passive.** Never register tools, start servers, read env vars, or touch the filesystem at import time. The package declares `sideEffects: false`.
 - **Tool files stay host-neutral** — no pi imports, no MCP SDK imports. Host wiring lives only in adapter entrypoints.
-- TypeBox `Type.Object(...)` is required for MCP-compatible tools (it's enforced by the `TObject` constraint on `createMcpServer`'s `tools` parameter; `mcp.typecheck.ts` locks this in with a `@ts-expect-error`).
+- Tool `parameters` must resolve to a JSON-Schema object at the top level for MCP-compatible tools. `Type.Object(...)` is the common case; `Type.Intersect([Type.Object(...), Type.Object(...)])` of object schemas is also accepted. Non-object top-level schemas (`Type.String()`, `Type.Union([Type.Object(...), Type.Object(...)])`, etc.) throw at `createMcpServer` construction with a tool-attributed error. `src/adapters/mcp.typecheck.ts` pins the positive type-system fixtures; `src/adapters/mcp.test.ts` pins the runtime-guard negatives.
 - Use `isError: true` for expected domain failures. Throw only for unexpected programmer/adapter/runtime errors.
 - Respect `ctx.signal` in long-running tools; emit progress via `ctx.progress?.(...)`.
 - **ESM internal imports use `.js` extensions** even though the source is `.ts` (NodeNext resolution): `from "./define-tool.js"`.
