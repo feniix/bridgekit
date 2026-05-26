@@ -30,6 +30,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   does not affect listing or dispatch. Schemas inside each tool remain held
   by reference; treat `tool.parameters` as immutable once the server is
   constructed.
+- `createMcpServer` construction errors now carry a stable `error.code` so
+  consumers have a non-string anchor for branching: `"BRIDGEKIT_MCP_NON_OBJECT_PARAMETERS"`
+  for the top-level-object guard, `"BRIDGEKIT_MCP_DUPLICATE_TOOL_NAME"` for
+  the new duplicate-name guard. Message text remains recipe-shaped for
+  human reading but is not a public contract; branch on `.code`.
+
+### Added
+
+- `createMcpServer` now rejects duplicate tool names at construction with
+  a tool-attributed error (code `BRIDGEKIT_MCP_DUPLICATE_TOOL_NAME`). The
+  previous behavior silently overwrote earlier registrations in the dispatch
+  map while still listing both on `tools/list`, leaving the earlier tool
+  unreachable on `tools/call`.
+- RFC: `docs/rfc-host-extras.md` (design doc for [#28](https://github.com/feniix/bridgekit/issues/28); no code change).
 
 ### Fixed
 
@@ -39,10 +53,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `b` because the schema walker stopped at the root's missing `properties`
   field; the walker now probes each `allOf` branch with the full remaining
   path.
-
-### Added
-
-- RFC: `docs/rfc-host-extras.md` (design doc for [#28](https://github.com/feniix/bridgekit/issues/28); no code change).
 
 ## [0.8.3] - 2026-05-26
 

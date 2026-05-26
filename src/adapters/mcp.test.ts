@@ -89,6 +89,7 @@ test("createMcpServer throws at construction when a tool's parameters are Type.S
       assert.ok(error instanceof Error);
       assert.match(error.message, /^createMcpServer: tool "foo"/);
       assert.match(error.message, /Type\.Object\(/);
+      assert.equal((error as Error & { code?: string }).code, "BRIDGEKIT_MCP_NON_OBJECT_PARAMETERS");
       return true;
     },
   );
@@ -226,6 +227,141 @@ test("createMcpServer accepts nested Type.Intersect of object schemas and round-
     });
     assert.equal(result.isError, false);
     assert.deepEqual(result.structuredContent, { a: "x", b: 1, c: true });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("createMcpServer rejects duplicate tool names at construction", () => {
+  const toolA = definePortableTool({
+    name: "dup",
+    title: "Dup A",
+    description: "First registration.",
+    parameters: Type.Object({ value: Type.String() }),
+    execute(args) {
+      return { text: args.value };
+    },
+  });
+  const toolB = definePortableTool({
+    name: "dup",
+    title: "Dup B",
+    description: "Second registration with the same name.",
+    parameters: Type.Object({ value: Type.Number() }),
+    execute(args) {
+      return { text: String(args.value) };
+    },
+  });
+
+  assert.throws(
+    () => createMcpServer({ name: "bad-server", version: "0.1.0", tools: [toolA, toolB] }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /^createMcpServer: tool "dup" is registered more than once/);
+      assert.equal((error as Error & { code?: string }).code, "BRIDGEKIT_MCP_DUPLICATE_TOOL_NAME");
+      return true;
+    },
+  );
+});
+
+test("createMcpServer accepts Type.Optional(Type.Object(...)) at the top level", async () => {
+  // TypeBox 1.x lowers Type.Optional by setting a flag, not by wrapping the
+  // schema, so the JSON-Schema shape is still { type: "object", ... }. The
+  // guard accepts it. Pinned here so a TypeBox upgrade that changes the
+  // lowering (e.g., wrapping in Union) is caught.
+  const tool = definePortableTool({
+    name: "optional_object",
+    title: "Optional Object",
+    description: "Type.Optional(Type.Object(...)) at the top level.",
+    parameters: Type.Optional(Type.Object({ value: Type.String() })),
+    execute(args) {
+      return { text: args?.value ?? "" };
+    },
+  });
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createMcpServer({ name: "optional-test", version: "0.1.0", tools: [tool] });
+  const client = new Client({ name: "optional-test-client", version: "0.1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const list = await client.listTools();
+    assert.equal(list.tools.length, 1);
+    assert.equal((list.tools[0]?.inputSchema as { type?: string })?.type, "object");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("createMcpServer preserves Type.Object inputSchema shape byte-for-byte", async () => {
+  // Backward-compatibility anchor: existing Type.Object consumers must see
+  // the same wire payload before and after the 0.9 widening. If a future
+  // refactor of toInputSchema spreads or rebuilds the Type.Object branch,
+  // this assertion breaks.
+  const params = Type.Object({
+    name: Type.String({ description: "User name." }),
+    age: Type.Optional(Type.Number()),
+  });
+  const tool = definePortableTool({
+    name: "echo_object",
+    title: "Echo Object",
+    description: "Type.Object passthrough.",
+    parameters: params,
+    execute(args) {
+      return { text: args.name };
+    },
+  });
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createMcpServer({ name: "object-test", version: "0.1.0", tools: [tool] });
+  const client = new Client({ name: "object-test-client", version: "0.1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const list = await client.listTools();
+    assert.deepEqual(list.tools[0]?.inputSchema, params as unknown as Record<string, unknown>);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("createMcpServer's tools/list payload is unaffected by post-construction mutation of the tools array", async () => {
+  const initialTool = definePortableTool({
+    name: "initial",
+    title: "Initial",
+    description: "Registered at construction.",
+    parameters: Type.Object({ value: Type.String() }),
+    execute(args) {
+      return { text: args.value };
+    },
+  });
+  const sneakyTool = definePortableTool({
+    name: "sneaky",
+    title: "Sneaky",
+    description: "Pushed after construction; must not appear on the wire.",
+    parameters: Type.Object({ value: Type.String() }),
+    execute(args) {
+      return { text: args.value };
+    },
+  });
+
+  const tools = [initialTool];
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createMcpServer({ name: "snapshot-test", version: "0.1.0", tools });
+  // Push *after* construction. The snapshot guarantee says this must not
+  // affect tools/list or tools/call.
+  tools.push(sneakyTool);
+
+  const client = new Client({ name: "snapshot-test-client", version: "0.1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const list = await client.listTools();
+    assert.equal(list.tools.length, 1);
+    assert.equal(list.tools[0]?.name, "initial");
+    const sneakyResult = await client.callTool({ name: "sneaky", arguments: { value: "x" } });
+    assert.equal(sneakyResult.isError, true);
+    assert.ok(Array.isArray(sneakyResult.content));
+    assert.match((sneakyResult.content as Array<{ text: string }>)[0]?.text ?? "", /Unknown tool: sneaky/);
   } finally {
     await client.close();
     await server.close();

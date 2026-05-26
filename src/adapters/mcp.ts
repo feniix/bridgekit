@@ -91,6 +91,10 @@ function schemaTypeLabel(schema: unknown): string {
  * `Type.Intersect` (which TypeBox renders as `{ allOf: [...] }` with no top-
  * level `type`) needs `type: "object"` synthesized before transmission. This
  * is a no-op for `Type.Object` schemas, which already carry the field.
+ *
+ * The casts here are sound because `assertObjectShapedParameters` runs first
+ * and rejects any schema whose top-level lowering isn't `type:"object"` or
+ * `allOf` of objects — both shapes round-trip as MCP `Tool["inputSchema"]`.
  */
 function toInputSchema(parameters: TSchema): Tool["inputSchema"] {
   const candidate = parameters as unknown as { type?: unknown };
@@ -98,6 +102,20 @@ function toInputSchema(parameters: TSchema): Tool["inputSchema"] {
     return parameters as unknown as Tool["inputSchema"];
   }
   return { type: "object", ...(parameters as Record<string, unknown>) } as unknown as Tool["inputSchema"];
+}
+
+/**
+ * Stable `error.code` values attached to `createMcpServer` construction
+ * failures so consumers have a non-string anchor (the message text is
+ * recipe-shaped and may evolve; the code is part of the public contract).
+ */
+const ERROR_CODE_NON_OBJECT_PARAMETERS = "BRIDGEKIT_MCP_NON_OBJECT_PARAMETERS";
+const ERROR_CODE_DUPLICATE_TOOL_NAME = "BRIDGEKIT_MCP_DUPLICATE_TOOL_NAME";
+
+function throwWithCode(message: string, code: string): never {
+  const error = new Error(message) as Error & { code: string };
+  error.code = code;
+  throw error;
 }
 
 function assertObjectShapedParameters(tools: readonly PortableTool<TSchema>[]): void {
@@ -119,13 +137,29 @@ function assertObjectShapedParameters(tools: readonly PortableTool<TSchema>[]): 
           "flatten branches into a single Type.Object(...) with optional discriminator fields, " +
           "or expose each branch as a separate tool.";
       }
-      throw new Error(message);
+      throwWithCode(message, ERROR_CODE_NON_OBJECT_PARAMETERS);
     }
+  }
+}
+
+function assertUniqueToolNames(tools: readonly PortableTool<TSchema>[]): void {
+  const seen = new Set<string>();
+  for (const tool of tools) {
+    if (seen.has(tool.name)) {
+      throwWithCode(
+        `createMcpServer: tool "${tool.name}" is registered more than once. ` +
+          "MCP tool names must be unique within a server — silently overwriting would make the " +
+          "earlier registration unreachable on `tools/call`.",
+        ERROR_CODE_DUPLICATE_TOOL_NAME,
+      );
+    }
+    seen.add(tool.name);
   }
 }
 
 export function createMcpServer(options: CreateMcpServerOptions): Server {
   assertObjectShapedParameters(options.tools);
+  assertUniqueToolNames(options.tools);
   // Build the dispatch map and the listing payload at construction so
   // `tools/list` returns a pre-computed array and post-construction mutations
   // to the caller's array cannot leak unvalidated schemas onto the wire.
