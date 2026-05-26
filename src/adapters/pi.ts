@@ -10,7 +10,11 @@ import { executePortableTool } from "../core/execute-tool.js";
 type PiContent = { type: "text"; text: string };
 
 type PiToolUpdate = { content: PiContent[]; details: Record<string, unknown> };
-type PiToolResult = { content: PiContent[]; details: Record<string, unknown> };
+type PiToolResult = {
+  content: PiContent[];
+  details: Record<string, unknown>;
+  isError?: boolean;
+};
 
 type PiToolDefinition = {
   name: string;
@@ -29,6 +33,27 @@ type PiToolDefinition = {
 export type PiToolRegistration = {
   registerTool(tool: PiToolDefinition): unknown;
 };
+
+/**
+ * How the pi adapter surfaces portable `isError: true` results (both
+ * BridgeKit-emitted validation failures and tool-emitted domain failures).
+ *
+ * - `"return"` (default as of 0.7) — return `{ content, details, isError: true }`
+ *   so the result mirrors the MCP adapter's `CallToolResult`. Consumers branch
+ *   on `result.isError` and may narrow with `isValidationFailure` /
+ *   `isDomainFailure`.
+ * - `"throw"` (deprecated, scheduled for removal in 1.0) — throw
+ *   `PortableToolExecutionError`. Available for one minor-version cycle so
+ *   existing pi extensions can migrate without source changes.
+ */
+export interface RegisterPiToolsOptions {
+  /**
+   * @default "return"
+   * @deprecated `"throw"` is retained for migration only and will be removed
+   * in 1.0. Migrate to `"return"` and branch on `result.isError`.
+   */
+  errorHandling?: "throw" | "return";
+}
 
 function toPiDetails(result: PortableToolResult): Record<string, unknown> {
   return result.structuredContent ?? result.details ?? {};
@@ -63,7 +88,29 @@ export function isPortableToolExecutionError(error: unknown): error is PortableT
   return error instanceof PortableToolExecutionError;
 }
 
-export function registerPiTools(pi: PiToolRegistration, tools: readonly PortableTool<TSchema>[]): void {
+/**
+ * Register a set of portable tools with a pi tool registry.
+ *
+ * Defaults to `errorHandling: "return"` so pi behaves like the MCP adapter:
+ * portable `isError: true` results and TypeBox validation failures surface as
+ * `{ content, details, isError: true }` rather than thrown exceptions. Pass
+ * `{ errorHandling: "throw" }` to opt into the pre-0.7 throwing behavior for
+ * one deprecation cycle.
+ *
+ * @example
+ * // 0.7+ default: errors as data.
+ * registerPiTools(pi, tools);
+ *
+ * @example
+ * // Deprecated, but available through 0.x.
+ * registerPiTools(pi, tools, { errorHandling: "throw" });
+ */
+export function registerPiTools(
+  pi: PiToolRegistration,
+  tools: readonly PortableTool<TSchema>[],
+  options: RegisterPiToolsOptions = {},
+): void {
+  const errorHandling = options.errorHandling ?? "return";
   for (const tool of tools) {
     pi.registerTool({
       name: tool.name,
@@ -82,8 +129,16 @@ export function registerPiTools(pi: PiToolRegistration, tools: readonly Portable
           },
         });
 
-        if (result.isError) {
+        if (result.isError && errorHandling === "throw") {
           throw new PortableToolExecutionError(result);
+        }
+
+        if (result.isError) {
+          return {
+            content: [{ type: "text", text: result.text } satisfies PiContent],
+            details: toPiDetails(result),
+            isError: true,
+          };
         }
 
         return {

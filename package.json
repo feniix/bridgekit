@@ -60,6 +60,7 @@
     "!dist/**/*.map",
     "!dist/tsconfig.tsbuildinfo",
     "README.md",
+    "CHANGELOG.md",
     "llms.txt",
     "examples/README.md"
   ],

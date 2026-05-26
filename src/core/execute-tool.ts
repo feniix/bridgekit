@@ -8,8 +8,6 @@ import type {
   PortableValidationError,
 } from "./define-tool.js";
 
-export type { PortableValidationError };
-
 export function validatePortableToolArgs<THost extends string = PortableToolBuiltInHost>(
   tool: PortableTool<TSchema, THost>,
   args: unknown,
