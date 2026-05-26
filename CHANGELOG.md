@@ -4,11 +4,13 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.3] - Unreleased
+## [Unreleased]
 
 ### Added
 
 - RFC: `docs/rfc-host-extras.md` (design doc for [#28](https://github.com/feniix/bridgekit/issues/28); no code change).
+
+## [0.8.3] - 2026-05-26
 
 ### Fixed
 
