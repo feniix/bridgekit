@@ -84,7 +84,7 @@ This catalog originally backed two scripts: `verify-bridgekit-dist.mjs` (manifes
 
 **Assertion**: After installing the tarball into a temp consumer, the runtime keys of each subpath import match the documented surface exactly:
 
-- `@feniix/bridgekit`: `["definePortableTool", "executePortableTool", "validatePortableToolArgs"]`
+- `@feniix/bridgekit`: `["definePortableTool", "executePortableTool", "isDomainFailure", "isValidationFailure", "validatePortableToolArgs"]`
 - `@feniix/bridgekit/pi`: `["PortableToolExecutionError", "isPortableToolExecutionError", "registerPiTools"]`
 - `@feniix/bridgekit/mcp`: `["createMcpServer", "runMcpStdioServer"]`
 

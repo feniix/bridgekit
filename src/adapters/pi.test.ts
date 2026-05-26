@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { definePortableTool } from "@feniix/bridgekit";
 import { isPortableToolExecutionError, PortableToolExecutionError, registerPiTools } from "@feniix/bridgekit/pi";
-import { fromPartial } from "@total-typescript/shoehorn";
+import { fromAny, fromPartial } from "@total-typescript/shoehorn";
 import { Type } from "typebox";
 
 const echoParams = Type.Object({
@@ -12,7 +12,17 @@ const echoParams = Type.Object({
 
 type RegisteredPiTool = {
   name: string;
-  execute: (...args: unknown[]) => Promise<unknown>;
+  execute: (
+    toolCallId: string,
+    params: unknown,
+    signal?: AbortSignal,
+    onUpdate?: (update: unknown) => void,
+    ctx?: unknown,
+  ) => Promise<{
+    content: Array<{ type: "text"; text: string }>;
+    details: Record<string, unknown>;
+    isError?: boolean;
+  }>;
 };
 
 test("registerPiTools registers every portable tool with pi metadata", () => {
@@ -96,6 +106,7 @@ test("registered pi tool delegates execution and maps progress updates", async (
   assert.deepEqual(result, {
     content: [{ type: "text", text: "HELLO" }],
     details: { input: "hello", output: "HELLO" },
+    isError: false,
   });
 });
 
@@ -153,6 +164,7 @@ test("registered pi tool maps details when structured content is absent", async 
   assert.deepEqual(result, {
     content: [{ type: "text", text: "details" }],
     details: { source: "details" },
+    isError: false,
   });
 });
 
@@ -192,7 +204,7 @@ test("registered pi tool forwards the AbortSignal and host to the portable conte
   assert.equal(observedSignal?.aborted, true);
 });
 
-test("registered pi tool rejects invalid args without calling the portable handler", async () => {
+test("registered pi tool (default return mode): invalid args return isError=true without calling the handler", async () => {
   let called = false;
   const echoTool = definePortableTool({
     name: "echo_test",
@@ -212,6 +224,41 @@ test("registered pi tool rejects invalid args without calling the portable handl
   };
 
   registerPiTools(fromPartial(pi), [echoTool]);
+  const tool = registered.find((candidate) => candidate.name === "echo_test");
+  assert.ok(tool);
+
+  const result = await tool.execute("tool-call-invalid", { text: 42 }, undefined, undefined, {});
+  assert.equal(called, false);
+  assert.equal(result.isError, true);
+  const details: { kind: "validation"; tool: string; validationErrors: Array<{ path: string }> } = fromAny(
+    result.details,
+  );
+  assert.equal(details.kind, "validation");
+  assert.equal(details.tool, "echo_test");
+  assert.ok(Array.isArray(details.validationErrors));
+  assert.equal(details.validationErrors[0].path, "/text");
+});
+
+test("registered pi tool (opt-in throw mode): invalid args throw without calling the handler", async () => {
+  let called = false;
+  const echoTool = definePortableTool({
+    name: "echo_test",
+    title: "Echo Test",
+    description: "Echo text for pi tests.",
+    parameters: echoParams,
+    execute() {
+      called = true;
+      return { text: "should not run" };
+    },
+  });
+  const registered: RegisteredPiTool[] = [];
+  const pi = {
+    registerTool(tool: RegisteredPiTool) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [echoTool], { errorHandling: "throw" });
   const tool = registered.find((candidate) => candidate.name === "echo_test");
   assert.ok(tool);
 

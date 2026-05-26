@@ -6,9 +6,12 @@ export {
   type PortableToolErrorDetails,
   type PortableToolHost,
   type PortableToolResult,
-} from "./core/define-tool.js";
-export {
-  executePortableTool,
   type PortableValidationError,
-  validatePortableToolArgs,
-} from "./core/execute-tool.js";
+} from "./core/define-tool.js";
+export { executePortableTool, validatePortableToolArgs } from "./core/execute-tool.js";
+export {
+  isDomainFailure,
+  isValidationFailure,
+  type PortableDomainFailure,
+  type PortableValidationFailure,
+} from "./core/result-guards.js";

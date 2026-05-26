@@ -49,7 +49,13 @@ async function assertRuntimeExports(installDir) {
     import * as core from "@feniix/bridgekit";
     import * as pi from "@feniix/bridgekit/pi";
     import * as mcp from "@feniix/bridgekit/mcp";
-    assert.deepEqual(Object.keys(core).sort(), ["definePortableTool", "executePortableTool", "validatePortableToolArgs"]);
+    assert.deepEqual(Object.keys(core).sort(), [
+      "definePortableTool",
+      "executePortableTool",
+      "isDomainFailure",
+      "isValidationFailure",
+      "validatePortableToolArgs",
+    ]);
     assert.deepEqual(Object.keys(pi).sort(), ["PortableToolExecutionError", "isPortableToolExecutionError", "registerPiTools"]);
     assert.deepEqual(Object.keys(mcp).sort(), ["createMcpServer", "runMcpStdioServer"]);
     assert.equal(["register", "McpTools"].join("") in mcp, false);
@@ -79,16 +85,22 @@ async function assertTypesCompile(installDir) {
       import {
         definePortableTool,
         executePortableTool,
+        isDomainFailure,
+        isValidationFailure,
+        type PortableDomainFailure,
         type PortableToolBuiltInHost,
         type PortableToolContext,
         type PortableToolErrorDetails,
         type PortableToolHost,
         type PortableToolResult,
+        type PortableValidationFailure,
       } from "@feniix/bridgekit";
       import {
         isPortableToolExecutionError,
         PortableToolExecutionError,
         type PiToolRegistration,
+        type RegisterPiToolsOptions,
+        registerPiTools,
       } from "@feniix/bridgekit/pi";
       import { type CreateMcpServerOptions } from "@feniix/bridgekit/mcp";
 
@@ -168,6 +180,27 @@ async function assertTypesCompile(installDir) {
       };
       const narrowedOutput: string = typed.structuredContent?.output ?? "";
       void narrowedOutput;
+
+      // Result-guard typecheck: narrows structuredContent on validation failures.
+      const sampleResult: PortableToolResult = {
+        text: "bad",
+        structuredContent: { kind: "validation", tool: "x", validationErrors: [] },
+        isError: true,
+      };
+      if (isValidationFailure(sampleResult)) {
+        const failure: PortableValidationFailure = sampleResult;
+        const toolName: string = failure.structuredContent.tool;
+        void toolName;
+      } else if (isDomainFailure(sampleResult)) {
+        const domain: PortableDomainFailure = sampleResult;
+        const isErrored: true = domain.isError;
+        void isErrored;
+      }
+
+      // RegisterPiToolsOptions wires through the third arg.
+      const piRegistrationOptions: RegisterPiToolsOptions = { errorHandling: "return" };
+      const piWiring: PiToolRegistration = { registerTool() { return undefined; } };
+      registerPiTools(piWiring, [tool], piRegistrationOptions);
     `,
   );
 
@@ -240,6 +273,7 @@ function assertPackFileList(entry) {
   const required = [
     "package.json",
     "README.md",
+    "CHANGELOG.md",
     "llms.txt",
     "examples/README.md",
     "dist/src/index.js",
