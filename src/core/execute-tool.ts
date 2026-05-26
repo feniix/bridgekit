@@ -11,6 +11,28 @@ import type {
 
 const ROOT_FIELD = "(root)";
 
+function suppressSiblingErrorsUnderUnion(errors: TLocalizedValidationError[]): TLocalizedValidationError[] {
+  // When TypeBox emits an anyOf/oneOf error at a path, it also emits per-branch
+  // errors at the same path. The per-branch `required` and `additionalProperties`
+  // errors create false "X is missing" / "Y is unexpected" reports — the user
+  // only needs to satisfy ONE branch, not all of them. Suppress them so only
+  // the anyOf/oneOf summary survives at that path.
+  //
+  // const/enum errors at the same path are NOT suppressed — they're real
+  // discriminator info that helps an agent pick which branch was intended.
+  const unionPaths = new Set<string>();
+  for (const error of errors) {
+    if (error.keyword === "anyOf" || error.keyword === "oneOf") {
+      unionPaths.add(error.instancePath);
+    }
+  }
+  if (unionPaths.size === 0) return errors;
+  return errors.filter((error) => {
+    if (!unionPaths.has(error.instancePath)) return true;
+    return error.keyword !== "required" && error.keyword !== "additionalProperties";
+  });
+}
+
 function expandTypeBoxError(error: TLocalizedValidationError): PortableValidationError[] {
   // Read offending property names from TypeBox's structured `params` rather
   // than parsing the message string. Two payoffs: locale independence (the
@@ -49,12 +71,16 @@ export function validatePortableToolArgs<THost extends string = PortableToolBuil
   }
 
   // TypeBox can emit multiple errors per offending field (e.g. union/anyOf
-  // mismatches fire one error per failed branch). Dedupe by (field, message)
-  // using JSON.stringify so the key can't collide regardless of what
-  // characters field or message contain.
+  // mismatches fire one error per failed branch). First, when an anyOf/oneOf
+  // error fires at a path, drop sibling `required`/`additionalProperties`
+  // errors at the same path — they're phantoms (the consumer only needs to
+  // satisfy ONE branch, not all of them). Then dedupe the survivors by
+  // (field, message) using JSON.stringify so the key can't collide regardless
+  // of what characters field or message contain.
+  const rawErrors = suppressSiblingErrorsUnderUnion([...Errors(tool.parameters, args)] as TLocalizedValidationError[]);
   const seen = new Set<string>();
-  const errors = [...Errors(tool.parameters, args)]
-    .flatMap((error) => expandTypeBoxError(error as TLocalizedValidationError))
+  const errors = rawErrors
+    .flatMap((error) => expandTypeBoxError(error))
     .filter(({ field, message }) => {
       const key = JSON.stringify([field, message]);
       if (seen.has(key)) return false;
