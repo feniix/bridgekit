@@ -81,6 +81,42 @@ Best practices shown here:
 - The `createTools()` factory gives stateful tools a fresh runtime per host instance; stateless packages may still return the same definitions.
 - The file has no import-time registration or server startup.
 
+### Composing object schemas with `Type.Intersect`
+
+When two object schemas describe different facets of the same input — common
+properties plus a feature-specific extension — compose them with
+`Type.Intersect`. Both branches must be `Type.Object(...)`; the MCP adapter
+synthesises `type: "object"` on the wire so existing MCP SDK clients accept
+the composed schema unchanged. Other top-level shapes (`Type.Union(...)`,
+`Type.String()`) throw at `createMcpServer` construction.
+
+```ts
+import { type Static, Type } from "typebox";
+import { definePortableTool } from "@feniix/bridgekit";
+
+const idParams = Type.Object({ id: Type.String({ description: "Record id." }) });
+const updateParams = Type.Object({
+  name: Type.Optional(Type.String({ description: "New display name." })),
+  archived: Type.Optional(Type.Boolean({ description: "Archive flag." })),
+});
+
+const params = Type.Intersect([idParams, updateParams]);
+type Params = Static<typeof params>; // { id: string; name?: string; archived?: boolean }
+
+export const updateRecordTool = definePortableTool({
+  name: "update_record",
+  title: "Update Record",
+  description: "Update a record by id.",
+  parameters: params,
+  execute(args: Params) {
+    return {
+      text: `Updated ${args.id}`,
+      structuredContent: { id: args.id, name: args.name, archived: args.archived },
+    };
+  },
+});
+```
+
 ---
 
 ## 2. Register tools in a pi extension
