@@ -178,7 +178,7 @@ test("pi adapter (default return mode): invalid args return isError=true with co
   assert.equal(details.kind, "validation");
   assert.equal(details.tool, "compliance_validation");
   assert.ok(Array.isArray(details.validationErrors));
-  assert.equal(details.validationErrors[0].path, "/text");
+  assert.equal(details.validationErrors[0].field, "text");
 });
 
 test("mcp adapter: invalid args return isError=true with validationErrors in structuredContent", async () => {
@@ -188,7 +188,7 @@ test("mcp adapter: invalid args return isError=true with validationErrors in str
     const structured: ValidationShape = fromAny(result.structuredContent);
     assert.equal(structured.tool, "compliance_validation");
     assert.ok(Array.isArray(structured.validationErrors));
-    assert.equal(structured.validationErrors[0].path, "/text");
+    assert.equal(structured.validationErrors[0].field, "text");
   });
 });
 
@@ -221,7 +221,7 @@ test("pi adapter (opt-in throw mode): invalid args throw with validationErrors i
       if (error.details.kind !== "validation") return false;
       assert.equal(error.details.tool, "compliance_validation");
       assert.ok(Array.isArray(error.details.validationErrors));
-      assert.equal(error.details.validationErrors[0].path, "/text");
+      assert.equal(error.details.validationErrors[0].field, "text");
       return true;
     },
   );

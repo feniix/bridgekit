@@ -35,7 +35,7 @@ test("isValidationFailure narrows results produced by executePortableTool on Typ
     const errors: PortableValidationError[] = result.structuredContent.validationErrors;
     assert.equal(tool, "validation_guard_test");
     assert.ok(Array.isArray(errors));
-    assert.equal(errors[0].path, "/text");
+    assert.equal(errors[0].field, "text");
   }
   // Validation failures are not domain failures.
   assert.equal(isDomainFailure(result), false);

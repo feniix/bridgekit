@@ -32,7 +32,7 @@ export type PortableToolErrorDetails =
   | ({ kind: "domain" } & Record<string, unknown>);
 
 export interface PortableValidationError {
-  path: string;
+  field: string;
   message: string;
 }
 

@@ -166,8 +166,15 @@ async function assertTypesCompile(installDir) {
         if (details.kind === "validation") {
           const tool: string = details.tool;
           const validationErrors = details.validationErrors;
+          // Exercise PortableValidationError.field so a regression that ships
+          // .path in the published .d.ts is caught at pack time.
+          const firstField: string | undefined = validationErrors[0]?.field;
+          // @ts-expect-error path was removed in 0.8.0 and must not reappear on the published type.
+          const legacyPath: string | undefined = validationErrors[0]?.path;
           void tool;
           void validationErrors;
+          void firstField;
+          void legacyPath;
         } else {
           const kind: "domain" = details.kind;
           void kind;

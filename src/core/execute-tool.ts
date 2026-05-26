@@ -1,4 +1,5 @@
 import type { TSchema } from "typebox";
+import type { TLocalizedValidationError } from "typebox/error";
 import { Check, Errors } from "typebox/value";
 import type {
   PortableTool,
@@ -8,6 +9,37 @@ import type {
   PortableValidationError,
 } from "./define-tool.js";
 
+const ROOT_FIELD = "(root)";
+
+function expandTypeBoxError(error: TLocalizedValidationError): PortableValidationError[] {
+  // Read offending property names from TypeBox's structured `params` rather
+  // than parsing the message string. Two payoffs: locale independence (the
+  // helper works the same after `Locale.Set("de_DE")`), and faithful
+  // preservation of property names that contain delimiters TypeBox's prose
+  // would split on (commas, etc.).
+  if (error.keyword === "required") {
+    const props = error.params.requiredProperties.filter((p) => p.length > 0);
+    if (props.length > 0) {
+      return props.map((field) => ({
+        field,
+        message: `must have required property ${field}`,
+      }));
+    }
+  }
+  if (error.keyword === "additionalProperties") {
+    const props = error.params.additionalProperties.filter((p) => p.length > 0);
+    if (props.length > 0) {
+      return props.map((field) => ({
+        field,
+        message: `must not have additional property ${field}`,
+      }));
+    }
+  }
+
+  const segments = error.instancePath.split("/").filter(Boolean);
+  return [{ field: segments.at(-1) ?? ROOT_FIELD, message: error.message }];
+}
+
 export function validatePortableToolArgs<THost extends string = PortableToolBuiltInHost>(
   tool: PortableTool<TSchema, THost>,
   args: unknown,
@@ -16,13 +48,21 @@ export function validatePortableToolArgs<THost extends string = PortableToolBuil
     return { ok: true };
   }
 
-  return {
-    ok: false,
-    errors: [...Errors(tool.parameters, args)].map((error) => ({
-      path: error.instancePath || "/",
-      message: error.message,
-    })),
-  };
+  // TypeBox can emit multiple errors per offending field (e.g. union/anyOf
+  // mismatches fire one error per failed branch). Dedupe by (field, message)
+  // using JSON.stringify so the key can't collide regardless of what
+  // characters field or message contain.
+  const seen = new Set<string>();
+  const errors = [...Errors(tool.parameters, args)]
+    .flatMap((error) => expandTypeBoxError(error as TLocalizedValidationError))
+    .filter(({ field, message }) => {
+      const key = JSON.stringify([field, message]);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+  return { ok: false, errors };
 }
 
 export async function executePortableTool<THost extends string = PortableToolBuiltInHost>(
@@ -34,7 +74,7 @@ export async function executePortableTool<THost extends string = PortableToolBui
   if (!validation.ok) {
     return {
       text: `Invalid arguments for ${tool.name}: ${validation.errors
-        .map((error) => `${error.path} ${error.message}`)
+        .map((error) => `${error.field}: ${error.message}`)
         .join("; ")}`,
       structuredContent: {
         kind: "validation",

@@ -7,8 +7,16 @@ import {
   type PortableToolBuiltInHost,
   type PortableToolContext,
   type PortableToolHost,
+  type PortableValidationError,
 } from "@feniix/bridgekit";
+import { fromAny } from "@total-typescript/shoehorn";
 import { type Static, Type } from "typebox";
+
+function getValidationErrors(result: {
+  structuredContent?: { validationErrors?: unknown } | undefined;
+}): PortableValidationError[] {
+  return fromAny(result.structuredContent?.validationErrors);
+}
 
 const echoParams = Type.Object({
   text: Type.String({ description: "Text to echo." }),
@@ -122,10 +130,235 @@ test("executePortableTool returns validation errors without calling the tool", a
   assert.match(result.text, /Invalid arguments for echo_test/);
   assert.equal(result.structuredContent?.kind, "validation");
   assert.equal(result.structuredContent?.tool, "echo_test");
-  const validationErrors = result.structuredContent?.validationErrors as Array<{ path: string; message: string }>;
-  assert.ok(Array.isArray(validationErrors));
-  assert.equal(validationErrors.length, 1);
-  assert.equal(validationErrors[0].path, "/text");
-  assert.equal(typeof validationErrors[0].message, "string");
-  assert.ok(validationErrors[0].message.length > 0);
+  const errors = getValidationErrors(result);
+  assert.ok(Array.isArray(errors));
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "text");
+  assert.equal(typeof errors[0].message, "string");
+  assert.ok(errors[0].message.length > 0);
+});
+
+test("validatePortableToolArgs: missing top-level required property", async () => {
+  const tool = definePortableTool({
+    name: "missing_required",
+    title: "Missing Required",
+    description: "Schema requires file_path.",
+    parameters: Type.Object({ file_path: Type.String() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, {}, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.deepEqual(
+    errors.map((e) => e.field),
+    ["file_path"],
+  );
+  assert.match(errors[0].message, /required property file_path/);
+});
+
+test("validatePortableToolArgs: wrong type on top-level property", async () => {
+  const tool = definePortableTool({
+    name: "wrong_type_top",
+    title: "Wrong Type Top",
+    description: "count must be number.",
+    parameters: Type.Object({ count: Type.Number() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { count: "x" }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "count");
+});
+
+test("validatePortableToolArgs: wrong type on nested property", async () => {
+  const tool = definePortableTool({
+    name: "wrong_type_nested",
+    title: "Wrong Type Nested",
+    description: "inner.name must be string.",
+    parameters: Type.Object({ inner: Type.Object({ name: Type.String() }) }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { inner: { name: 42 } }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "name");
+});
+
+test("validatePortableToolArgs: nested required property missing surfaces the missing prop name", async () => {
+  // /inner has instancePath="/inner", but the missing prop is "name" (the
+  // child). The structured-access path reads params.requiredProperties and
+  // surfaces "name" rather than the parent segment.
+  const tool = definePortableTool({
+    name: "nested_required_missing",
+    title: "Nested Required Missing",
+    description: "Schema requires inner.name.",
+    parameters: Type.Object({ inner: Type.Object({ name: Type.String() }) }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { inner: {} }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.deepEqual(
+    errors.map((e) => e.field),
+    ["name"],
+  );
+  assert.match(errors[0].message, /required property name/);
+});
+
+test("validatePortableToolArgs: out-of-range integer", async () => {
+  const tool = definePortableTool({
+    name: "out_of_range",
+    title: "Out Of Range",
+    description: "count must be >= 0.",
+    parameters: Type.Object({ count: Type.Number({ minimum: 0 }) }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { count: -1 }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "count");
+});
+
+test("validatePortableToolArgs: union / discriminator mismatch dedupes by (field, message)", async () => {
+  // TypeBox emits multiple raw errors on /kind for a union mismatch (one per
+  // failed branch plus an anyOf wrapper). The exact count is TypeBox-internal
+  // and may shift across patch releases. The behavioral contract is "no
+  // duplicate (field, message) pairs survive dedup" — assert that directly.
+  const tool = definePortableTool({
+    name: "union_mismatch",
+    title: "Union Mismatch",
+    description: "kind must be 'a' or 'b'.",
+    parameters: Type.Object({ kind: Type.Union([Type.Literal("a"), Type.Literal("b")]) }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { kind: "c" }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.ok(errors.length >= 1);
+  for (const error of errors) {
+    assert.equal(error.field, "kind");
+  }
+  // No duplicate (field, message) pairs survive dedup.
+  const pairs = new Set(errors.map((e) => JSON.stringify([e.field, e.message])));
+  assert.equal(pairs.size, errors.length);
+});
+
+test("validatePortableToolArgs: multiple missing required properties expand to one error per field", async () => {
+  const tool = definePortableTool({
+    name: "multiple_missing_required",
+    title: "Multiple Missing Required",
+    description: "Schema requires file_path and count.",
+    parameters: Type.Object({ file_path: Type.String(), count: Type.Number() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, {}, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.deepEqual(errors.map((e) => e.field).sort(), ["count", "file_path"]);
+  for (const error of errors) {
+    assert.match(error.message, /required property/);
+  }
+});
+
+test("validatePortableToolArgs: comma in property name survives intact (structured access, not message parsing)", async () => {
+  // The previous regex-based approach would split "must have required
+  // properties a,b" into ["a", "b"]. Structured access reads
+  // params.requiredProperties which preserves the original prop name verbatim.
+  const tool = definePortableTool({
+    name: "comma_prop",
+    title: "Comma Prop",
+    description: "Schema with a comma in its property name.",
+    parameters: Type.Object({ "a,b": Type.String() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, {}, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.deepEqual(
+    errors.map((e) => e.field),
+    ["a,b"],
+  );
+});
+
+test("validatePortableToolArgs: non-object args produce field=(root), not empty string", async () => {
+  const tool = definePortableTool({
+    name: "object_schema_null_args",
+    title: "Object Schema Null Args",
+    description: "Schema is Object; args is null.",
+    parameters: Type.Object({ field: Type.String() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, null, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "(root)");
+  assert.match(errors[0].message, /must be object/);
+  // The text formatter prefixes the (root) sentinel without producing a
+  // double-colon. Match structurally to stay resilient to TypeBox locale
+  // changes that might rephrase "must be object".
+  assert.match(result.text, /^Invalid arguments for object_schema_null_args: \(root\): /);
+});
+
+test("validatePortableToolArgs: additionalProperties=false surfaces the offending key as field", async () => {
+  const tool = definePortableTool({
+    name: "no_additional",
+    title: "No Additional",
+    description: "Schema rejects additional properties.",
+    parameters: Type.Object({ x: Type.String() }, { additionalProperties: false }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { x: "ok", extra: 1 }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.deepEqual(
+    errors.map((e) => e.field),
+    ["extra"],
+  );
+  assert.match(errors[0].message, /must not have additional property extra/);
+});
+
+test("validatePortableToolArgs: empty-string property name falls back to (root) sentinel", async () => {
+  // params.requiredProperties is filtered for length > 0, so a missing
+  // pathological-named "" prop falls back to the instancePath-based path,
+  // which produces (root) for empty instancePath. field is never "".
+  const tool = definePortableTool({
+    name: "empty_string_prop",
+    title: "Empty String Prop",
+    description: "Schema with an empty-string property name.",
+    parameters: Type.Object({ "": Type.String() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, {}, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.ok(errors.length >= 1);
+  for (const error of errors) {
+    assert.notEqual(error.field, "");
+  }
 });

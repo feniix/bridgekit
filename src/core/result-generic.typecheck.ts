@@ -20,9 +20,12 @@ void loose;
 function narrowsErrorDetails(details: PortableToolErrorDetails) {
   if (details.kind === "validation") {
     const tool: string = details.tool;
-    const firstPath: string | undefined = details.validationErrors[0]?.path;
+    const firstField: string | undefined = details.validationErrors[0]?.field;
     void tool;
-    void firstPath;
+    void firstField;
+    // @ts-expect-error `path` was renamed to `field` in 0.8.0 and is no longer part of the type.
+    const _legacyPath: string | undefined = details.validationErrors[0]?.path;
+    void _legacyPath;
   } else {
     const kind: "domain" = details.kind;
     void kind;
@@ -32,7 +35,7 @@ void narrowsErrorDetails;
 
 function requiresNarrowingForTypedAccess(details: PortableToolErrorDetails) {
   // @ts-expect-error Without narrowing on `kind`, validationErrors is `unknown` and is not indexable.
-  const path = details.validationErrors[0].path;
-  void path;
+  const field = details.validationErrors[0].field;
+  void field;
 }
 void requiresNarrowingForTypedAccess;

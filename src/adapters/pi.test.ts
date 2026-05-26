@@ -230,13 +230,13 @@ test("registered pi tool (default return mode): invalid args return isError=true
   const result = await tool.execute("tool-call-invalid", { text: 42 }, undefined, undefined, {});
   assert.equal(called, false);
   assert.equal(result.isError, true);
-  const details: { kind: "validation"; tool: string; validationErrors: Array<{ path: string }> } = fromAny(
+  const details: { kind: "validation"; tool: string; validationErrors: Array<{ field: string }> } = fromAny(
     result.details,
   );
   assert.equal(details.kind, "validation");
   assert.equal(details.tool, "echo_test");
   assert.ok(Array.isArray(details.validationErrors));
-  assert.equal(details.validationErrors[0].path, "/text");
+  assert.equal(details.validationErrors[0].field, "text");
 });
 
 test("registered pi tool (opt-in throw mode): invalid args throw without calling the handler", async () => {
@@ -272,7 +272,7 @@ test("registered pi tool (opt-in throw mode): invalid args throw without calling
       if (error.details.kind !== "validation") return false;
       assert.equal(error.details.tool, "echo_test");
       assert.ok(Array.isArray(error.details.validationErrors));
-      assert.equal(error.details.validationErrors[0].path, "/text");
+      assert.equal(error.details.validationErrors[0].field, "text");
       return true;
     },
   );
