@@ -4,6 +4,18 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - Unreleased
+
+### Fixed
+
+- Discriminated unions now surface the active branch's
+  `required`/`additionalProperties` hints. When an `anyOf` fires at a path
+  and exactly one branch's discriminator (`Literal`/`const`/`enum`) is
+  satisfied by the input, BridgeKit keeps that branch's sibling errors
+  and suppresses the others. For non-discriminated unions and ambiguous
+  cases, the conservative "suppress all" behavior from 0.8.1 is preserved.
+  Resolves [#38](https://github.com/feniix/bridgekit/issues/38).
+
 ## [0.8.1] - Unreleased
 
 ### Fixed
