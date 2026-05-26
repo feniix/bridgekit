@@ -46,12 +46,109 @@ export interface PortableToolContext<THost extends string = PortableToolBuiltInH
   progress?: (update: PortableToolResult) => void;
 }
 
+/**
+ * Pi-specific entries on `PortableTool.hostExtras`. Read only by the pi
+ * adapter; the MCP adapter ignores this namespace.
+ *
+ * @see PortableToolHostExtras
+ */
+export interface PiHostExtras {
+  /**
+   * One-shot text the pi adapter emits as `onUpdate(...)` exactly once,
+   * **before** TypeBox validation runs. When unset (or absent on the tool),
+   * no pre-execute update is emitted. When the registered pi host does not
+   * supply an `onUpdate` callback at call time, the adapter silently no-ops.
+   *
+   * @example
+   * hostExtras: { pi: { pendingMessage: "Processing..." } }
+   */
+  pendingMessage?: string;
+
+  /**
+   * Short string blended into pi's system prompt to summarise when this tool
+   * should be called. Passed through verbatim to pi's `registerTool` call.
+   *
+   * Whether the installed pi SDK reads this field is the pi host's concern;
+   * bridgekit's contract is to pass it through unmodified when set.
+   */
+  promptSnippet?: string;
+
+  /**
+   * Longer-form guidance bullet points passed through to pi's `registerTool`
+   * call. Each entry is one bullet. Held by reference — treat as immutable
+   * once attached to a tool definition.
+   */
+  promptGuidelines?: readonly string[];
+
+  /**
+   * Optional render mode the pi host may consume. `"default"` lets pi render
+   * the result inside its standard tool-output shell; `"self"` indicates the
+   * tool draws its own UI. Passed through to pi's `registerTool` call when
+   * set; absent → field omitted from the registration payload.
+   */
+  renderShell?: "default" | "self";
+}
+
+/**
+ * MCP-specific entries on `PortableTool.hostExtras`. Read only by the MCP
+ * adapter; the pi adapter ignores this namespace.
+ *
+ * @see PortableToolHostExtras
+ */
+export interface McpHostExtras {
+  /**
+   * MCP tool annotations attached to `tools/list` entries. Hints clients may
+   * surface to users; do not affect validation or execution.
+   *
+   * @see https://modelcontextprotocol.io/specification (Tool annotations)
+   */
+  annotations?: {
+    title?: string;
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
+}
+
+/**
+ * Opaque per-host metadata attached to a portable tool definition. Adapters
+ * read the keys they recognise and ignore the rest. Tools that omit
+ * `hostExtras` see no behavior change and pay no runtime cost — every adapter
+ * short-circuits on `tool.hostExtras?.<host>` being `undefined`.
+ *
+ * The shape is **module-augmentable** for custom hosts:
+ *
+ * ```ts
+ * declare module "@feniix/bridgekit" {
+ *   interface PortableToolHostExtras {
+ *     "custom-runtime"?: { something: string };
+ *   }
+ * }
+ * ```
+ *
+ * The augmentation must be in scope wherever a tool sets
+ * `hostExtras["custom-runtime"]`. bridgekit guarantees the type slot; the
+ * consumer is responsible for adapter dispatch.
+ */
+export interface PortableToolHostExtras {
+  pi?: PiHostExtras;
+  mcp?: McpHostExtras;
+}
+
 export interface PortableTool<TParams extends TSchema = TSchema, THost extends string = PortableToolBuiltInHost> {
   name: string;
   title: string;
   description: string;
   parameters: TParams;
   execute: (args: Static<TParams>, ctx: PortableToolContext<THost>) => PortableToolResult | Promise<PortableToolResult>;
+  /**
+   * Optional per-host metadata. Adapters consume the keys they recognise;
+   * unknown host namespaces are ignored. Absent → no behavior change.
+   *
+   * @see PortableToolHostExtras
+   */
+  hostExtras?: PortableToolHostExtras;
 }
 
 export function definePortableTool<TParams extends TSchema, THost extends string = PortableToolBuiltInHost>(

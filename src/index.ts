@@ -1,10 +1,13 @@
 export {
   definePortableTool,
+  type McpHostExtras,
+  type PiHostExtras,
   type PortableTool,
   type PortableToolBuiltInHost,
   type PortableToolContext,
   type PortableToolErrorDetails,
   type PortableToolHost,
+  type PortableToolHostExtras,
   type PortableToolResult,
   type PortableValidationError,
 } from "./core/define-tool.js";
