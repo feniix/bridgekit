@@ -2,7 +2,7 @@
 
 - **Issue**: [#28](https://github.com/feniix/bridgekit/issues/28)
 - **Status**: Draft (design pass before implementation).
-- **Target release**: 0.9.0, bundled with [#29](https://github.com/feniix/bridgekit/issues/29) (see §7).
+- **Target release**: 0.9.0, bundled with [#29](https://github.com/feniix/bridgekit/issues/29) (see [§7](#7-sequencing-with-29)).
 - **Scope**: A single optional field, `PortableTool.hostExtras`, that carries host-specific descriptive metadata and a small set of lifecycle hints. Adapters read the keys they recognize and ignore the rest. Tools that omit `hostExtras` see no behavior change and pay no runtime cost.
 
 This RFC is deliberately narrow. The portable-tool core has spent five minor releases hardening its error model and field-derivation logic without absorbing any pi-side opinion. The goal of `hostExtras` is to close the remaining "consumers bypass `registerPiTools` because the adapter strips data" gap **without** importing host-presentation policy into the core.
@@ -277,7 +277,7 @@ The following are **not** within `hostExtras`'s scope. They are listed here as b
 - **Telemetry hooks (`onToolCall`, `onToolError`).** Closed [#16](https://github.com/feniix/bridgekit/issues/16). `hostExtras` is not a back-door for adding callbacks.
 - **Tool catalog metadata (`version`, `tags`, `deprecated`, `examples`).** Closed [#15](https://github.com/feniix/bridgekit/issues/15). Catalog metadata describes a tool *across* hosts; if it ever lands, it goes on `PortableTool` directly, not under `hostExtras`. Different decision, different RFC, if at all.
 - **Plugin system / dispatch helpers.** Never opened, deliberately. `hostExtras` is opaque data per known host. It is not an extension point for arbitrary host plugins discovered at runtime; bridgekit knows the host names it supports and adapters consume them.
-- **MCP `outputSchema`.** Mentioned in #28's problem statement but punted to a separate RFC (see §4).
+- **MCP `outputSchema`.** Mentioned in #28's problem statement but punted to a separate RFC (see [§4](#4-cross-host-symmetry-and-the-mcp-namespace)).
 
 The first three are direct anti-recommendations from the closed-issue audit; the next three keep this RFC focused on the actual gap rather than absorbing adjacent features.
 
@@ -305,12 +305,105 @@ The first three are direct anti-recommendations from the closed-issue audit; the
 
 ## 8. Implementation sketch (light)
 
-_TODO: pi adapter wiring._
+This is intentionally not a complete patch — just enough to make the RFC implementable. The change to `registerPiTools` is purely additive.
+
+```ts
+// src/adapters/pi.ts (sketch, simplified)
+
+export function registerPiTools(
+  pi: PiToolRegistration,
+  tools: readonly PortableTool<TSchema>[],
+  options: RegisterPiToolsOptions = {},
+): void {
+  const errorHandling = options.errorHandling ?? "return";
+  // …existing deprecation-warning bookkeeping…
+
+  for (const tool of tools) {
+    const piExtras = tool.hostExtras?.pi;
+
+    pi.registerTool({
+      name: tool.name,
+      label: tool.title,
+      description: tool.description,
+      parameters: tool.parameters,
+      // Spread known pi extras. Each field is gated on `!== undefined` so
+      // tools without `hostExtras.pi` build a registration object that is
+      // byte-identical to today's shape — zero-cost when absent.
+      ...(piExtras?.promptSnippet !== undefined && { promptSnippet: piExtras.promptSnippet }),
+      ...(piExtras?.promptGuidelines !== undefined && { promptGuidelines: piExtras.promptGuidelines }),
+      ...(piExtras?.renderShell !== undefined && { renderShell: piExtras.renderShell }),
+
+      async execute(_toolCallId, params, signal, onUpdate, _ctx) {
+        // Lifecycle hook: fire the pre-execute update exactly once,
+        // before TypeBox validation runs. Adapter does the work; the
+        // tool definition only declares the string.
+        if (piExtras?.pendingMessage !== undefined) {
+          onUpdate?.({
+            content: [{ type: "text", text: piExtras.pendingMessage }],
+            details: { status: "pending" },
+          });
+        }
+
+        // …existing executePortableTool + result-translation code, unchanged…
+      },
+    });
+  }
+}
+```
+
+**Key properties of the sketch.**
+
+- Additive. No existing field on `PortableTool` changes; no existing argument to `registerPiTools` changes; no existing return path changes.
+- Zero-cost when absent. The `tool.hostExtras?.pi` lookup is undefined for today's tools; every subsequent `?.` short-circuits.
+- Adapter-local. The pi adapter knows about `hostExtras.pi`; the MCP adapter knows about `hostExtras.mcp`; neither imports the other. The asymmetry that's been load-bearing since extraction is preserved.
+- The MCP adapter sketch is the same shape: `const mcpExtras = tool.hostExtras?.mcp` at the top of `setRequestHandler(ListToolsRequestSchema, …)`'s tool mapping, and `annotations: mcpExtras?.annotations` added to the emitted `Tool` only when defined. We do not write that sketch out here because the first 0.9.0 implementation PR may choose to ship pi-side consumption only and leave MCP consumption for 0.9.x — the type shape is what claims the namespace; the adapter wiring is a follow-up.
+
+---
 
 ## 9. Test plan (sketch)
 
-_TODO._
+Lifecycle-relevant assertions for the implementation PR:
+
+1. **Zero-cost shape.** A tool with no `hostExtras` produces a `PiToolDefinition` (and an MCP `Tool`) whose own-property keys exactly match today's set. Snapshot-style test.
+2. **`pendingMessage` fires before validation.** Given a tool with `hostExtras.pi.pendingMessage` and a schema that rejects the supplied args, `onUpdate` is called once with the pending message *before* the validation-failure result is returned. Order-asserting test.
+3. **`pendingMessage` fires exactly once.** No second invocation from `executePortableTool`'s own progress wiring.
+4. **`promptSnippet` / `promptGuidelines` / `renderShell` pass-through.** Given a tool with each field set, the call to `pi.registerTool` carries the same value.
+5. **MCP annotations.** Given a tool with `hostExtras.mcp.annotations.readOnlyHint = true`, the `Tool` returned by `tools/list` carries the annotation. (Lands when 0.9.x adapter consumption ships.)
+6. **Unknown-host keys ignored.** Given a tool with `hostExtras["custom-host"]` populated via module augmentation, neither the pi nor MCP adapter looks at it.
+7. **`smoke-package.mjs` runtime keys.** The `assertRuntimeExports` allow-list does not change. No new public exports.
+
+---
 
 ## 10. Closing summary
 
-_TODO: restate the final API shape._
+The proposed shape:
+
+```ts
+interface PortableTool<TParams, THost> {
+  name: string;
+  title: string;
+  description: string;
+  parameters: TParams;
+  execute: (args, ctx) => PortableToolResult | Promise<PortableToolResult>;
+  hostExtras?: {
+    pi?: {
+      pendingMessage?: string;
+      promptSnippet?: string;
+      promptGuidelines?: readonly string[];
+      renderShell?: "default" | "self";
+    };
+    mcp?: {
+      annotations?: {
+        readOnlyHint?: boolean;
+        destructiveHint?: boolean;
+        idempotentHint?: boolean;
+        openWorldHint?: boolean;
+      };
+    };
+  };
+}
+```
+
+The bet: an opaque-per-host, descriptive-data field is the smallest possible API that closes the consumer-wrapper-duplication gap without absorbing any host policy into the core. Either the bet pays off — the production consumers' wrapper code measurably shrinks when `hostExtras` lands — or this RFC was wrong about the gap, and the implementation PR should fail its success criterion in [§5](#5-migration-path-for-existing-consumers) and revert.
+
+This RFC opens the design conversation. Implementation lives in a follow-up PR against the same issue, bundled with #29 in 0.9.0.
