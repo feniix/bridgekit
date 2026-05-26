@@ -27,6 +27,11 @@ function fieldFromPath(instancePath: string): string {
  * property key, descending into the matched sub-schema — and returns the
  * actual leaf key. Array nodes consume a single numeric segment via `items`.
  *
+ * `allOf` nodes (TypeBox's `Intersect` lowering) probe each branch in turn
+ * with the same remaining path and return the first successful match. This
+ * is what lets `Type.Intersect([Object({"a/b": String()}), Object({c: ...})])`
+ * resolve a `/a/b` instancePath to the `"a/b"` key in the first branch.
+ *
  * Returns `undefined` if the walk gets stuck (the schema does not model the
  * data path — e.g. `additionalProperties` content). The caller then falls
  * back to the string-split `fieldFromPath`, preserving prior behavior.
@@ -39,48 +44,53 @@ function fieldFromSchemaWalk(schema: TSchema, instancePath: string): string | un
   if (instancePath === "") return undefined;
   const segments = instancePath.split("/").filter(Boolean);
   if (segments.length === 0) return undefined;
-  let current: unknown = schema;
-  let lastKey: string | undefined;
-  let i = 0;
-  while (i < segments.length) {
-    if (!current || typeof current !== "object") return undefined;
-    const node = current as { properties?: Record<string, unknown>; items?: unknown };
-    // Array descent: numeric segment against an `items` schema. Tuple-form
-    // `items` (array) indexes positionally; schema-form descends uniformly.
-    if (node.items !== undefined && /^\d+$/.test(segments[i])) {
-      const idx = Number(segments[i]);
-      if (Array.isArray(node.items)) {
-        if (idx >= node.items.length) return undefined;
-        current = node.items[idx];
-      } else {
-        current = node.items;
-      }
-      lastKey = segments[i];
-      i++;
-      continue;
+  return walkSegments(schema, segments, 0);
+}
+
+function walkSegments(node: unknown, segments: string[], i: number): string | undefined {
+  if (i >= segments.length) return undefined;
+  if (!node || typeof node !== "object") return undefined;
+  const obj = node as { properties?: Record<string, unknown>; items?: unknown; allOf?: unknown };
+  // Array descent: numeric segment against an `items` schema. Tuple-form
+  // `items` (array) indexes positionally; schema-form descends uniformly.
+  if (obj.items !== undefined && /^\d+$/.test(segments[i])) {
+    const idx = Number(segments[i]);
+    let next: unknown;
+    if (Array.isArray(obj.items)) {
+      if (idx >= obj.items.length) return undefined;
+      next = obj.items[idx];
+    } else {
+      next = obj.items;
     }
-    // Object descent: greedy longest-prefix match against `properties` keys.
-    // This is what lets `a/b` resolve to a single key when the schema
-    // declares it, even though the instancePath segments it as ["a", "b"].
-    if (node.properties && typeof node.properties === "object") {
-      const props = node.properties;
-      let matched = -1;
-      for (let j = segments.length; j > i; j--) {
-        const candidate = segments.slice(i, j).join("/");
-        if (Object.hasOwn(props, candidate)) {
-          matched = j;
-          lastKey = candidate;
-          current = props[candidate];
-          break;
-        }
+    if (i + 1 === segments.length) return segments[i];
+    return walkSegments(next, segments, i + 1);
+  }
+  // Object descent: greedy longest-prefix match against `properties` keys.
+  // This is what lets `a/b` resolve to a single key when the schema
+  // declares it, even though the instancePath segments it as ["a", "b"].
+  if (obj.properties && typeof obj.properties === "object") {
+    const props = obj.properties;
+    for (let j = segments.length; j > i; j--) {
+      const candidate = segments.slice(i, j).join("/");
+      if (Object.hasOwn(props, candidate)) {
+        if (j === segments.length) return candidate;
+        const child = walkSegments(props[candidate], segments, j);
+        if (child !== undefined) return child;
       }
-      if (matched === -1) return undefined;
-      i = matched;
-      continue;
     }
     return undefined;
   }
-  return lastKey;
+  // allOf descent: TypeBox's Intersect lowering. Each branch sees the full
+  // remaining path; return the first branch that resolves. This is the
+  // schema-side mirror of how Intersect merges property contributions.
+  if (Array.isArray(obj.allOf)) {
+    for (const branch of obj.allOf) {
+      const matched = walkSegments(branch, segments, i);
+      if (matched !== undefined) return matched;
+    }
+    return undefined;
+  }
+  return undefined;
 }
 
 function fieldFromError(schema: TSchema, error: TLocalizedValidationError): string {

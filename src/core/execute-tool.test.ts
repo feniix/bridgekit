@@ -507,6 +507,34 @@ test("validatePortableToolArgs: slash in property name survives intact for wrong
   assert.match(errors[0].message, /must be string/);
 });
 
+test("validatePortableToolArgs: slash in property name inside Type.Intersect resolves via allOf descent", async () => {
+  // 0.9 widened the MCP adapter to accept Type.Intersect; the schema walker
+  // in fieldFromSchemaWalk had no allOf descent, so a property named `a/b`
+  // inside an Intersect branch had no schema-resolution path: the root has
+  // `allOf` rather than `properties`, the walker returned undefined, and
+  // the string-split fallback yielded field "b" (losing the prefix). The
+  // walker now probes each allOf branch with the full remaining path. This
+  // exercises the wrong-type path (const/enum/default keywords use the
+  // walker); required/additionalProperties already read structured params.
+  const tool = definePortableTool({
+    name: "slash_prop_intersect",
+    title: "Slash Prop Intersect",
+    description: "Type.Intersect with a slash-named property in one branch.",
+    parameters: Type.Intersect([Type.Object({ "a/b": Type.String() }), Type.Object({ c: Type.Number() })]),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  // Send a wrong type for "a/b" so TypeBox emits a wrong-type error at
+  // instancePath "/a/b". Only the allOf-aware walker preserves the prefix.
+  const result = await executePortableTool(tool, { "a/b": 42, c: 1 }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  const offending = errors.find((e) => e.field === "a/b");
+  assert.ok(offending, "expected a wrong-type entry naming 'a/b'");
+  assert.match(offending.message, /must be string/);
+});
+
 test("validatePortableToolArgs: comma in property name survives intact (structured access, not message parsing)", async () => {
   // The previous regex-based approach would split "must have required
   // properties a,b" into ["a", "b"]. Structured access reads
