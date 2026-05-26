@@ -4,7 +4,7 @@ import { definePortableTool, type PortableTool } from "@feniix/bridgekit";
 import { type CreateMcpServerOptions, createMcpServer } from "@feniix/bridgekit/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { type TObject, Type } from "typebox";
+import { type TSchema, Type } from "typebox";
 
 const echoParams = Type.Object({
   text: Type.String({ description: "Text to echo." }),
@@ -32,7 +32,7 @@ function structuredContent(result: unknown): Record<string, unknown> {
 }
 
 async function withConnectedPair(
-  tools: ReadonlyArray<PortableTool<TObject>>,
+  tools: ReadonlyArray<PortableTool<TSchema>>,
   body: (client: Client) => Promise<void>,
   serverOverrides: Partial<CreateMcpServerOptions> = {},
 ): Promise<void> {

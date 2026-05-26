@@ -12,7 +12,7 @@ import { isPortableToolExecutionError, PortableToolExecutionError, registerPiToo
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { fromAny, fromPartial } from "@total-typescript/shoehorn";
-import { type TObject, Type } from "typebox";
+import { type TSchema, Type } from "typebox";
 
 /**
  * Adapter compliance suite. As of 0.7, pi and MCP behave symmetrically by
@@ -95,7 +95,7 @@ type RegisteredPiTool = {
 };
 
 function registerPi(
-  tools: ReadonlyArray<PortableTool<TObject>>,
+  tools: ReadonlyArray<PortableTool<TSchema>>,
   options?: Parameters<typeof registerPiTools>[2],
 ): Map<string, RegisteredPiTool> {
   const map = new Map<string, RegisteredPiTool>();
@@ -109,7 +109,7 @@ function registerPi(
 }
 
 async function withMcpClient(
-  tools: ReadonlyArray<PortableTool<TObject>>,
+  tools: ReadonlyArray<PortableTool<TSchema>>,
   body: (client: Client) => Promise<void>,
 ): Promise<void> {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

@@ -507,6 +507,30 @@ test("validatePortableToolArgs: slash in property name survives intact for wrong
   assert.match(errors[0].message, /must be string/);
 });
 
+test("validatePortableToolArgs: slash in property name inside Type.Intersect resolves via allOf descent", async () => {
+  // Regression anchor for the 0.8.3 `/`-in-property-name fix once the schema
+  // root is an Intersect (`allOf`) rather than an `Object` (`properties`):
+  // without allOf descent, the field-derivation fallback split on `/` and
+  // returned "b" instead of "a/b".
+  const tool = definePortableTool({
+    name: "slash_prop_intersect",
+    title: "Slash Prop Intersect",
+    description: "Type.Intersect with a slash-named property in one branch.",
+    parameters: Type.Intersect([Type.Object({ "a/b": Type.String() }), Type.Object({ c: Type.Number() })]),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  // Send a wrong type for "a/b" so TypeBox emits a wrong-type error at
+  // instancePath "/a/b". Only the allOf-aware walker preserves the prefix.
+  const result = await executePortableTool(tool, { "a/b": 42, c: 1 }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  const offending = errors.find((e) => e.field === "a/b");
+  assert.ok(offending, "expected a wrong-type entry naming 'a/b'");
+  assert.match(offending.message, /must be string/);
+});
+
 test("validatePortableToolArgs: comma in property name survives intact (structured access, not message parsing)", async () => {
   // The previous regex-based approach would split "must have required
   // properties a,b" into ["a", "b"]. Structured access reads

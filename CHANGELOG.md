@@ -4,11 +4,55 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - Unreleased
+
+### Changed
+
+- Widened `createMcpServer` / `runMcpStdioServer` `tools` parameter from
+  `PortableTool<TObject>[]` to `PortableTool<TSchema>[]`. `Type.Intersect([
+  Type.Object(...), Type.Object(...)])` is now accepted alongside
+  `Type.Object(...)`. Schemas that don't resolve to a JSON-Schema object at the
+  top level throw at server construction with a named-tool error message
+  pointing to the actionable wrapping recipe. On the wire, `tools/list`
+  synthesises `type: "object"` on schemas whose top-level lowering is `allOf`
+  so MCP SDK clients that Zod-validate `inputSchema.type` continue to accept
+  them; existing `Type.Object` consumers see no change in payload shape.
+  Resolves [#29](https://github.com/feniix/bridgekit/issues/29).
+- `createMcpServer` construction error now appends Union-specific guidance
+  when the offending tool's parameters lower to `anyOf`/`oneOf`, including
+  when the Union is nested inside an `allOf` branch (the `Type.Intersect`
+  recipe is wrong for that shape). The bare allOf-with-mixed-branches case
+  now names the first non-object branch by index in the `type="..."` label
+  instead of the misdirecting `type="allOf"`.
+- `tools/list` payload is now pre-computed at `createMcpServer` construction
+  rather than per-request. The outer `tools` array is snapshotted at that
+  point: pushing or removing entries from the caller's array post-construction
+  does not affect listing or dispatch. Schemas inside each tool remain held
+  by reference; treat `tool.parameters` as immutable once the server is
+  constructed.
+- `createMcpServer` construction errors now carry a stable `error.code` so
+  consumers have a non-string anchor for branching: `"BRIDGEKIT_MCP_NON_OBJECT_PARAMETERS"`
+  for the top-level-object guard, `"BRIDGEKIT_MCP_DUPLICATE_TOOL_NAME"` for
+  the new duplicate-name guard. Message text remains recipe-shaped for
+  human reading but is not a public contract; branch on `.code`.
 
 ### Added
 
+- `createMcpServer` now rejects duplicate tool names at construction with
+  a tool-attributed error (code `BRIDGEKIT_MCP_DUPLICATE_TOOL_NAME`). The
+  previous behavior silently overwrote earlier registrations in the dispatch
+  map while still listing both on `tools/list`, leaving the earlier tool
+  unreachable on `tools/call`.
 - RFC: `docs/rfc-host-extras.md` (design doc for [#28](https://github.com/feniix/bridgekit/issues/28); no code change).
+
+### Fixed
+
+- `PortableValidationError.field` preservation for slash-named properties
+  (the 0.8.3 fix) now descends into `Type.Intersect` (`allOf`) branches.
+  Previously a property named `a/b` inside an Intersect branch resolved as
+  `b` because the schema walker stopped at the root's missing `properties`
+  field; the walker now probes each `allOf` branch with the full remaining
+  path.
 
 ## [0.8.3] - 2026-05-26
 
