@@ -264,6 +264,11 @@ test("validatePortableToolArgs: union of objects collapses sibling required erro
   // misleading because the consumer only needs to satisfy ONE branch. The
   // `anyOf` summary at the same path is the correct signal; sibling
   // `required` entries are suppressed.
+  //
+  // The earlier `union_mismatch` test (Object-wrapping-union, `{ kind: "c" }`)
+  // is intentionally unchanged by this rule: its sibling errors at `/kind`
+  // are `const`, which are NOT in the suppression set — they carry real
+  // discriminator info about which branch was intended.
   const tool = definePortableTool({
     name: "union_of_objects",
     title: "Union Of Objects",

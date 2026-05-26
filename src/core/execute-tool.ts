@@ -20,6 +20,11 @@ function suppressSiblingErrorsUnderUnion(errors: TLocalizedValidationError[]): T
   //
   // const/enum errors at the same path are NOT suppressed — they're real
   // discriminator info that helps an agent pick which branch was intended.
+  //
+  // Known trade-off (#38): for discriminated unions where the user picks a
+  // branch correctly but forgets that branch's required props, the helpful
+  // "you picked tag=X and forgot Y" hint is also silenced. Keyword-aware
+  // branch matching is the follow-up; not implemented here.
   const unionPaths = new Set<string>();
   for (const error of errors) {
     if (error.keyword === "anyOf" || error.keyword === "oneOf") {
