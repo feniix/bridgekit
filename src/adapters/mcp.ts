@@ -58,6 +58,21 @@ function schemaTypeLabel(schema: unknown): string {
   return "unknown";
 }
 
+/**
+ * Render `parameters` as MCP `inputSchema`. The MCP SDK Zod-validates that the
+ * top-level schema has `type: "object"` on the client side of `tools/list`, so
+ * `Type.Intersect` (which TypeBox renders as `{ allOf: [...] }` with no top-
+ * level `type`) needs `type: "object"` synthesized before transmission. This
+ * is a no-op for `Type.Object` schemas, which already carry the field.
+ */
+function toInputSchema(parameters: TSchema): Tool["inputSchema"] {
+  const candidate = parameters as unknown as { type?: unknown };
+  if (candidate.type === "object") {
+    return parameters as unknown as Tool["inputSchema"];
+  }
+  return { type: "object", ...(parameters as Record<string, unknown>) } as unknown as Tool["inputSchema"];
+}
+
 function assertObjectShapedParameters(tools: readonly PortableTool<TSchema>[]): void {
   for (const tool of tools) {
     if (!isObjectSchema(tool.parameters)) {
@@ -89,7 +104,7 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
         name: tool.name,
         title: tool.title,
         description: tool.description,
-        inputSchema: tool.parameters as unknown as Tool["inputSchema"],
+        inputSchema: toInputSchema(tool.parameters),
       }),
     ),
   }));
