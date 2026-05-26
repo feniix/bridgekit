@@ -169,6 +169,11 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
     title: tool.title,
     description: tool.description,
     inputSchema: toInputSchema(tool.parameters),
+    // MCP advisory hints from `hostExtras.mcp.annotations`. Gated on
+    // `!== undefined` so a tool without hostExtras builds a Tool entry whose
+    // own-property keys are byte-identical to 0.8.x — the annotations key
+    // is absent (not `{}`, not `null`). See RFC §4.
+    ...(tool.hostExtras?.mcp?.annotations !== undefined ? { annotations: tool.hostExtras.mcp.annotations } : {}),
   }));
   const server = new Server(
     { name: options.name, version: options.version },

@@ -325,6 +325,116 @@ test("createMcpServer preserves Type.Object inputSchema shape byte-for-byte", as
   }
 });
 
+// --- hostExtras.mcp.annotations (issue #28, RFC §3 / §4) ---
+
+test("tools/list omits the `annotations` field entirely when hostExtras is absent (Test B)", async () => {
+  // Zero-cost-when-absent: a tool without hostExtras must produce a Tool
+  // entry with no `annotations` key at all — not `annotations: {}`, not
+  // `annotations: null`. Pinned so a future refactor that always emits the
+  // key (even when empty) regresses byte-identical compatibility with
+  // 0.8.x consumers.
+  const tool = definePortableTool({
+    name: "no_extras",
+    title: "No Extras",
+    description: "Tool without hostExtras; annotations must be absent on the wire.",
+    parameters: Type.Object({ value: Type.String() }),
+    execute(args) {
+      return { text: args.value };
+    },
+  });
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createMcpServer({ name: "no-extras-test", version: "0.1.0", tools: [tool] });
+  const client = new Client({ name: "no-extras-test-client", version: "0.1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const list = await client.listTools();
+    assert.equal(list.tools.length, 1);
+    const entry = list.tools[0] as Record<string, unknown>;
+    assert.equal(
+      "annotations" in entry,
+      false,
+      `expected no 'annotations' key on Tool entry; got: ${JSON.stringify(entry)}`,
+    );
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("tools/list carries hostExtras.mcp.annotations verbatim", async () => {
+  const tool = definePortableTool({
+    name: "annotated",
+    title: "Annotated",
+    description: "Tool with mcp annotations.",
+    parameters: Type.Object({ value: Type.String() }),
+    execute(args) {
+      return { text: args.value };
+    },
+    hostExtras: {
+      mcp: {
+        annotations: {
+          title: "Annotated (display)",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+    },
+  });
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createMcpServer({ name: "annotations-test", version: "0.1.0", tools: [tool] });
+  const client = new Client({ name: "annotations-test-client", version: "0.1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const list = await client.listTools();
+    assert.equal(list.tools.length, 1);
+    assert.deepEqual(list.tools[0]?.annotations, {
+      title: "Annotated (display)",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("tools/list carries a partial annotations object verbatim (only readOnlyHint set)", async () => {
+  // Most common case in practice: a single advisory hint. Pinned so partial
+  // annotations objects round-trip without keys being synthesized.
+  const tool = definePortableTool({
+    name: "read_only_tool",
+    title: "Read Only",
+    description: "Tool that advertises readOnlyHint only.",
+    parameters: Type.Object({ value: Type.String() }),
+    execute(args) {
+      return { text: args.value };
+    },
+    hostExtras: {
+      mcp: {
+        annotations: { readOnlyHint: true },
+      },
+    },
+  });
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createMcpServer({ name: "partial-test", version: "0.1.0", tools: [tool] });
+  const client = new Client({ name: "partial-test-client", version: "0.1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const list = await client.listTools();
+    assert.deepEqual(list.tools[0]?.annotations, { readOnlyHint: true });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("createMcpServer's tools/list payload is unaffected by post-construction mutation of the tools array", async () => {
   const initialTool = definePortableTool({
     name: "initial",
