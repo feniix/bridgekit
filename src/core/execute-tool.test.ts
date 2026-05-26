@@ -481,6 +481,32 @@ test("validatePortableToolArgs: multiple missing required properties expand to o
   }
 });
 
+test("validatePortableToolArgs: slash in property name survives intact for wrong-type errors (schema-walk fallback)", async () => {
+  // TypeBox does NOT escape `/` in property names when building `instancePath`
+  // (it doesn't follow JSON Pointer RFC 6901's `~1` encoding). A property
+  // named `a/b` produces `instancePath: "/a/b"` on a wrong-type error. The
+  // string-split fallback would yield `field: "b"`; the schema-walk fallback
+  // recognizes that `a/b` is a single property key on the parent schema and
+  // surfaces it intact. Required/additionalProperties keywords are unaffected
+  // (they read structured `params`); this test covers the non-required
+  // keyword paths. Resolves #36.
+  const tool = definePortableTool({
+    name: "slash_prop",
+    title: "Slash Prop",
+    description: "Schema with a slash in its property name.",
+    parameters: Type.Object({ "a/b": Type.String() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { "a/b": 42 }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "a/b");
+  assert.match(errors[0].message, /must be string/);
+});
+
 test("validatePortableToolArgs: comma in property name survives intact (structured access, not message parsing)", async () => {
   // The previous regex-based approach would split "must have required
   // properties a,b" into ["a", "b"]. Structured access reads

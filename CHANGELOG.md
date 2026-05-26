@@ -4,7 +4,21 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.2] - Unreleased
+## [0.8.3] - Unreleased
+
+### Fixed
+
+- `PortableValidationError.field` now preserves the full property name when
+  it contains `/`. TypeBox does not implement JSON Pointer RFC 6901's `~1`
+  escape, so a property named `a/b` previously produced `field: "b"` for
+  wrong-type / `const` / `enum` errors (the string-split fallback dropped
+  the prefix). The fix walks the actual schema with a greedy longest-prefix
+  match against `properties` keys and falls back to the prior behavior for
+  paths the schema doesn't model. The `required` and `additionalProperties`
+  paths were already correct via structured `params` and are unchanged.
+  Resolves [#36](https://github.com/feniix/bridgekit/issues/36).
+
+## [0.8.2] - 2026-05-26
 
 ### Fixed
 
