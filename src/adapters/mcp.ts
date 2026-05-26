@@ -6,7 +6,7 @@ import {
   ListToolsRequestSchema,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { TObject } from "typebox";
+import type { TSchema } from "typebox";
 import type { PortableTool, PortableToolResult } from "../core/define-tool.js";
 import { executePortableTool } from "../core/execute-tool.js";
 import { signalFromExtra } from "./mcp-signal.js";
@@ -14,7 +14,7 @@ import { signalFromExtra } from "./mcp-signal.js";
 export interface CreateMcpServerOptions {
   name: string;
   version: string;
-  tools: readonly PortableTool<TObject>[];
+  tools: readonly PortableTool<TSchema>[];
   instructions?: string;
 }
 
