@@ -9,28 +9,64 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Breaking
 
 - **`PortableValidationError` renamed `path` → `field`.** No deprecation alias.
-  Update assertions accordingly. `field` is derived from TypeBox's
-  `instancePath` as the last meaningful path segment (e.g. `/text` → `"text"`,
-  `/items/0/name` → `"name"`). When TypeBox emits `must have required
-  properties X, Y`, BridgeKit now expands that to one `PortableValidationError`
-  per missing prop, with `field` set to the missing prop name — never `""`.
-  Resolves [#33](https://github.com/feniix/bridgekit/issues/33).
+  Update assertions accordingly. `field` is derived from TypeBox's structured
+  error data, not the localized message string. Resolves
+  [#33](https://github.com/feniix/bridgekit/issues/33).
 
   ```ts
   // Before (0.7 and earlier)
-  expect(result.structuredContent.validationErrors).toMatchObject([
-    { path: "/file_path", message: /* ... */ },
-  ]);
+  assert.equal(result.structuredContent.validationErrors[0].path, "/file_path");
 
   // After (0.8+)
-  expect(result.structuredContent.validationErrors).toMatchObject([
-    { field: "file_path", message: /* ... */ },
-  ]);
+  assert.equal(result.structuredContent.validationErrors[0].field, "file_path");
   ```
 
   After this rename, validation and domain errors share the same
   `{ field, message }` per-item shape, so consumers reading `.field` no longer
   need to branch on which kind of failure produced the entry.
+
+- **`validationErrors[]` cardinality change.** Previously, a TypeBox error
+  with the message `must have required properties X, Y` produced a single
+  `PortableValidationError` whose message listed all missing props. Now,
+  `executePortableTool` emits **one `PortableValidationError` per missing
+  property**, with `field` set to the missing prop name and `message`
+  normalized to `must have required property <field>`. Consumers asserting
+  `validationErrors.length === 1` for a multi-prop missing case will break.
+
+  ```ts
+  // Schema: Type.Object({ file_path: Type.String(), count: Type.Number() })
+  // Args: {}
+
+  // Before (0.7)
+  // validationErrors.length === 1
+  // validationErrors[0] === { path: "/", message: "must have required properties file_path, count" }
+
+  // After (0.8+)
+  // validationErrors.length === 2
+  // validationErrors === [
+  //   { field: "file_path", message: "must have required property file_path" },
+  //   { field: "count",     message: "must have required property count"     },
+  // ]
+  ```
+
+- **Duplicate `(field, message)` pairs are deduplicated.** Union/discriminator
+  mismatches previously emitted multiple identical `(field, message)` entries
+  (one per failed union branch); they are now collapsed. Consumers locking in
+  exact counts on union failures may need to adjust.
+
+### Notes on field derivation
+
+- `field` is derived from TypeBox's structured error: required-property errors
+  read `params.requiredProperties` directly (locale- and message-format-
+  independent); other errors take the last meaningful segment of
+  `instancePath` (e.g. `/text` → `"text"`, `/items/0/name` → `"name"`).
+- For array-element validation, `field` is the leaf segment, which can be a
+  numeric index (e.g. `field: "0"`) and loses the path context. If positional
+  information matters, keep schemas permissive at the BridgeKit boundary and
+  validate positionally in your handler.
+- For root-level schema failures with empty `instancePath` (e.g. `null` passed
+  to a `Type.Object` schema), `field` is the sentinel `"(root)"` rather than
+  the empty string.
 
 ## [0.7.0] - 2026-05-26
 

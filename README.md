@@ -123,7 +123,9 @@ if (result.isError) {
 }
 ```
 
-`PortableValidationError` exposes `{ field, message }`. `field` is the last meaningful segment of the offending JSON pointer (`text`, not `/text`); for missing required properties, the field is the missing prop name and one error is emitted per missing prop. Validation and domain errors share this `{ field, message }` shape, so a consumer reading `.field` does not need to branch on which kind of failure produced the entry. (`path` was the pre-0.8.0 name; it has been removed.)
+`PortableValidationError` exposes `{ field, message }`. `field` is derived from TypeBox's structured error data — required-property errors read `params.requiredProperties` (so a prop named `"a,b"` survives intact and the value is locale-independent); other errors take the last meaningful segment of the offending JSON pointer (`text`, not `/text`). One error is emitted per missing required property, and duplicate `(field, message)` pairs (e.g. from union mismatches) are deduplicated. Validation and domain errors share this `{ field, message }` shape, so a consumer reading `.field` does not need to branch on which kind of failure produced the entry. (`path` was the pre-0.8.0 name; it has been removed.)
+
+For array-element validation, `field` is the leaf segment, which can be a numeric index (e.g. `field: "0"`) and loses path context. For root-level schema failures with empty `instancePath` (e.g. `null` passed to a `Type.Object` schema), `field` is the sentinel `"(root)"`.
 
 The two modes expose the failure discriminator on different fields. In the
 new default `"return"` mode, prefer the result guards over inspecting a

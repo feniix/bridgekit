@@ -23,6 +23,9 @@ function narrowsErrorDetails(details: PortableToolErrorDetails) {
     const firstField: string | undefined = details.validationErrors[0]?.field;
     void tool;
     void firstField;
+    // @ts-expect-error `path` was renamed to `field` in 0.8.0 and is no longer part of the type.
+    const _legacyPath: string | undefined = details.validationErrors[0]?.path;
+    void _legacyPath;
   } else {
     const kind: "domain" = details.kind;
     void kind;

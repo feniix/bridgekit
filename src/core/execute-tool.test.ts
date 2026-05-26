@@ -163,7 +163,7 @@ test("validatePortableToolArgs: wrong type on top-level property", async () => {
   const result = await executePortableTool(tool, { count: "x" }, { host: "test" });
   assert.equal(result.isError, true);
   const errors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
-  assert.ok(errors.length >= 1);
+  assert.equal(errors.length, 1);
   assert.equal(errors[0].field, "count");
 });
 
@@ -180,8 +180,31 @@ test("validatePortableToolArgs: wrong type on nested property", async () => {
   const result = await executePortableTool(tool, { inner: { name: 42 } }, { host: "test" });
   assert.equal(result.isError, true);
   const errors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
-  assert.ok(errors.length >= 1);
+  assert.equal(errors.length, 1);
   assert.equal(errors[0].field, "name");
+});
+
+test("validatePortableToolArgs: nested required property missing surfaces the missing prop name", async () => {
+  // /inner has instancePath="/inner", but the missing prop is "name" (the
+  // child). The structured-access path reads params.requiredProperties and
+  // surfaces "name" rather than the parent segment.
+  const tool = definePortableTool({
+    name: "nested_required_missing",
+    title: "Nested Required Missing",
+    description: "Schema requires inner.name.",
+    parameters: Type.Object({ inner: Type.Object({ name: Type.String() }) }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { inner: {} }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
+  assert.deepEqual(
+    errors.map((e) => e.field),
+    ["name"],
+  );
+  assert.match(errors[0].message, /required property name/);
 });
 
 test("validatePortableToolArgs: out-of-range integer", async () => {
@@ -197,11 +220,14 @@ test("validatePortableToolArgs: out-of-range integer", async () => {
   const result = await executePortableTool(tool, { count: -1 }, { host: "test" });
   assert.equal(result.isError, true);
   const errors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
-  assert.ok(errors.length >= 1);
+  assert.equal(errors.length, 1);
   assert.equal(errors[0].field, "count");
 });
 
-test("validatePortableToolArgs: union / discriminator mismatch", async () => {
+test("validatePortableToolArgs: union / discriminator mismatch dedupes by (field, message)", async () => {
+  // TypeBox emits three raw errors on /kind: two `must be equal to constant`
+  // (one per literal) plus a `must match a schema in anyOf`. The dedup
+  // collapses the literal-constant pair into one, leaving 2 entries.
   const tool = definePortableTool({
     name: "union_mismatch",
     title: "Union Mismatch",
@@ -214,10 +240,13 @@ test("validatePortableToolArgs: union / discriminator mismatch", async () => {
   const result = await executePortableTool(tool, { kind: "c" }, { host: "test" });
   assert.equal(result.isError, true);
   const errors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
-  assert.ok(errors.length >= 1);
+  assert.equal(errors.length, 2);
   for (const error of errors) {
     assert.equal(error.field, "kind");
   }
+  // No duplicate (field, message) pairs survive dedup.
+  const pairs = new Set(errors.map((e) => `${e.field}\x00${e.message}`));
+  assert.equal(pairs.size, errors.length);
 });
 
 test("validatePortableToolArgs: multiple missing required properties expand to one error per field", async () => {
@@ -237,4 +266,47 @@ test("validatePortableToolArgs: multiple missing required properties expand to o
   for (const error of errors) {
     assert.match(error.message, /required property/);
   }
+});
+
+test("validatePortableToolArgs: comma in property name survives intact (structured access, not message parsing)", async () => {
+  // The previous regex-based approach would split "must have required
+  // properties a,b" into ["a", "b"]. Structured access reads
+  // params.requiredProperties which preserves the original prop name verbatim.
+  const tool = definePortableTool({
+    name: "comma_prop",
+    title: "Comma Prop",
+    description: "Schema with a comma in its property name.",
+    parameters: Type.Object({ "a,b": Type.String() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, {}, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
+  assert.deepEqual(
+    errors.map((e) => e.field),
+    ["a,b"],
+  );
+});
+
+test("validatePortableToolArgs: non-object args produce field=(root), not empty string", async () => {
+  const tool = definePortableTool({
+    name: "object_schema_null_args",
+    title: "Object Schema Null Args",
+    description: "Schema is Object; args is null.",
+    parameters: Type.Object({ field: Type.String() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, null, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "(root)");
+  assert.match(errors[0].message, /must be object/);
+  // The text formatter must not produce a double-colon when prefixing with
+  // the (root) sentinel.
+  assert.equal(result.text, "Invalid arguments for object_schema_null_args: (root): must be object");
 });
