@@ -33,9 +33,11 @@ Adapters consume the keys they understand. Tools that omit `hostExtras` are indi
 
 The consumer evidence comes from three pi-side wrapper patterns in `feniix/pi-extensions`. I describe each at a behavioral level rather than pinning exact line numbers that drift over time.
 
-### Gap A — Per-tool prompt metadata (`promptSnippet`, `promptGuidelines`, `renderShell`)
+### Gap A — Per-tool prompt metadata (`promptSnippet`, `promptGuidelines`)
 
 **Evidence.** `pi-exa` maintains a `PI_TOOL_METADATA: Record<ExaToolName, PiToolMetadata>` constant in its extensions tree and a custom `registerExaPiTools` loop that reads it on each iteration to spread `promptSnippet` and `promptGuidelines` into `pi.registerTool`. pi's `ToolDefinition` accepts these as first-class fields; bridgekit's `registerPiTools` does not pass them through because `PortableTool` has no place to put them. Result: pi-exa bypasses `registerPiTools` entirely.
+
+**Note on `renderShell`.** pi's `ToolDefinition` also accepts `renderShell: "default" | "self"` for tools that need to opt out of pi's default content rendering. No known bridgekit consumer currently sets it, so it is **excluded from the 0.9.0 shape** (adding it later is non-breaking since members are optional). The 0.9.0 implementation PR may include it if a consumer surfaces a real need during the migration.
 
 **Assignment.** **In scope** for `hostExtras`.
 
@@ -47,7 +49,11 @@ The consumer evidence comes from three pi-side wrapper patterns in `feniix/pi-ex
 
 **Assignment.** **In scope** for `hostExtras`.
 
-**Justification.** This is a real bridgekit-shaped lifecycle gap: a one-shot, per-tool, pre-validation update that the pi adapter can fire on the tool's behalf. It generalizes cleanly (the data is a string per tool; there is no policy decision the core has to make), and it removes the only reason `pi-sequential-thinking` needs a custom wrapper for *this concern*. Crucially, it's still **descriptive metadata** at the definition site — the consumer declares the message, the adapter handles the wiring — not a callback API that would let consumers inject behavior into the core's execution path.
+**Justification.** This is a real bridgekit-shaped lifecycle gap: a one-shot, per-tool, pre-validation update that the pi adapter can fire on the tool's behalf. It generalizes cleanly (the data is a string per tool; there is no policy decision the core has to make), and it removes the only reason `pi-sequential-thinking` needs a custom wrapper for *this concern*. The data is **declarative metadata** at the definition site — the consumer declares the message, the adapter handles the wiring — not a callback API that would let consumers inject behavior into the core's execution path.
+
+**Honest caveat on shape.** Gap A is a registration-time pass-through (spread into `pi.registerTool(...)`); Gap B is a call-time lifecycle action (`onUpdate?.(...)` inside the per-call `execute` closure, before TypeBox validation runs). They share the same `hostExtras.pi` namespace but differ behaviorally: Gap A is pure data, Gap B is data that triggers an adapter-local action per call. The line between "declarative data" and "behavioral injection" sits exactly here; see §6 for the closure rule that holds the boundary.
+
+**Lifecycle interaction with `ctx.progress`.** When the handler also fires `ctx.progress?.(...)` immediately, the adapter-owned pre-validation `onUpdate` and the handler-owned progress update may arrive close together on pi's notification channel. The contract: `pendingMessage`'s `onUpdate` fires **once, before validation**; `ctx.progress` is only available **after validation succeeds** (it's passed via the `ctx` arg to `tool.execute`). They cannot interleave — validation gates the handler. Document this ordering in the implementation PR's test plan (§9 #2).
 
 ### Gap C — pi-side argument shaping (`piMaxBytes` / `piMaxLines` "param sandwich")
 
@@ -55,7 +61,9 @@ The consumer evidence comes from three pi-side wrapper patterns in `feniix/pi-ex
 
 **Assignment.** **Out of scope** for `hostExtras`.
 
-**Justification.** This is a per-host *argument-shape* concern — pi is augmenting the model's input with operator-supplied configuration before the portable handler runs. Resolving it would require either (a) widening every portable schema to declare its pi-side knobs (mixing concerns) or (b) standing up a host-specific argument-transform pipeline inside the core (an opening that closed [#11](https://github.com/feniix/bridgekit/issues/11) was meant to slam shut). The consumer's `splitParams` is the right place for this: it lives at the host boundary, it owns pi's CLI flag surface, and it can evolve independently of the portable schema. The core has no business knowing about pi flags.
+**Justification.** The load-bearing reason is that `splitParams` cannot be expressed as static metadata at all. The set of pi-only knobs depends on operator CLI configuration (`--seq-think-max-bytes`), not on the tool definition — it is runtime, not declaration-time. No static `hostExtras.pi.piKnobs` declaration could substitute for the runtime transform. The secondary reasons reinforce: resolving Gap C via `hostExtras` would either (a) widen every portable schema to declare pi-side knobs (mixing concerns) or (b) stand up a host-specific argument-transform pipeline inside the core (an opening that closed [#11](https://github.com/feniix/bridgekit/issues/11) was meant to slam shut). The consumer's `splitParams` is the right place for this: it lives at the host boundary, it owns pi's CLI flag surface, and it can evolve independently of the portable schema.
+
+**Closure rule.** Static metadata in `hostExtras` cannot substitute for runtime argument transformation, ever. Future proposals to add `hostExtras.<host>.injectedParams` or similar should be rejected on these grounds — the core has no business knowing about host-side runtime knobs.
 
 ### Gap D — Output truncation with tempfile spillover (`formatToolOutput`)
 
@@ -67,12 +75,12 @@ The consumer evidence comes from three pi-side wrapper patterns in `feniix/pi-ex
 
 ### Summary table
 
-| Gap | What | Assigned to | Rationale |
-| --- | --- | --- | --- |
-| A | Prompt metadata (`promptSnippet`, `promptGuidelines`, `renderShell`) | **In scope** | Descriptive per-tool data with direct MCP counterpart (`annotations`). |
-| B | Pre-`execute` `pendingMessage` | **In scope** | Real lifecycle gap; generalizes as a string per tool, no policy choice for the core. |
-| C | `splitParams` for pi-only knobs | **Out of scope** | Per-host argument shaping; stays at the host boundary. |
-| D | `formatToolOutput` truncation | **Out of scope** | pi presentation policy that doesn't generalize to MCP. |
+| Gap | What | Adapter timing | Assigned to | Rationale |
+| --- | --- | --- | --- | --- |
+| A | Prompt metadata (`promptSnippet`, `promptGuidelines`) | Registration-time pass-through | **In scope** | Descriptive per-tool data with direct MCP counterpart (`annotations`). |
+| B | Pre-`execute` `pendingMessage` | Call-time, before validation | **In scope** | Real lifecycle gap; generalizes as a string per tool, no policy choice for the core. |
+| C | `splitParams` for pi-only knobs | — | **Out of scope** | Runtime argument shaping; static metadata cannot express operator-supplied knobs. |
+| D | `formatToolOutput` truncation | — | **Out of scope** | pi presentation policy that doesn't generalize to MCP. |
 
 ---
 
@@ -87,9 +95,26 @@ import type { TSchema } from "typebox";
  * are introduced additively; the type uses optional members so adding a key
  * is never a breaking change for existing consumers.
  *
- * Module augmentation is supported for custom hosts:
+ * **Admission criterion.** A field belongs in `hostExtras.<host>` if and
+ * only if it must be **co-located with the tool definition** because a
+ * parallel sidecar map would provably drift out of sync with the tool list.
+ * That is the load-bearing test: descriptive-per-tool data that one of
+ * bridgekit's known hosts already consumes as first-class metadata, and
+ * that consumers maintain alongside the tool definition today. Data that
+ * depends on operator-supplied runtime config (Gap C) or that pulls in
+ * host-specific dependencies for rendering policy (Gap D) does not qualify.
+ *
+ * **Module augmentation** is supported for custom hosts. TypeScript merges
+ * interface augmentations at the **compilation unit** level — the
+ * augmentation file must be in scope wherever a tool definition declares
+ * `hostExtras["custom-runtime"]`. In multi-package monorepos with split
+ * tsconfigs, ensure the augmentation file is included in each consumer
+ * package's compile root, or imports of bridgekit will see the augmentation
+ * as `undefined` and the field as a type error. bridgekit guarantees the
+ * type slot; the consumer is responsible for adapter dispatch.
  *
  * ```ts
+ * // packages/my-adapter/src/host-extras.ts
  * declare module "@feniix/bridgekit" {
  *   interface PortableToolHostExtras {
  *     "custom-runtime"?: { something: string };
@@ -100,10 +125,12 @@ import type { TSchema } from "typebox";
 export interface PortableToolHostExtras {
   pi?: {
     /**
-     * One-shot text shown by pi before TypeBox validation runs. The pi
-     * adapter fires `onUpdate({ content, details: { status: "pending" } })`
-     * with this text exactly once per tool call. Absent → no pre-execute
-     * update.
+     * One-shot text shown by pi before TypeBox validation runs. When
+     * `onUpdate` is provided, the pi adapter fires
+     * `onUpdate({ content, details: { status: "pending" } })` with this
+     * text exactly once per tool call. When `onUpdate` is absent, the
+     * adapter silently no-ops (the at-most-once contract; see §9 #2 and #3).
+     * Absent on the tool → no pre-execute update at all.
      */
     pendingMessage?: string;
 
@@ -120,21 +147,25 @@ export interface PortableToolHostExtras {
      */
     promptGuidelines?: readonly string[];
 
-    /**
-     * Passed through to pi's `registerTool({ renderShell })` for tools that
-     * need to opt out of pi's default content rendering. Most tools omit.
-     */
-    renderShell?: "default" | "self";
+    // `renderShell` deferred until a consumer surfaces a real need. See §1.
   };
 
+  /**
+   * @remarks **Not yet consumed in 0.9.0.** The MCP adapter consumption of
+   * `annotations` lands in a follow-up patch within the 0.9.x series. The
+   * namespace is declared in 0.9.0 so consumers adding annotations against
+   * 0.9.0 see no type-shape change when 0.9.x starts honoring them, but at
+   * runtime in 0.9.0 the values are ignored. See §4 for the gate.
+   */
   mcp?: {
     /**
-     * MCP tool annotations. The MCP spec defines `readOnlyHint`,
-     * `destructiveHint`, `idempotentHint`, and `openWorldHint` as boolean
-     * hints clients may surface to users. The first ship of `hostExtras`
-     * may leave this empty and only claim the namespace; see §4.
+     * MCP tool annotations. The MCP spec defines `title`, `readOnlyHint`,
+     * `destructiveHint`, `idempotentHint`, and `openWorldHint` as hints
+     * clients may surface to users. The first ship of `hostExtras` may leave
+     * this declared but unconsumed; see §4 and the `@remarks` above.
      */
     annotations?: {
+      title?: string;
       readOnlyHint?: boolean;
       destructiveHint?: boolean;
       idempotentHint?: boolean;
@@ -210,8 +241,9 @@ We will lock this in with a test that snapshots the `PiToolDefinition` object th
 
 Even if the first ship of `hostExtras` lands with no MCP-side extras consumed, the RFC claims the `mcp` namespace so that future MCP additions are non-breaking type changes rather than restructurings of `PortableTool`.
 
-The MCP spec (v1.x, which bridgekit currently targets — see [`docs/packaging-invariants.md#inv-mcp-sdk-major`](./packaging-invariants.md#inv-mcp-sdk-major)) defines four annotation hints clients may surface:
+The MCP spec (v1.x, which bridgekit currently targets — see [`docs/packaging-invariants.md#inv-mcp-sdk-major`](./packaging-invariants.md#inv-mcp-sdk-major)) and the installed SDK (`@modelcontextprotocol/sdk` v1.29.0, verified against `node_modules/@modelcontextprotocol/sdk/dist/esm/types.d.ts`) define five annotation fields clients may surface:
 
+- `title`: a human-readable title for the tool, distinct from the protocol-level `name`.
 - `readOnlyHint`: the tool does not modify its environment.
 - `destructiveHint`: the tool may perform destructive updates (applies when `readOnlyHint` is false).
 - `idempotentHint`: repeated calls with the same args have no additional effect (applies when `readOnlyHint` is false).
@@ -219,7 +251,9 @@ The MCP spec (v1.x, which bridgekit currently targets — see [`docs/packaging-i
 
 These are hints from tool author to client; they do not change validation or execution. They are the natural counterpart to pi's `promptSnippet` / `promptGuidelines`: descriptive metadata that helps the host present the tool to the user.
 
-**Ship strategy.** The first implementation PR for #28 may consume `hostExtras.pi.*` only and leave `hostExtras.mcp.annotations` declared but unconsumed. The MCP adapter implementation lands in a follow-up patch within the same minor (`0.9.x`). The reason to declare it now is to fix the type shape: a consumer adding `hostExtras.mcp.annotations.readOnlyHint = true` against a 0.9.0 that ignores it should not see a different type error when the 0.9.x adapter starts honoring it.
+**Ship strategy and gate.** The first implementation PR for #28 may consume `hostExtras.pi.*` only and leave `hostExtras.mcp.annotations` declared but unconsumed. The MCP adapter implementation lands in a follow-up patch within the same minor (`0.9.x`). The reason to declare it now is to fix the type shape: a consumer adding `hostExtras.mcp.annotations.readOnlyHint = true` against a 0.9.0 that ignores it should not see a different type error when the 0.9.x adapter starts honoring it.
+
+**The 0.9.x gate (named).** The `mcp` namespace must either be consumed by the MCP adapter within **30 days of 0.9.0 publishing**, OR the namespace declaration must be rolled back in a 0.9.1 patch. The "promise in the type, lie at runtime" window has a hard ceiling. The 0.9.0 release PR opens a tracking issue captioned "0.9.x: wire `hostExtras.mcp.annotations` through createMcpServer" referencing this gate. The implementation PR includes a `@remarks` JSDoc on `hostExtras.mcp` warning "Not yet consumed in 0.9.0" (see §2), so the footgun is at minimum legible to consumers reading the IDE hover or the published `.d.ts`.
 
 **Not in 0.9.x.** MCP `outputSchema` (mentioned in passing in the #28 problem statement) is a deliberately separate decision. It interacts with the `TObject` → `TSchema` widening in [#29](https://github.com/feniix/bridgekit/issues/29) and with how `executePortableTool` reasons about a tool's *output* contract, which today it does not. Leave it for a later RFC.
 
@@ -261,9 +295,11 @@ This section describes how each known consumer would migrate once `hostExtras` s
 
 **After.** `pi-code-reasoning` can switch to `registerPiTools(pi, tools)` today. `hostExtras` does not change this — but if/when it adds prompt metadata, the path is the same as pi-exa's. **No code-deletion target driven by this RFC**, but the migration unblocks the next refactor.
 
-### Aggregate success criterion
+### Aggregate success criterion (gating)
 
-The implementation PR for #28 ships only if at least one of the two metadata-driven consumers (`pi-exa`, `pi-sequential-thinking`) drops more lines than the bridgekit implementation adds. If the change is net-additive across the ecosystem, it has failed its own test.
+The implementation PR for #28 ships only if **`pi-exa` drops its custom registration loop entirely** and switches to `registerPiTools(pi, createExaTools(…))`. This is the actual outcome §0 motivates ("the flagship adapter is not used by its own production consumers") — a line-count proxy is too easy to clear with partial migration. `pi-sequential-thinking`'s migration is bonus evidence but does not gate the PR (its wrapper exists primarily for Gaps C and D, which are out of scope; loop deletion there is not a realistic target).
+
+The line-count guardrail still applies: net additions across `pi-exa` + bridgekit must be **negative** (more deleted than added) for the PR to ship. If the bridgekit implementation grows faster than the consumer shrinks, the bet has failed and the PR reverts.
 
 ---
 
@@ -279,7 +315,19 @@ The following are **not** within `hostExtras`'s scope. They are listed here as b
 - **Plugin system / dispatch helpers.** Never opened, deliberately. `hostExtras` is opaque data per known host. It is not an extension point for arbitrary host plugins discovered at runtime; bridgekit knows the host names it supports and adapters consume them.
 - **MCP `outputSchema`.** Mentioned in #28's problem statement but punted to a separate RFC (see [§4](#4-cross-host-symmetry-and-the-mcp-namespace)).
 
-The first three are direct anti-recommendations from the closed-issue audit; the next three keep this RFC focused on the actual gap rather than absorbing adjacent features.
+The first three are direct anti-recommendations from the closed-issue audit; the next three keep this RFC focused on the actual gap rather than absorbing adjacent features; the seventh (MCP `outputSchema`) is deferred to a separate RFC (see [§4](#4-cross-host-symmetry-and-the-mcp-namespace)).
+
+**Why #11 is cited three times.** #11 closed a broad "no behavior injection" boundary — covering middleware, retry/cache/auth policies, AND host-specific argument-transform pipelines (Gap C's justification). The three references to #11 across this RFC (§1 Gap C, §6 item 1, §6 item 2) all map to that single closure under different framings.
+
+### Closure rules for future `hostExtras` additions
+
+To keep this extension channel from becoming a back door for the boundaries §6 closes, every proposed `hostExtras.<host>.<field>` addition must clear three gates:
+
+1. **Co-location test.** Is the data inherently per-tool, such that a parallel sidecar map would provably drift out of sync with the tool list? If it could live equally well outside the tool definition, it does not need `hostExtras`.
+2. **Static-metadata test.** Is the field a declaration-time value, or does it depend on operator/runtime configuration? Runtime-dependent fields fail (this is the Gap C rule).
+3. **Adapter-local action test.** When the adapter reads the field, does it perform host-local I/O (an `onUpdate` call, a `registerTool` field, an MCP annotation) — or does it trigger consumer-supplied behavior (a callback, a middleware step)? Consumer-supplied behavior is closed (#11/#16); adapter-local actions are admissible. `pendingMessage` (Gap B) sits exactly at this line and qualifies because the action is a single host-local `onUpdate` with consumer-supplied **data**, not a consumer-supplied **callback**.
+
+A field that passes all three gates is admissible. A field that fails any gate is rejected without further debate — re-litigating the closed boundaries belongs in a separate RFC against #11/#15/#16, not in a `hostExtras` PR.
 
 ---
 
@@ -287,13 +335,13 @@ The first three are direct anti-recommendations from the closed-issue audit; the
 
 [#29](https://github.com/feniix/bridgekit/issues/29) widens `CreateMcpServerOptions.tools` from `readonly PortableTool<TObject>[]` to `readonly PortableTool<TSchema>[]` so that tools whose parameters use TypeBox combinators (`Type.Intersect`, `Type.Composite`, `Type.Union` of `TObject`s) can register without a cast.
 
-**Does #28 implementation need #29 first?** Modestly, yes. Two reasons:
+**Does #28 implementation need #29 first?** The pi-side work (Gaps A, B) has **no technical dependency** on #29. The MCP-side work intersects #29 only for consumers using combinator schemas (`Type.Intersect`/`Composite`) AND `hostExtras.mcp.annotations` simultaneously — a narrow scenario with no cited consumer today. The bundling is therefore an **ergonomics + upgrade-cognitive-load** decision, not a hard dependency.
 
-1. **Type ergonomics.** `hostExtras` lands on `PortableTool`, which is generic over `TParams extends TSchema`. The MCP adapter sees the tool through `PortableTool<TObject>` today. A consumer who adds `hostExtras.mcp.annotations` on a tool whose schema is `Type.Intersect(…)` would hit the same widening pain #29 addresses, only now with the new field stacked on top.
+The honest case for bundling is upgrade cost: a consumer moving from 0.8.x to 0.9.0 absorbs one migration (widened `TSchema` constraint + new `hostExtras` field) rather than two consecutive minors. That is the strongest argument; the original "type ergonomics for the Intersect+annotations consumer" framing was thin.
 
-2. **Discoverability.** Bundling them in 0.9.0 means a consumer reading the changelog sees one coherent "now you can express per-host metadata and use combinator schemas" story rather than two unrelated minor bumps. Both close active wrapper-duplication patterns at production consumers.
+**Recommendation (conditional).** Bundle both in **0.9.0** as the preferred path. Land #29 first as a separate commit / sub-PR within the 0.9.0 series so each landing is independently revertable.
 
-**Recommendation.** Bundle both in **0.9.0**. Land #29 first as a separate commit / sub-PR within the 0.9.0 series so each landing is independently revertable; ship the version once both are in.
+**Fallback path.** If #29 implementation runs into unexpected friction (deep type-inference issues, downstream cast leaks discovered during the widening), ship #28 standalone as **0.8.4** to unblock `pi-exa`'s migration. Do not block #28 indefinitely waiting on #29. The bundling is "preferred when both land cleanly"; the dependency is not technical.
 
 **What does *not* need to be sequenced before #28.**
 
@@ -305,10 +353,23 @@ The first three are direct anti-recommendations from the closed-issue audit; the
 
 ## 8. Implementation sketch (light)
 
-This is intentionally not a complete patch — just enough to make the RFC implementable. The change to `registerPiTools` is purely additive.
+This is intentionally not a complete patch — just enough to make the RFC implementable. The change to `registerPiTools` is purely additive, but the implementation PR also needs a **type-level widening** of the internal `PiToolDefinition` interface in `src/adapters/pi.ts`. Today that interface has exactly five fields (`name`, `label`, `description`, `parameters`, `execute`); the spread of `promptSnippet` / `promptGuidelines` won't compile in strict mode until the interface accepts them. The implementer should verify the field types against whatever the actual pi host SDK (`@earendil-works/pi-coding-agent` or successor) exposes for these fields — the RFC's shapes are derived from consumer-code usage, not from a published pi SDK type the bridgekit project depends on.
 
 ```ts
 // src/adapters/pi.ts (sketch, simplified)
+
+// Widen the internal type to accept the new fields. Each is optional;
+// existing consumers see no shape change.
+type PiToolDefinition = {
+  name: string;
+  label: string;
+  description: string;
+  parameters: TSchema;
+  execute: (...) => Promise<PiToolResult>;
+  // New, all optional:
+  promptSnippet?: string;
+  promptGuidelines?: readonly string[];
+};
 
 export function registerPiTools(
   pi: PiToolRegistration,
@@ -331,7 +392,6 @@ export function registerPiTools(
       // byte-identical to today's shape — zero-cost when absent.
       ...(piExtras?.promptSnippet !== undefined && { promptSnippet: piExtras.promptSnippet }),
       ...(piExtras?.promptGuidelines !== undefined && { promptGuidelines: piExtras.promptGuidelines }),
-      ...(piExtras?.renderShell !== undefined && { renderShell: piExtras.renderShell }),
 
       async execute(_toolCallId, params, signal, onUpdate, _ctx) {
         // Lifecycle hook: fire the pre-execute update exactly once,
@@ -362,15 +422,18 @@ export function registerPiTools(
 
 ## 9. Test plan (sketch)
 
-Lifecycle-relevant assertions for the implementation PR:
+Lifecycle-relevant assertions for the implementation PR. **Tests marked [GATING] are merge-blockers** for the 0.9.0 PR; advisory tests can land in follow-up patches but must exist before any consumer migration goes to production.
 
-1. **Zero-cost shape.** A tool with no `hostExtras` produces a `PiToolDefinition` (and an MCP `Tool`) whose own-property keys exactly match today's set. Snapshot-style test.
-2. **`pendingMessage` fires before validation.** Given a tool with `hostExtras.pi.pendingMessage` and a schema that rejects the supplied args, `onUpdate` is called once with the pending message *before* the validation-failure result is returned. Order-asserting test.
-3. **`pendingMessage` fires exactly once.** No second invocation from `executePortableTool`'s own progress wiring.
-4. **`promptSnippet` / `promptGuidelines` / `renderShell` pass-through.** Given a tool with each field set, the call to `pi.registerTool` carries the same value.
-5. **MCP annotations.** Given a tool with `hostExtras.mcp.annotations.readOnlyHint = true`, the `Tool` returned by `tools/list` carries the annotation. (Lands when 0.9.x adapter consumption ships.)
-6. **Unknown-host keys ignored.** Given a tool with `hostExtras["custom-host"]` populated via module augmentation, neither the pi nor MCP adapter looks at it.
-7. **`smoke-package.mjs` runtime keys.** The `assertRuntimeExports` allow-list does not change. No new public exports.
+1. **[GATING] Zero-cost shape — `hostExtras` absent.** A tool with no `hostExtras` produces a `PiToolDefinition` whose own-property keys exactly match today's set (`name`, `label`, `description`, `parameters`, `execute`). Snapshot-style test on the captured argument to `pi.registerTool`.
+2. **[GATING] Zero-cost shape — `hostExtras: {}` (empty object).** A tool with `hostExtras: {}` is observationally identical to a tool that omits the field at the adapter-output level. Note that at the JSON-serialization level `hostExtras: {}` differs from absent — consumers that round-trip tool definitions through JSON should prefer omitting the field over setting an empty object; this is a documentation concern, not an invariant.
+3. **[GATING] `pendingMessage` fires before validation.** Given a tool with `hostExtras.pi.pendingMessage` and a schema that rejects the supplied args, `onUpdate` is called once with the pending message **before** the validation-failure result is returned. Order-asserting test.
+4. **[GATING] `pendingMessage` is at-most-once.** Two sub-cases: (a) no second invocation from `executePortableTool`'s own progress wiring when `onUpdate` IS provided; (b) silent no-op (no throw, no side effect) when `onUpdate` is `undefined`.
+5. **`pendingMessage` × `errorHandling: "throw"`.** Given a tool with `pendingMessage` set, validation that would fail, and `errorHandling: "throw"`: the `onUpdate` fires once, then `PortableToolExecutionError` is thrown. The pending message reaches the channel before the throw — `onUpdate` is not silently swallowed by the catch.
+6. **[GATING] `promptSnippet` / `promptGuidelines` pass-through.** Given a tool with each field set, the call to `pi.registerTool` carries the same value verbatim.
+7. **MCP annotations.** Given a tool with `hostExtras.mcp.annotations.readOnlyHint = true`, the `Tool` returned by `tools/list` carries the annotation. **Lands when 0.9.x adapter consumption ships** (see §4 gate). A failing/skipped placeholder test should exist in 0.9.0 documenting the expected wire shape, so the 0.9.x patch has a target.
+8. **Unknown-host keys ignored.** Given a tool with `hostExtras["custom-host"]` populated via module augmentation, neither the pi nor MCP adapter looks at it (no throw, no log, no spread into the host registration).
+9. **[GATING] Module augmentation smoke-fixture.** Add a typecheck fixture inside `scripts/smoke-package.mjs`'s `assertTypesCompile` block that declares `interface PortableToolHostExtras { "custom-runtime"?: { something: string } }` against the installed declarations and assigns `hostExtras: { "custom-runtime": { something: "x" } }` on a tool. The fixture must compile cleanly. Locks the augmentation path against future declaration changes that would break it silently.
+10. **`smoke-package.mjs` runtime keys.** The `assertRuntimeExports` allow-list does not change. `PortableToolHostExtras` is exported as `interface` only (zero runtime footprint), so `Object.keys(core)` is unchanged.
 
 ---
 
@@ -390,10 +453,11 @@ interface PortableTool<TParams, THost> {
       pendingMessage?: string;
       promptSnippet?: string;
       promptGuidelines?: readonly string[];
-      renderShell?: "default" | "self";
     };
     mcp?: {
+      // Not yet consumed in 0.9.0; lands in 0.9.x (see §4 gate).
       annotations?: {
+        title?: string;
         readOnlyHint?: boolean;
         destructiveHint?: boolean;
         idempotentHint?: boolean;
@@ -404,6 +468,6 @@ interface PortableTool<TParams, THost> {
 }
 ```
 
-The bet: an opaque-per-host, descriptive-data field is the smallest possible API that closes the consumer-wrapper-duplication gap without absorbing any host policy into the core. Either the bet pays off — the production consumers' wrapper code measurably shrinks when `hostExtras` lands — or this RFC was wrong about the gap, and the implementation PR should fail its success criterion in [§5](#5-migration-path-for-existing-consumers) and revert.
+The bet: an opaque-per-host, descriptive-data field is the smallest possible API that closes the consumer-wrapper-duplication gap without absorbing any host policy into the core. Either the bet pays off — `pi-exa` drops its custom registration loop entirely when `hostExtras` lands (see [§5](#5-migration-path-for-existing-consumers) gating criterion) — or this RFC was wrong about the gap, and the implementation PR reverts.
 
 This RFC opens the design conversation. Implementation lives in a follow-up PR against the same issue, bundled with #29 in 0.9.0.
