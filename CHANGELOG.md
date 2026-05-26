@@ -19,10 +19,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   them; existing `Type.Object` consumers see no change in payload shape.
   Resolves [#29](https://github.com/feniix/bridgekit/issues/29).
 - `createMcpServer` construction error now appends Union-specific guidance
-  when the offending tool's parameters lower to `anyOf`/`oneOf` (the
-  `Type.Intersect` recipe is wrong for that shape). The bare allOf-with-mixed-
-  branches case now names the first non-object branch by index in the
-  `type="..."` label instead of the misdirecting `type="allOf"`.
+  when the offending tool's parameters lower to `anyOf`/`oneOf`, including
+  when the Union is nested inside an `allOf` branch (the `Type.Intersect`
+  recipe is wrong for that shape). The bare allOf-with-mixed-branches case
+  now names the first non-object branch by index in the `type="..."` label
+  instead of the misdirecting `type="allOf"`.
+- `tools/list` payload is now pre-computed at `createMcpServer` construction
+  rather than per-request. The outer `tools` array is snapshotted at that
+  point: pushing or removing entries from the caller's array post-construction
+  does not affect listing or dispatch. Schemas inside each tool remain held
+  by reference; treat `tool.parameters` as immutable once the server is
+  constructed.
+
+### Fixed
+
+- `PortableValidationError.field` preservation for slash-named properties
+  (the 0.8.3 fix) now descends into `Type.Intersect` (`allOf`) branches.
+  Previously a property named `a/b` inside an Intersect branch resolved as
+  `b` because the schema walker stopped at the root's missing `properties`
+  field; the walker now probes each `allOf` branch with the full remaining
+  path.
 
 ### Added
 

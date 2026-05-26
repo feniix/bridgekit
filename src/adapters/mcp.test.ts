@@ -168,6 +168,32 @@ test("createMcpServer throws at construction for Type.Intersect mixing an object
   );
 });
 
+test("createMcpServer's union-specific guidance fires when a Union is nested inside an Intersect branch", () => {
+  const tool = definePortableTool({
+    name: "intersect_with_nested_union",
+    title: "Intersect With Nested Union",
+    description: "Type.Union nested inside an Intersect branch; guidance must still flag the union.",
+    parameters: Type.Intersect([
+      Type.Object({ a: Type.String() }),
+      Type.Union([Type.Object({ tag: Type.Literal("x") }), Type.Object({ tag: Type.Literal("y") })]),
+    ]),
+    execute() {
+      return { text: "noop" };
+    },
+  });
+
+  assert.throws(
+    () => createMcpServer({ name: "bad-server", version: "0.1.0", tools: [tool] }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /^createMcpServer: tool "intersect_with_nested_union"/);
+      assert.match(error.message, /allOf\[1\]/);
+      assert.match(error.message, /flatten branches/);
+      return true;
+    },
+  );
+});
+
 test("createMcpServer accepts nested Type.Intersect of object schemas and round-trips a call", async () => {
   const nestedParams = Type.Intersect([
     Type.Intersect([Type.Object({ a: Type.String() }), Type.Object({ b: Type.Number() })]),

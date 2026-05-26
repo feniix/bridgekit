@@ -21,8 +21,11 @@ export interface CreateMcpServerOptions {
    * shapes (`Type.String()`, `Type.Union([Type.Object(...), Type.Object(...)])`,
    * etc.) throw at `createMcpServer` construction with a tool-attributed error.
    *
-   * The array is snapshotted at construction; post-construction mutations to
-   * the caller's array do not affect `tools/list` or `tools/call`.
+   * The outer array is snapshotted at construction; pushing or removing
+   * entries from the caller's `tools` array post-construction does not affect
+   * `tools/list` or `tools/call`. Schemas inside each tool are held by
+   * reference, not deep-cloned — treat `tool.parameters` as immutable once
+   * `createMcpServer` returns.
    */
   tools: readonly PortableTool<TSchema>[];
   instructions?: string;
@@ -106,10 +109,11 @@ function assertObjectShapedParameters(tools: readonly PortableTool<TSchema>[]): 
         "MCP requires Type.Object(...) at the top level; use Type.Object({ value: Type.String() }) " +
         "to wrap a single-field schema, or Type.Intersect([Type.Object(...), Type.Object(...)]) for " +
         "merged object schemas.";
-      if (typeLabel === "anyOf" || typeLabel === "oneOf") {
-        // Top-level Union lowers to `anyOf`/`oneOf` (OR). The generic
-        // `Type.Intersect` (AND) advice above is the wrong recipe for that
-        // case, so append union-specific guidance.
+      if (typeLabel.includes("anyOf") || typeLabel.includes("oneOf")) {
+        // Union lowers to `anyOf`/`oneOf` (OR) — at the top level or nested
+        // inside an `allOf` branch. The generic `Type.Intersect` (AND) advice
+        // above is the wrong recipe for that case, so append union-specific
+        // guidance.
         message +=
           " Top-level Type.Union([Type.Object(...), ...]) is not supported by the MCP wire layer; " +
           "flatten branches into a single Type.Object(...) with optional discriminator fields, " +
