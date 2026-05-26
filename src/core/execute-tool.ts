@@ -12,19 +12,18 @@ import type {
 const ROOT_FIELD = "(root)";
 
 function suppressSiblingErrorsUnderUnion(errors: TLocalizedValidationError[]): TLocalizedValidationError[] {
-  // When TypeBox emits an anyOf/oneOf error at a path, it also emits per-branch
-  // errors at the same path. The per-branch `required` and `additionalProperties`
-  // errors create false "X is missing" / "Y is unexpected" reports — the user
-  // only needs to satisfy ONE branch, not all of them. Suppress them so only
-  // the anyOf/oneOf summary survives at that path.
+  // For unions of objects, TypeBox emits per-branch `required` /
+  // `additionalProperties` errors at the union's path. The user only needs
+  // to satisfy ONE branch, so those entries are phantoms; the `anyOf` /
+  // `oneOf` summary at the same path is the real signal.
   //
-  // const/enum errors at the same path are NOT suppressed — they're real
-  // discriminator info that helps an agent pick which branch was intended.
+  // `const` / `enum` errors at the same path survive — they carry real
+  // discriminator info about which branch was intended.
   //
-  // Known trade-off (#38): for discriminated unions where the user picks a
-  // branch correctly but forgets that branch's required props, the helpful
-  // "you picked tag=X and forgot Y" hint is also silenced. Keyword-aware
-  // branch matching is the follow-up; not implemented here.
+  // Known trade-off (#38): discriminated unions where the user picks a
+  // branch correctly but forgets that branch's required props also lose
+  // the "you picked tag=X and forgot Y" hint. Keyword-aware branch
+  // matching is the follow-up.
   const unionPaths = new Set<string>();
   for (const error of errors) {
     if (error.keyword === "anyOf" || error.keyword === "oneOf") {
