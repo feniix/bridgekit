@@ -380,6 +380,103 @@ test("registered pi tool fires hostExtras.pi.pendingMessage at-most-once per inv
   });
 });
 
+test("pre-execute onUpdate throw routes through errorHandling: return as isError result", async () => {
+  // Contract: a throwing host `onUpdate` at the pre-execute emit site is
+  // routed through the same catch as a handler-thrown exception. In return
+  // mode, the result is `{ isError: true, ... }` with the thrown message
+  // preserved as the text content. The handler is NOT invoked, because the
+  // pre-execute emit fires before the handler. Pins the fix for the issue
+  // where the pre-execute emit sat outside the surrounding try/catch and
+  // bypassed `errorHandling: "return"`.
+  let handlerEntered = false;
+  const pendingTool = definePortableTool({
+    name: "pending_throwing_onupdate",
+    title: "Pending Throwing onUpdate",
+    description: "Pre-execute emit must route a throwing onUpdate through errorHandling.",
+    parameters: echoParams,
+    execute(args) {
+      handlerEntered = true;
+      return { text: args.text };
+    },
+    hostExtras: {
+      pi: { pendingMessage: "Processing..." },
+    },
+  });
+  const registered: RegisteredPiTool[] = [];
+  const pi = {
+    registerTool(tool: RegisteredPiTool) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [pendingTool]);
+  const tool = registered.find((candidate) => candidate.name === "pending_throwing_onupdate");
+  assert.ok(tool);
+
+  const result = await tool.execute(
+    "call",
+    { text: "x" },
+    undefined,
+    () => {
+      throw new Error("host onUpdate failed");
+    },
+    {},
+  );
+
+  assert.equal(handlerEntered, false, "pre-execute emit's throw must short-circuit before the handler");
+  assert.equal(result.isError, true);
+  assert.deepEqual(result.content, [{ type: "text", text: "host onUpdate failed" }]);
+  assert.deepEqual(result.details, {});
+});
+
+test("pre-execute onUpdate throw routes through errorHandling: throw as exception", async () => {
+  // Symmetric test for opt-in throw mode: the thrown error propagates up
+  // the call stack unchanged. The handler is still not invoked.
+  let handlerEntered = false;
+  const pendingTool = definePortableTool({
+    name: "pending_throwing_onupdate_throw_mode",
+    title: "Pending Throwing onUpdate (throw mode)",
+    description: "Same as the return-mode test, but errorHandling: 'throw'.",
+    parameters: echoParams,
+    execute(args) {
+      handlerEntered = true;
+      return { text: args.text };
+    },
+    hostExtras: {
+      pi: { pendingMessage: "Processing..." },
+    },
+  });
+  const registered: RegisteredPiTool[] = [];
+  const pi = {
+    registerTool(tool: RegisteredPiTool) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [pendingTool], { errorHandling: "throw" });
+  const tool = registered.find((candidate) => candidate.name === "pending_throwing_onupdate_throw_mode");
+  assert.ok(tool);
+
+  await assert.rejects(
+    () =>
+      tool.execute(
+        "call",
+        { text: "x" },
+        undefined,
+        () => {
+          throw new Error("host onUpdate failed");
+        },
+        {},
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, "host onUpdate failed");
+      assert.equal(handlerEntered, false, "pre-execute emit's throw must short-circuit before the handler");
+      return true;
+    },
+  );
+});
+
 test("registered pi tool with hostExtras.pi.pendingMessage no-ops when onUpdate is undefined", async () => {
   // RFC §2: when the host does not provide onUpdate, the adapter silently
   // no-ops — no throw, no stored emit. Pinned so a future refactor that

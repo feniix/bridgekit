@@ -137,18 +137,25 @@ export function registerPiTools(
       ...(piExtras?.promptSnippet !== undefined && { promptSnippet: piExtras.promptSnippet }),
       ...(piExtras?.promptGuidelines !== undefined && { promptGuidelines: piExtras.promptGuidelines }),
       async execute(_toolCallId, params, signal, onUpdate, _ctx) {
-        // Pre-execute lifecycle hook. Fires exactly once per call, before
-        // TypeBox validation runs, when the tool declares a non-empty
-        // `hostExtras.pi.pendingMessage`. Silently no-ops when the pi host
-        // does not supply `onUpdate`. See RFC §3 (Gap B).
-        if (piExtras?.pendingMessage !== undefined && piExtras.pendingMessage !== "") {
-          onUpdate?.({
-            content: [{ type: "text", text: piExtras.pendingMessage } satisfies PiContent],
-            details: { status: "pending" },
-          });
-        }
         let result: PortableToolResult;
         try {
+          // Pre-execute lifecycle hook. Fires exactly once per call, before
+          // TypeBox validation runs, when the tool declares a non-empty
+          // `hostExtras.pi.pendingMessage`. Silently no-ops when the pi host
+          // does not supply `onUpdate`. See RFC §3 (Gap B).
+          //
+          // Wrapped inside the same try/catch that guards the handler so a
+          // throwing host `onUpdate` is routed through `errorHandling` (and
+          // does not skip past the catch as an uncaught exception). The
+          // handler is NOT invoked when the pre-execute emit throws —
+          // erroring before validation is a host-channel failure, not an
+          // argument failure.
+          if (piExtras?.pendingMessage !== undefined && piExtras.pendingMessage !== "") {
+            onUpdate?.({
+              content: [{ type: "text", text: piExtras.pendingMessage } satisfies PiContent],
+              details: { status: "pending" },
+            });
+          }
           result = await executePortableTool(tool, params, {
             host: "pi",
             signal,
