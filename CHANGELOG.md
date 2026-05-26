@@ -4,7 +4,35 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.0] - Unreleased
+## [0.8.0] - Unreleased
+
+### Breaking
+
+- **`PortableValidationError` renamed `path` → `field`.** No deprecation alias.
+  Update assertions accordingly. `field` is derived from TypeBox's
+  `instancePath` as the last meaningful path segment (e.g. `/text` → `"text"`,
+  `/items/0/name` → `"name"`). When TypeBox emits `must have required
+  properties X, Y`, BridgeKit now expands that to one `PortableValidationError`
+  per missing prop, with `field` set to the missing prop name — never `""`.
+  Resolves [#33](https://github.com/feniix/bridgekit/issues/33).
+
+  ```ts
+  // Before (0.7 and earlier)
+  expect(result.structuredContent.validationErrors).toMatchObject([
+    { path: "/file_path", message: /* ... */ },
+  ]);
+
+  // After (0.8+)
+  expect(result.structuredContent.validationErrors).toMatchObject([
+    { field: "file_path", message: /* ... */ },
+  ]);
+  ```
+
+  After this rename, validation and domain errors share the same
+  `{ field, message }` per-item shape, so consumers reading `.field` no longer
+  need to branch on which kind of failure produced the entry.
+
+## [0.7.0] - 2026-05-26
 
 ### Changed
 

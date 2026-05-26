@@ -122,10 +122,119 @@ test("executePortableTool returns validation errors without calling the tool", a
   assert.match(result.text, /Invalid arguments for echo_test/);
   assert.equal(result.structuredContent?.kind, "validation");
   assert.equal(result.structuredContent?.tool, "echo_test");
-  const validationErrors = result.structuredContent?.validationErrors as Array<{ path: string; message: string }>;
+  const validationErrors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
   assert.ok(Array.isArray(validationErrors));
   assert.equal(validationErrors.length, 1);
-  assert.equal(validationErrors[0].path, "/text");
+  assert.equal(validationErrors[0].field, "text");
   assert.equal(typeof validationErrors[0].message, "string");
   assert.ok(validationErrors[0].message.length > 0);
+});
+
+test("validatePortableToolArgs: missing top-level required property", async () => {
+  const tool = definePortableTool({
+    name: "missing_required",
+    title: "Missing Required",
+    description: "Schema requires file_path.",
+    parameters: Type.Object({ file_path: Type.String() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, {}, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
+  assert.deepEqual(
+    errors.map((e) => e.field),
+    ["file_path"],
+  );
+  assert.match(errors[0].message, /required property file_path/);
+});
+
+test("validatePortableToolArgs: wrong type on top-level property", async () => {
+  const tool = definePortableTool({
+    name: "wrong_type_top",
+    title: "Wrong Type Top",
+    description: "count must be number.",
+    parameters: Type.Object({ count: Type.Number() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { count: "x" }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
+  assert.ok(errors.length >= 1);
+  assert.equal(errors[0].field, "count");
+});
+
+test("validatePortableToolArgs: wrong type on nested property", async () => {
+  const tool = definePortableTool({
+    name: "wrong_type_nested",
+    title: "Wrong Type Nested",
+    description: "inner.name must be string.",
+    parameters: Type.Object({ inner: Type.Object({ name: Type.String() }) }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { inner: { name: 42 } }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
+  assert.ok(errors.length >= 1);
+  assert.equal(errors[0].field, "name");
+});
+
+test("validatePortableToolArgs: out-of-range integer", async () => {
+  const tool = definePortableTool({
+    name: "out_of_range",
+    title: "Out Of Range",
+    description: "count must be >= 0.",
+    parameters: Type.Object({ count: Type.Number({ minimum: 0 }) }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { count: -1 }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
+  assert.ok(errors.length >= 1);
+  assert.equal(errors[0].field, "count");
+});
+
+test("validatePortableToolArgs: union / discriminator mismatch", async () => {
+  const tool = definePortableTool({
+    name: "union_mismatch",
+    title: "Union Mismatch",
+    description: "kind must be 'a' or 'b'.",
+    parameters: Type.Object({ kind: Type.Union([Type.Literal("a"), Type.Literal("b")]) }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { kind: "c" }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
+  assert.ok(errors.length >= 1);
+  for (const error of errors) {
+    assert.equal(error.field, "kind");
+  }
+});
+
+test("validatePortableToolArgs: multiple missing required properties expand to one error per field", async () => {
+  const tool = definePortableTool({
+    name: "multiple_missing_required",
+    title: "Multiple Missing Required",
+    description: "Schema requires file_path and count.",
+    parameters: Type.Object({ file_path: Type.String(), count: Type.Number() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, {}, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = result.structuredContent?.validationErrors as Array<{ field: string; message: string }>;
+  assert.deepEqual(errors.map((e) => e.field).sort(), ["count", "file_path"]);
+  for (const error of errors) {
+    assert.match(error.message, /required property/);
+  }
 });

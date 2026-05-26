@@ -194,10 +194,10 @@ test("MCP tool call with invalid args is rejected without invoking the portable 
     const result = await client.callTool({ name: "echo_guarded", arguments: { text: 123 } });
     assert.equal(calls, 0, "invalid arguments must not call the portable tool handler");
     assert.equal(result.isError, true);
-    const errors = structuredContent(result).validationErrors as Array<{ path: string; message: string }>;
+    const errors = structuredContent(result).validationErrors as Array<{ field: string; message: string }>;
     assert.equal(structuredContent(result).tool, "echo_guarded");
     assert.ok(Array.isArray(errors));
-    assert.equal(errors[0].path, "/text");
+    assert.equal(errors[0].field, "text");
     // Note: the exact wording of result.text is owned by the core test
     // (executePortableTool returns validation errors without calling the tool).
   });

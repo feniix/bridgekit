@@ -114,10 +114,16 @@ try {
 // After (0.7+)
 const result = await piTool.execute(...);
 if (result.isError) {
-  if (isValidationFailure(result)) { /* result.structuredContent.validationErrors */ }
-  else if (isDomainFailure(result)) { /* handler-level error */ }
+  if (isValidationFailure(result)) {
+    // validationErrors is Array<{ field: string; message: string }>.
+    for (const { field, message } of result.structuredContent.validationErrors) {
+      // ...
+    }
+  } else if (isDomainFailure(result)) { /* handler-level error */ }
 }
 ```
+
+`PortableValidationError` exposes `{ field, message }`. `field` is the last meaningful segment of the offending JSON pointer (`text`, not `/text`); for missing required properties, the field is the missing prop name and one error is emitted per missing prop. Validation and domain errors share this `{ field, message }` shape, so a consumer reading `.field` does not need to branch on which kind of failure produced the entry. (`path` was the pre-0.8.0 name; it has been removed.)
 
 The two modes expose the failure discriminator on different fields. In the
 new default `"return"` mode, prefer the result guards over inspecting a
