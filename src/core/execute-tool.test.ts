@@ -508,14 +508,10 @@ test("validatePortableToolArgs: slash in property name survives intact for wrong
 });
 
 test("validatePortableToolArgs: slash in property name inside Type.Intersect resolves via allOf descent", async () => {
-  // 0.9 widened the MCP adapter to accept Type.Intersect; the schema walker
-  // in fieldFromSchemaWalk had no allOf descent, so a property named `a/b`
-  // inside an Intersect branch had no schema-resolution path: the root has
-  // `allOf` rather than `properties`, the walker returned undefined, and
-  // the string-split fallback yielded field "b" (losing the prefix). The
-  // walker now probes each allOf branch with the full remaining path. This
-  // exercises the wrong-type path (const/enum/default keywords use the
-  // walker); required/additionalProperties already read structured params.
+  // Regression anchor for the 0.8.3 `/`-in-property-name fix once the schema
+  // root is an Intersect (`allOf`) rather than an `Object` (`properties`):
+  // without allOf descent, the field-derivation fallback split on `/` and
+  // returned "b" instead of "a/b".
   const tool = definePortableTool({
     name: "slash_prop_intersect",
     title: "Slash Prop Intersect",

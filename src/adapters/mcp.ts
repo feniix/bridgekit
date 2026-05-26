@@ -78,15 +78,8 @@ function schemaTypeLabel(schema: unknown): string {
         return `allOf[${i}] resolves to type="${schemaTypeLabel(candidate.allOf[i])}"`;
       }
     }
-    return "allOf";
   }
   return "unknown";
-}
-
-function isUnionLikeShape(schema: unknown): boolean {
-  if (typeof schema !== "object" || schema === null) return false;
-  const candidate = schema as { anyOf?: unknown; oneOf?: unknown };
-  return Array.isArray(candidate.anyOf) || Array.isArray(candidate.oneOf);
 }
 
 /**
@@ -113,7 +106,7 @@ function assertObjectShapedParameters(tools: readonly PortableTool<TSchema>[]): 
         "MCP requires Type.Object(...) at the top level; use Type.Object({ value: Type.String() }) " +
         "to wrap a single-field schema, or Type.Intersect([Type.Object(...), Type.Object(...)]) for " +
         "merged object schemas.";
-      if (isUnionLikeShape(tool.parameters)) {
+      if (typeLabel === "anyOf" || typeLabel === "oneOf") {
         // Top-level Union lowers to `anyOf`/`oneOf` (OR). The generic
         // `Type.Intersect` (AND) advice above is the wrong recipe for that
         // case, so append union-specific guidance.
@@ -129,11 +122,16 @@ function assertObjectShapedParameters(tools: readonly PortableTool<TSchema>[]): 
 
 export function createMcpServer(options: CreateMcpServerOptions): Server {
   assertObjectShapedParameters(options.tools);
-  // Snapshot the caller's array so post-construction mutations don't bleed
-  // into `tools/list` or the byName lookup. `byName` already pins call-time
-  // lookup; the local copy pins listing.
-  const tools = [...options.tools];
-  const byName = new Map(tools.map((tool) => [tool.name, tool]));
+  // Build the dispatch map and the listing payload at construction so
+  // `tools/list` returns a pre-computed array and post-construction mutations
+  // to the caller's array cannot leak unvalidated schemas onto the wire.
+  const byName = new Map(options.tools.map((tool) => [tool.name, tool]));
+  const mcpTools: Tool[] = options.tools.map((tool) => ({
+    name: tool.name,
+    title: tool.title,
+    description: tool.description,
+    inputSchema: toInputSchema(tool.parameters),
+  }));
   const server = new Server(
     { name: options.name, version: options.version },
     {
@@ -142,16 +140,7 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
     },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map(
-      (tool): Tool => ({
-        name: tool.name,
-        title: tool.title,
-        description: tool.description,
-        inputSchema: toInputSchema(tool.parameters),
-      }),
-    ),
-  }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcpTools }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const tool = byName.get(request.params.name);

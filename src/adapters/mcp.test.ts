@@ -124,14 +124,7 @@ test("createMcpServer throws at construction for Type.Union of objects at the to
   );
 });
 
-// Coverage-gap tests for the `Intersect` edge shapes (#29 follow-up).
-// `isObjectSchema` rejects empty `allOf` and mixed-branch `allOf`, and
-// accepts nested `allOf` of object schemas via its recursive descent. Only
-// the trivial two-branch case is exercised by the positive test above.
-
 test("createMcpServer throws at construction for empty Type.Intersect", () => {
-  // `Type.Intersect([])` lowers to `{ allOf: [] }`. `isObjectSchema` rejects
-  // empty allOf (no branches means no object guarantee on the wire).
   const tool = definePortableTool({
     name: "empty_intersect",
     title: "Empty Intersect",
@@ -153,9 +146,6 @@ test("createMcpServer throws at construction for empty Type.Intersect", () => {
 });
 
 test("createMcpServer throws at construction for Type.Intersect mixing an object and a primitive branch", () => {
-  // `Type.Intersect([Type.Object(...), Type.String()])` lowers to allOf with
-  // a non-object branch. `isObjectSchema`'s recursive `every` rejects it;
-  // schemaTypeLabel surfaces the offending branch by index.
   const tool = definePortableTool({
     name: "mixed_intersect",
     title: "Mixed Intersect",
@@ -171,8 +161,7 @@ test("createMcpServer throws at construction for Type.Intersect mixing an object
     (error: unknown) => {
       assert.ok(error instanceof Error);
       assert.match(error.message, /^createMcpServer: tool "mixed_intersect"/);
-      // The mixed-branch case names the offending branch index/type rather
-      // than the misdirecting bare "allOf" label.
+      // Name the offending branch index, not a bare "allOf" label.
       assert.match(error.message, /allOf\[1\]/);
       return true;
     },
@@ -180,8 +169,6 @@ test("createMcpServer throws at construction for Type.Intersect mixing an object
 });
 
 test("createMcpServer accepts nested Type.Intersect of object schemas and round-trips a call", async () => {
-  // Nested intersect: allOf[0] is itself an allOf of two objects.
-  // `isObjectSchema` descends recursively, so this must be accepted.
   const nestedParams = Type.Intersect([
     Type.Intersect([Type.Object({ a: Type.String() }), Type.Object({ b: Type.Number() })]),
     Type.Object({ c: Type.Boolean() }),
