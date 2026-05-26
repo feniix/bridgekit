@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { definePortableTool } from "@feniix/bridgekit";
+import { definePortableTool, type PortableToolHostExtras } from "@feniix/bridgekit";
 import { isPortableToolExecutionError, PortableToolExecutionError, registerPiTools } from "@feniix/bridgekit/pi";
 import { fromAny, fromPartial } from "@total-typescript/shoehorn";
 import { Type } from "typebox";
@@ -722,4 +722,152 @@ test("registered pi tool (opt-in throw mode): invalid args throw without calling
       return true;
     },
   );
+});
+
+// RFC §9 #2 [GATING] — Zero-cost shape: hostExtras: {} (empty object).
+//
+// Two tools that differ only in whether `hostExtras` is absent vs. `{}` must
+// produce observationally identical registrations: the same own-property
+// key set on `pi.registerTool(...)` and no pre-execute onUpdate emitted.
+test("hostExtras: {} produces byte-identical pi registration to absent hostExtras (RFC §9 #2 GATING)", async () => {
+  const toolAbsent = definePortableTool({
+    name: "absent_extras",
+    title: "Absent Extras",
+    description: "Tool without hostExtras.",
+    parameters: echoParams,
+    execute(args) {
+      return { text: args.text };
+    },
+  });
+  const toolEmpty = definePortableTool({
+    name: "empty_extras",
+    title: "Empty Extras",
+    description: "Tool with hostExtras: {}.",
+    parameters: echoParams,
+    execute(args) {
+      return { text: args.text };
+    },
+    hostExtras: {},
+  });
+
+  const registered: Array<Record<string, unknown>> = [];
+  const pi = {
+    registerTool(tool: Record<string, unknown>) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [toolAbsent, toolEmpty]);
+  assert.equal(registered.length, 2);
+
+  const keysAbsent = Object.keys(registered[0] ?? {}).sort();
+  const keysEmpty = Object.keys(registered[1] ?? {}).sort();
+  assert.deepEqual(keysAbsent, keysEmpty, "registration key sets must match");
+  assert.deepEqual(keysAbsent, ["description", "execute", "label", "name", "parameters"]);
+
+  // Neither tool emits a pre-execute onUpdate.
+  const absentUpdates: unknown[] = [];
+  const emptyUpdates: unknown[] = [];
+  const absent = registered[0] as unknown as RegisteredPiTool;
+  const empty = registered[1] as unknown as RegisteredPiTool;
+  await absent.execute("call-absent", { text: "x" }, undefined, (u: unknown) => absentUpdates.push(u), {});
+  await empty.execute("call-empty", { text: "x" }, undefined, (u: unknown) => emptyUpdates.push(u), {});
+  assert.equal(absentUpdates.length, 0);
+  assert.equal(emptyUpdates.length, 0);
+});
+
+// RFC §9 #5 — pendingMessage × errorHandling: "throw" ordering.
+//
+// In throw mode, validation failure raises PortableToolExecutionError. The
+// pre-execute emit must reach the channel before the throw — it sits above
+// validation in the lifecycle, and the catch block re-raises, it doesn't
+// swallow the emit.
+test("pendingMessage fires before PortableToolExecutionError in errorHandling: 'throw' mode (RFC §9 #5)", async () => {
+  const updates: Array<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> = [];
+  const pendingTool = definePortableTool({
+    name: "pending_throw_mode",
+    title: "Pending Throw Mode",
+    description: "Pre-execute emit fires once before the throw in throw mode.",
+    parameters: echoParams,
+    execute() {
+      throw new Error("handler should not run on validation failure");
+    },
+    hostExtras: {
+      pi: { pendingMessage: "Processing..." },
+    },
+  });
+  const registered: RegisteredPiTool[] = [];
+  const pi = {
+    registerTool(tool: RegisteredPiTool) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [pendingTool], { errorHandling: "throw" });
+  const tool = registered.find((candidate) => candidate.name === "pending_throw_mode");
+  assert.ok(tool);
+
+  await assert.rejects(
+    () =>
+      tool.execute(
+        "call",
+        { text: 42 },
+        undefined,
+        (update: unknown) =>
+          updates.push(update as { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }),
+        {},
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof PortableToolExecutionError);
+      return true;
+    },
+  );
+
+  assert.equal(updates.length, 1, "pre-execute emit fired once before the throw");
+  assert.deepEqual(updates[0], {
+    content: [{ type: "text", text: "Processing..." }],
+    details: { status: "pending" },
+  });
+});
+
+// RFC §9 #8 — Unknown-host keys runtime ignored.
+//
+// A tool carrying `hostExtras["custom-runtime"]` (without a module
+// augmentation in scope, so the type slot doesn't exist for the test) must
+// produce a pi registration whose key set is unchanged: pi does not look
+// at namespaces it doesn't recognise, no leak of custom-runtime keys, no
+// throw.
+test("registerPiTools ignores unknown host namespaces at runtime (RFC §9 #8)", async () => {
+  const sneakyExtras = { "custom-runtime": { foo: "bar" } } as unknown as PortableToolHostExtras;
+  const sneakyTool = definePortableTool({
+    name: "sneaky_extras",
+    title: "Sneaky Extras",
+    description: "Tool with an unknown-host namespace; pi must ignore it.",
+    parameters: echoParams,
+    execute(args) {
+      return { text: args.text };
+    },
+    hostExtras: sneakyExtras,
+  });
+
+  const registered: Array<Record<string, unknown>> = [];
+  const pi = {
+    registerTool(tool: Record<string, unknown>) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [sneakyTool]);
+  assert.equal(registered.length, 1);
+  const keys = Object.keys(registered[0] ?? {}).sort();
+  assert.deepEqual(
+    keys,
+    ["description", "execute", "label", "name", "parameters"],
+    "no leak of unknown-host namespace keys onto the pi registration",
+  );
+
+  // Invocation succeeds — the unknown namespace is ignored, not surfaced.
+  const tool = registered[0] as unknown as RegisteredPiTool;
+  const result = await tool.execute("call", { text: "x" }, undefined, undefined, {});
+  assert.equal(result.isError, false);
 });

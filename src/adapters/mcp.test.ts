@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { definePortableTool } from "@feniix/bridgekit";
+import { definePortableTool, type PortableToolHostExtras } from "@feniix/bridgekit";
 import * as mcp from "@feniix/bridgekit/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -549,6 +549,112 @@ test("createMcpServer's tools/list payload is unaffected by post-construction mu
     assert.equal(sneakyResult.isError, true);
     assert.ok(Array.isArray(sneakyResult.content));
     assert.match((sneakyResult.content as Array<{ text: string }>)[0]?.text ?? "", /Unknown tool: sneaky/);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+// RFC §9 #2 [GATING] — Zero-cost shape: hostExtras: {} (empty object).
+//
+// Four tools that differ only in how empty/absent their hostExtras are must
+// produce observationally identical Tool entries on the MCP wire: no
+// `annotations` key on any of them.
+test("hostExtras: {} produces byte-identical tools/list entry to absent hostExtras (RFC §9 #2 GATING)", async () => {
+  const params = Type.Object({ value: Type.String() });
+  const execute = (args: { value: string }) => ({ text: args.value });
+  const toolA = definePortableTool({
+    name: "no_extras",
+    title: "No Extras",
+    description: "No hostExtras at all.",
+    parameters: params,
+    execute,
+  });
+  const toolB = definePortableTool({
+    name: "empty_extras",
+    title: "Empty Extras",
+    description: "hostExtras: {}.",
+    parameters: params,
+    execute,
+    hostExtras: {},
+  });
+  const toolC = definePortableTool({
+    name: "empty_mcp",
+    title: "Empty Mcp",
+    description: "hostExtras: { mcp: {} }.",
+    parameters: params,
+    execute,
+    hostExtras: { mcp: {} },
+  });
+  const toolD = definePortableTool({
+    name: "empty_annotations",
+    title: "Empty Annotations",
+    description: "hostExtras: { mcp: { annotations: {} } }.",
+    parameters: params,
+    execute,
+    hostExtras: { mcp: { annotations: {} } },
+  });
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createMcpServer({
+    name: "empty-extras-test",
+    version: "0.1.0",
+    tools: [toolA, toolB, toolC, toolD],
+  });
+  const client = new Client({ name: "empty-extras-test-client", version: "0.1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const list = await client.listTools();
+    assert.equal(list.tools.length, 4);
+    for (const entry of list.tools) {
+      const record = entry as Record<string, unknown>;
+      assert.equal(
+        "annotations" in record,
+        false,
+        `expected no 'annotations' key on Tool ${record.name}; got: ${JSON.stringify(record)}`,
+      );
+    }
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+// RFC §9 #8 — Unknown-host keys runtime ignored.
+//
+// A tool carrying `hostExtras["custom-runtime"]` must not affect the MCP
+// adapter's wire output: the unknown namespace is opaque to the MCP path
+// (it only reads `hostExtras.mcp`), and no leak of custom-runtime keys
+// appears on the Tool entry.
+test("createMcpServer ignores unknown host namespaces at runtime (RFC §9 #8)", async () => {
+  const sneakyExtras = { "custom-runtime": { foo: "bar" } } as unknown as PortableToolHostExtras;
+  const tool = definePortableTool({
+    name: "sneaky_mcp",
+    title: "Sneaky MCP",
+    description: "Tool with an unknown-host namespace; MCP must ignore it.",
+    parameters: Type.Object({ value: Type.String() }),
+    execute(args) {
+      return { text: args.value };
+    },
+    hostExtras: sneakyExtras,
+  });
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createMcpServer({ name: "unknown-host-test", version: "0.1.0", tools: [tool] });
+  const client = new Client({ name: "unknown-host-test-client", version: "0.1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const list = await client.listTools();
+    assert.equal(list.tools.length, 1);
+    const entry = list.tools[0] as Record<string, unknown>;
+    assert.equal(
+      "annotations" in entry,
+      false,
+      `expected no 'annotations' key on Tool entry; got: ${JSON.stringify(entry)}`,
+    );
+    // Invocation succeeds normally — the unknown namespace is not surfaced.
+    const result = await client.callTool({ name: "sneaky_mcp", arguments: { value: "x" } });
+    assert.equal(result.isError, false);
   } finally {
     await client.close();
     await server.close();
