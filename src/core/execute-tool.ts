@@ -17,9 +17,15 @@ const ROOT_FIELD = "(root)";
  * symbol) so the helper stays robust across minor TypeBox upgrades — the
  * compiled output is canonical JSON Schema by the time we read it.
  */
+type DiscriminatorPropSchema = {
+  const?: unknown;
+  enum?: unknown[];
+  anyOf?: unknown[];
+};
+
 type UnionObjectBranch = {
   type?: string;
-  properties?: Record<string, { const?: unknown; enum?: unknown[] } | undefined>;
+  properties?: Record<string, DiscriminatorPropSchema | undefined>;
   required?: string[];
 };
 
@@ -28,21 +34,62 @@ type UnionSchemaShape = {
   oneOf?: UnionObjectBranch[];
 };
 
+function readDiscriminatorValues(propSchema: DiscriminatorPropSchema | undefined): unknown[] {
+  // Extract the allowed values from a discriminator-eligible prop schema.
+  // Recognizes three shapes:
+  //   - `Type.Literal("x")` → `{ const: "x" }`
+  //   - `Type.String({ enum: ["x", "y"] })` → `{ enum: ["x", "y"] }`
+  //   - `Type.Union([Type.Literal("x"), Type.Literal("y")])` →
+  //     `{ anyOf: [{ const: "x" }, { const: "y" }] }`
+  // The anyOf-of-const case is idiomatic TypeBox and was missed before:
+  // without it, a branch declaring its tag as a Union-of-Literals was
+  // treated as having no discriminator, silently bailing out of branch
+  // matching.
+  if (!propSchema || typeof propSchema !== "object") return [];
+  if ("const" in propSchema) return [propSchema.const];
+  if (Array.isArray(propSchema.enum)) return propSchema.enum;
+  if (Array.isArray(propSchema.anyOf) && propSchema.anyOf.length > 0) {
+    const consts: unknown[] = [];
+    for (const entry of propSchema.anyOf) {
+      if (entry && typeof entry === "object" && "const" in entry) {
+        consts.push((entry as { const: unknown }).const);
+      } else {
+        return [];
+      }
+    }
+    return consts;
+  }
+  return [];
+}
+
 function resolveSchemaAtPath(schema: TSchema, instancePath: string): unknown {
-  // Walk a JSON-pointer-style instancePath (e.g. "/event") down through
-  // Object schemas to land on the sub-schema at that data path. We only
-  // follow `properties` — array index segments and other JSON Schema
-  // composites bail out and return undefined; the caller then falls back
-  // to the conservative suppress-all rule.
+  // Walk a JSON-pointer-style instancePath (e.g. "/event", "/events/0")
+  // down to the sub-schema at that data path. Follows both `properties`
+  // for object schemas and `items` for array schemas (numeric segments
+  // descend into the items schema). Other JSON Schema composites bail
+  // out; the caller then falls back to the conservative suppress-all rule.
   if (instancePath === "") return schema;
   const segments = instancePath.split("/").filter(Boolean);
   let current: unknown = schema;
   for (const segment of segments) {
     if (!current || typeof current !== "object") return undefined;
-    const obj = current as { properties?: Record<string, unknown> };
-    if (!obj.properties || typeof obj.properties !== "object") return undefined;
-    current = obj.properties[segment];
-    if (current === undefined) return undefined;
+    const obj = current as { properties?: Record<string, unknown>; items?: unknown };
+    if (obj.properties && typeof obj.properties === "object" && segment in obj.properties) {
+      current = obj.properties[segment];
+      if (current === undefined) return undefined;
+      continue;
+    }
+    if (obj.items !== undefined && /^\d+$/.test(segment)) {
+      if (Array.isArray(obj.items)) {
+        const idx = Number(segment);
+        if (idx >= obj.items.length) return undefined;
+        current = obj.items[idx];
+      } else {
+        current = obj.items;
+      }
+      continue;
+    }
+    return undefined;
   }
   return current;
 }
@@ -67,36 +114,29 @@ function readValueAtPath(value: unknown, instancePath: string): unknown {
   const segments = instancePath.split("/").filter(Boolean);
   let current: unknown = value;
   for (const segment of segments) {
-    if (!current || typeof current !== "object") return undefined;
+    if (current === null || current === undefined || typeof current !== "object") return undefined;
+    // Object property access works for both Records and Arrays (arr["0"]
+    // resolves to arr[0]).
     current = (current as Record<string, unknown>)[segment];
   }
   return current;
 }
 
-function branchDiscriminatorMatches(
-  branch: UnionObjectBranch,
-  value: unknown,
-): { hasDiscriminator: boolean; matches: boolean } {
-  // A discriminator prop on a branch is a property whose schema is a
-  // single `const` literal or an `enum` set. Other props don't act as
-  // discriminators for this rule — we want only the "picked a tag"
-  // pattern, not "all string types coincidentally match this branch".
-  if (!value || typeof value !== "object") return { hasDiscriminator: false, matches: false };
+function branchDiscriminatorMatches(branch: UnionObjectBranch, value: unknown): boolean {
+  // A branch matches its discriminator when every prop with a discriminator-
+  // eligible schema (Literal / enum / anyOf-of-Literal) is present on the
+  // input with a value the schema allows. `Object.hasOwn` avoids matching
+  // prototype-chain props like `toString`.
+  if (!value || typeof value !== "object") return false;
   const input = value as Record<string, unknown>;
   let hasDiscriminator = false;
   for (const [key, propSchema] of Object.entries(branch.properties ?? {})) {
-    if (!propSchema || typeof propSchema !== "object") continue;
-    if ("const" in propSchema) {
-      hasDiscriminator = true;
-      if (!(key in input) || input[key] !== propSchema.const) return { hasDiscriminator, matches: false };
-      continue;
-    }
-    if (Array.isArray(propSchema.enum)) {
-      hasDiscriminator = true;
-      if (!(key in input) || !propSchema.enum.includes(input[key])) return { hasDiscriminator, matches: false };
-    }
+    const allowed = readDiscriminatorValues(propSchema);
+    if (allowed.length === 0) continue;
+    hasDiscriminator = true;
+    if (!Object.hasOwn(input, key) || !allowed.includes(input[key])) return false;
   }
-  return { hasDiscriminator, matches: hasDiscriminator };
+  return hasDiscriminator;
 }
 
 function isSubsetOf(props: readonly string[], set: ReadonlySet<string>): boolean {
@@ -159,8 +199,7 @@ function suppressSiblingErrorsUnderUnion(
     const branchValue = readValueAtPath(value, path);
     const matchedIndices: number[] = [];
     for (let i = 0; i < branches.length; i++) {
-      const result = branchDiscriminatorMatches(branches[i], branchValue);
-      if (result.matches) matchedIndices.push(i);
+      if (branchDiscriminatorMatches(branches[i], branchValue)) matchedIndices.push(i);
     }
     if (matchedIndices.length !== 1) {
       resolutions.set(path, { kind: "no-active" });
@@ -170,18 +209,16 @@ function suppressSiblingErrorsUnderUnion(
     const active = branches[activeIndex];
     const branchRequired = new Set(active.required ?? []);
     const branchProps = new Set(Object.keys(active.properties ?? {}));
-    // Map of property-name -> set of disallowed const values held by losing
+    // Map of property-name -> set of disallowed values held by losing
     // branches' discriminators. Used to drop "must equal X" errors at the
     // union's descendant paths when X belongs to a branch the user didn't
-    // pick. Schema-walking here is cleaner than parsing error provenance.
+    // pick. Covers `const`, `enum`, and `Union([Literal, Literal])` (the
+    // anyOf-of-const shape) via `readDiscriminatorValues`.
     const losingDiscriminators = new Map<string, Set<unknown>>();
     for (let i = 0; i < branches.length; i++) {
       if (i === activeIndex) continue;
       for (const [key, propSchema] of Object.entries(branches[i].properties ?? {})) {
-        if (!propSchema || typeof propSchema !== "object") continue;
-        const values: unknown[] = [];
-        if ("const" in propSchema) values.push(propSchema.const);
-        if (Array.isArray(propSchema.enum)) values.push(...propSchema.enum);
+        const values = readDiscriminatorValues(propSchema);
         if (values.length === 0) continue;
         let existing = losingDiscriminators.get(key);
         if (!existing) {
@@ -275,6 +312,30 @@ function expandTypeBoxError(error: TLocalizedValidationError): PortableValidatio
         message: `must not have additional property ${field}`,
       }));
     }
+  }
+  // const / enum errors carry the allowed values in `params`. Surfacing them
+  // in the message lets an agent recovering from an invalid-discriminator
+  // failure see exactly what tag(s) are accepted, rather than the opaque
+  // `must be equal to constant`.
+  if (error.keyword === "const") {
+    const segments = error.instancePath.split("/").filter(Boolean);
+    return [
+      {
+        field: segments.at(-1) ?? ROOT_FIELD,
+        message: `must equal ${JSON.stringify(error.params.allowedValue)}`,
+      },
+    ];
+  }
+  if (error.keyword === "enum") {
+    const segments = error.instancePath.split("/").filter(Boolean);
+    const allowed = error.params.allowedValues ?? [];
+    return [
+      {
+        field: segments.at(-1) ?? ROOT_FIELD,
+        message:
+          allowed.length > 0 ? `must equal one of ${allowed.map((v) => JSON.stringify(v)).join(", ")}` : error.message,
+      },
+    ];
   }
 
   const segments = error.instancePath.split("/").filter(Boolean);

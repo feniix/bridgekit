@@ -335,10 +335,15 @@ test("validatePortableToolArgs: discriminated union with invalid discriminator f
     assert.notEqual(error.field, "name");
     assert.notEqual(error.field, "id");
   }
-  // The anyOf summary at (root) must remain, plus the const errors at /op
-  // (which the existing rule already preserves).
+  // Both the anyOf summary at (root) and the const errors at /op must remain
+  // — the latter now carry the allowed values in `message` so the user (or
+  // agent) can see exactly which discriminator values would be accepted.
   const fields = errors.map((e) => e.field);
-  assert.ok(fields.includes("(root)") || fields.includes("op"));
+  assert.ok(fields.includes("(root)"), "anyOf summary must survive fallback");
+  assert.ok(fields.includes("op"), "const errors at /op must survive fallback");
+  const opErrors = errors.filter((e) => e.field === "op");
+  const opMessages = opErrors.map((e) => e.message).sort();
+  assert.deepEqual(opMessages, ['must equal "create"', 'must equal "delete"']);
 });
 
 test("validatePortableToolArgs: nested discriminated union surfaces active branch's missing prop at the right path", async () => {
@@ -364,6 +369,108 @@ test("validatePortableToolArgs: nested discriminated union surfaces active branc
   assert.equal(errors.length, 1);
   assert.equal(errors[0].field, "name");
   assert.match(errors[0].message, /required property name/);
+});
+
+test("validatePortableToolArgs: enum-discriminator resolves the active branch", async () => {
+  // `Type.String({ enum: [...] })` discriminator (multi-value tag) — exercises
+  // the enum branch of readDiscriminatorValues.
+  const tool = definePortableTool({
+    name: "enum_discriminator",
+    title: "Enum Discriminator",
+    description: "Discriminator is a string enum, not a Literal.",
+    parameters: Type.Union([
+      Type.Object({ op: Type.String({ enum: ["create", "update"] }), name: Type.String() }),
+      Type.Object({ op: Type.String({ enum: ["delete"] }), id: Type.String() }),
+    ]),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { op: "create" }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "name");
+});
+
+test("validatePortableToolArgs: Union-of-Literals discriminator (anyOf-of-const) resolves the active branch", async () => {
+  // Idiomatic `Type.Union([Type.Literal("a"), Type.Literal("b")])` for the
+  // discriminator. TypeBox renders this as `{ anyOf: [{const:"a"}, {const:"b"}] }`.
+  const tool = definePortableTool({
+    name: "anyof_of_const_discriminator",
+    title: "anyOf-of-const Discriminator",
+    description: "Discriminator is a Union of Literals.",
+    parameters: Type.Union([
+      Type.Object({
+        op: Type.Union([Type.Literal("create"), Type.Literal("update")]),
+        name: Type.String(),
+      }),
+      Type.Object({ op: Type.Literal("delete"), id: Type.String() }),
+    ]),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { op: "update" }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "name");
+});
+
+test("validatePortableToolArgs: array of discriminated unions resolves per element", async () => {
+  // Most common real-world shape for discriminated unions in tool inputs:
+  // a batch of operations/events. The path walker must descend through `items`
+  // for numeric path segments.
+  const tool = definePortableTool({
+    name: "array_of_unions",
+    title: "Array of Discriminated Unions",
+    description: "Array of operations, each a discriminated union.",
+    parameters: Type.Object({
+      events: Type.Array(
+        Type.Union([
+          Type.Object({ op: Type.Literal("create"), name: Type.String() }),
+          Type.Object({ op: Type.Literal("delete"), id: Type.String() }),
+        ]),
+      ),
+    }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { events: [{ op: "create" }] }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "name");
+});
+
+test("validatePortableToolArgs: discriminator key on Object.prototype does not falsely match", async () => {
+  // Defensive against prototype-chain pollution: a schema discriminator named
+  // `toString` against an input that lacks it must NOT match via the prototype.
+  // The matcher uses Object.hasOwn to keep this clean.
+  const tool = definePortableTool({
+    name: "prototype_discriminator",
+    title: "Prototype Discriminator",
+    description: "Discriminator prop name collides with Object prototype.",
+    parameters: Type.Union([
+      Type.Object({ toString: Type.Literal("create"), name: Type.String() }),
+      Type.Object({ toString: Type.Literal("delete"), id: Type.String() }),
+    ]),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, {}, { host: "test" });
+  // Neither branch's discriminator should match an inherited toString. The
+  // resolution falls back to suppress-all (no-active), so the anyOf summary
+  // survives but the per-branch `required` phantoms are dropped.
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  for (const error of errors) {
+    assert.notEqual(error.field, "name", "branch A's required phantom must not survive");
+    assert.notEqual(error.field, "id", "branch B's required phantom must not survive");
+  }
 });
 
 test("validatePortableToolArgs: multiple missing required properties expand to one error per field", async () => {

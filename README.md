@@ -127,6 +127,12 @@ if (result.isError) {
 
 For array-element validation, `field` is the leaf segment, which can be a numeric index (e.g. `field: "0"`) and loses path context. For root-level schema failures with empty `instancePath` (e.g. `null` passed to a `Type.Object` schema), `field` is the sentinel `"(root)"`.
 
+For **discriminated unions** (`Type.Union([Type.Object({tag: Literal("a"), …}), Type.Object({tag: Literal("b"), …})])`), when exactly one branch's discriminator matches the input, BridgeKit surfaces only that branch's missing-required hints (as of 0.8.2). Recognized discriminator shapes: `Literal` (`const`), `enum`, and `Union of Literals` (`anyOf` of consts). Resolution works inside `Type.Array(...)` per-element. When no branch matches (invalid discriminator), the `anyOf` summary and `const`/`enum` errors survive so consumers can identify the failed discriminator and pick a valid value.
+
+`const`/`enum` error messages carry the allowed value(s) directly (`must equal "create"` / `must equal one of "create", "update"`) so an agent can pick a valid discriminator on retry.
+
+For nested discriminated unions, `field` is the leaf segment of the JSON pointer (`"name"` for `/event/name`), not the full path. Consumers needing full path context for ambiguous prop names should track the active union branch out-of-band.
+
 The two modes expose the failure discriminator on different fields. In the
 new default `"return"` mode, prefer the result guards over inspecting a
 `kind` field directly — handler-emitted failures do not carry a synthesized
