@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { definePortableTool, isValidationFailure, type PortableTool, type PortableToolResult } from "@feniix/bridgekit";
+import {
+  definePortableTool,
+  isValidationFailure,
+  type PortableTool,
+  type PortableToolResult,
+  type PortableValidationFailure,
+} from "@feniix/bridgekit";
 import { createMcpServer } from "@feniix/bridgekit/mcp";
 import { isPortableToolExecutionError, PortableToolExecutionError, registerPiTools } from "@feniix/bridgekit/pi";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -23,16 +29,7 @@ const echoParams = Type.Object({
 
 const emptyParams = Type.Object({});
 
-type ValidationErrorShape = {
-  kind: "validation";
-  tool: string;
-  validationErrors: Array<{ path: string }>;
-};
-
-type ValidationStructuredShape = {
-  tool: string;
-  validationErrors: Array<{ path: string }>;
-};
+type ValidationShape = PortableValidationFailure["structuredContent"];
 
 const successTool = definePortableTool({
   name: "compliance_success",
@@ -70,6 +67,18 @@ const validationTool = definePortableTool({
     return { text: args.text };
   },
 });
+
+function makeThrowingTool(name: string, message: string) {
+  return definePortableTool({
+    name,
+    title: name,
+    description: "Throws unconditionally from the handler.",
+    parameters: emptyParams,
+    execute() {
+      throw new Error(message);
+    },
+  });
+}
 
 type RegisteredPiTool = {
   execute: (
@@ -165,7 +174,7 @@ test("pi adapter (default return mode): invalid args return isError=true with co
   assert.equal(result.isError, true);
   assert.equal(result.content[0]?.type, "text");
   assert.equal(typeof result.content[0]?.text, "string");
-  const details: ValidationErrorShape = fromAny(result.details);
+  const details: ValidationShape = fromAny(result.details);
   assert.equal(details.kind, "validation");
   assert.equal(details.tool, "compliance_validation");
   assert.ok(Array.isArray(details.validationErrors));
@@ -176,7 +185,7 @@ test("mcp adapter: invalid args return isError=true with validationErrors in str
   await withMcpClient([validationTool], async (client) => {
     const result = await client.callTool({ name: "compliance_validation", arguments: { text: 42 } });
     assert.equal(result.isError, true);
-    const structured: ValidationStructuredShape = fromAny(result.structuredContent);
+    const structured: ValidationShape = fromAny(result.structuredContent);
     assert.equal(structured.tool, "compliance_validation");
     assert.ok(Array.isArray(structured.validationErrors));
     assert.equal(structured.validationErrors[0].path, "/text");
@@ -236,22 +245,13 @@ test("pi adapter (explicit return mode): invalid args return isError=true and do
   assert.ok(tool);
   const result = await tool.execute("call-explicit-return", { text: 42 }, undefined, undefined, {});
   assert.equal(result.isError, true);
-  const details: ValidationErrorShape = fromAny(result.details);
+  const details: ValidationShape = fromAny(result.details);
   assert.equal(details.kind, "validation");
   assert.equal(details.tool, "compliance_validation");
 });
 
 test("pi adapter (default return mode): unexpected handler throw surfaces as isError=true", async () => {
-  const throwTool = definePortableTool({
-    name: "compliance_unexpected_throw",
-    title: "Compliance Unexpected Throw",
-    description: "Throws a non-isError error from the handler.",
-    parameters: emptyParams,
-    execute() {
-      throw new Error("kaboom");
-    },
-  });
-  const tools = registerPi([throwTool]);
+  const tools = registerPi([makeThrowingTool("compliance_unexpected_throw", "kaboom")]);
   const tool = tools.get("compliance_unexpected_throw");
   assert.ok(tool);
   const result = await tool.execute("call-unexpected", {}, undefined, undefined, {});
@@ -261,16 +261,9 @@ test("pi adapter (default return mode): unexpected handler throw surfaces as isE
 });
 
 test("pi adapter (opt-in throw mode): unexpected handler throw still propagates", async () => {
-  const throwTool = definePortableTool({
-    name: "compliance_unexpected_throw_legacy",
-    title: "Compliance Unexpected Throw (legacy)",
-    description: "Throws a non-isError error from the handler.",
-    parameters: emptyParams,
-    execute() {
-      throw new Error("kaboom-legacy");
-    },
+  const tools = registerPi([makeThrowingTool("compliance_unexpected_throw_legacy", "kaboom-legacy")], {
+    errorHandling: "throw",
   });
-  const tools = registerPi([throwTool], { errorHandling: "throw" });
   const tool = tools.get("compliance_unexpected_throw_legacy");
   assert.ok(tool);
   await assert.rejects(() => tool.execute("call-unexpected-legacy", {}, undefined, undefined, {}), {
