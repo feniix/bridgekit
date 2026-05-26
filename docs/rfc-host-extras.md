@@ -227,15 +227,81 @@ These are hints from tool author to client; they do not change validation or exe
 
 ## 5. Migration path for existing consumers
 
-_TODO: per-consumer before/after with approximate line deltas._
+This section describes how each known consumer would migrate once `hostExtras` ships. The RFC's **success criterion** is that the consumer's pi-side wrapper file measurably shrinks.
+
+### `pi-sequential-thinking`
+
+**Before.** The extension carries:
+
+- A `PENDING_MESSAGES: Record<string, string>` constant in `extensions/index.ts` (~10 lines).
+- A `toPiTool(tool, options)` wrapper in `extensions/pi-output.ts` (~90 lines), of which roughly half handles the pi-specific `onUpdate` + `formatToolOutput` + `splitParams` plumbing, and the other half is the `executePortableTool` + result-translation code that `registerPiTools` already does.
+- A `for (const tool of portableTools)` loop in `extensions/index.ts` that constructs the `PiToolWrapperOptions` per tool and calls `pi.registerTool(toPiTool(tool, …))` (~6 lines).
+
+**After.** The extension can:
+
+1. Move each `pendingMessage` string from `PENDING_MESSAGES` onto its tool's `hostExtras.pi.pendingMessage` at the definition site in `extensions/tools.ts`. The `PENDING_MESSAGES` constant deletes entirely (~10 lines saved in `extensions/index.ts`).
+2. Replace the explicit loop with `registerPiTools(pi, portableTools)` (saves another ~4 lines of loop body).
+3. Keep `toPiTool` only for the parts `hostExtras` does **not** absorb: `splitParams` (Gap C) and `formatToolOutput` (Gap D). Those concerns remain pi-specific to this extension.
+
+**Approximate diff.** Roughly **15–20 lines** removed from `extensions/index.ts` + `extensions/pi-output.ts` combined. The `toPiTool` wrapper does *not* disappear (Gaps C and D are still consumer-owned), but the pre-execute `onUpdate` and the constant-map plumbing it serves do. The implementation PR for #28 should measure the actual delta and confirm it lands in this range.
+
+> **Honest caveat.** This is a smaller win for `pi-sequential-thinking` than #28's original framing implies, because that extension's wrapper exists *primarily* for `splitParams` + `formatToolOutput`, not for `pendingMessage` alone. The bigger consumer win is the next one.
+
+### `pi-exa`
+
+**Before.** A custom `registerExaPiTools` loop reads `PI_TOOL_METADATA` (a `Record<ExaToolName, PiToolMetadata>` declared in `extensions/tool-guidance.ts`) on every iteration and spreads `promptSnippet` / `promptGuidelines` into `pi.registerTool`.
+
+**After.** Each `PI_TOOL_METADATA` entry moves onto its tool's `hostExtras.pi.{ promptSnippet, promptGuidelines }` at the definition site. The `PI_TOOL_METADATA` constant and the custom registration loop both delete. The extension switches to `registerPiTools(pi, createExaTools(…))`.
+
+**Approximate diff.** This is the bigger win. The custom loop plus `PI_TOOL_METADATA` is on the order of **40–80 lines** of consumer code that can be deleted once `hostExtras` lands (subject to confirmation by the implementation PR). pi-exa is the consumer for which #28 was originally written; the migration here is the load-bearing one.
+
+### `pi-code-reasoning`
+
+**Before.** A custom `registerCodeReasoningPiTools` loop that re-implements `registerPiTools`' execute wiring. The loop exists not because of metadata but because of pre-0.7 error-handling differences. As of 0.7+ those differences have already been removed.
+
+**After.** `pi-code-reasoning` can switch to `registerPiTools(pi, tools)` today. `hostExtras` does not change this — but if/when it adds prompt metadata, the path is the same as pi-exa's. **No code-deletion target driven by this RFC**, but the migration unblocks the next refactor.
+
+### Aggregate success criterion
+
+The implementation PR for #28 ships only if at least one of the two metadata-driven consumers (`pi-exa`, `pi-sequential-thinking`) drops more lines than the bridgekit implementation adds. If the change is net-additive across the ecosystem, it has failed its own test.
+
+---
 
 ## 6. Out of scope (enumerated boundaries, not open questions)
 
-_TODO: closed-issue references for #11, #15, #16; MCP outputSchema deferred._
+The following are **not** within `hostExtras`'s scope. They are listed here as boundaries so a future RFC reader doesn't relitigate them under the `hostExtras` heading.
+
+- **Generic middleware / interceptors.** Closed [#11](https://github.com/feniix/bridgekit/issues/11). `hostExtras` carries *data*, not *callbacks*. Adapters consume the data on the tool's behalf; consumers do not inject behavior into the core's execution path through this field.
+- **Per-tool retry / cache / auth policies.** Closed [#11](https://github.com/feniix/bridgekit/issues/11). Same boundary as middleware: these are behaviors, not data.
+- **Output truncation as a bridgekit concern.** Consumer policy (Gap D). pi-specific; doesn't generalize to MCP; couples the core to `@earendil-works/pi-coding-agent`.
+- **Telemetry hooks (`onToolCall`, `onToolError`).** Closed [#16](https://github.com/feniix/bridgekit/issues/16). `hostExtras` is not a back-door for adding callbacks.
+- **Tool catalog metadata (`version`, `tags`, `deprecated`, `examples`).** Closed [#15](https://github.com/feniix/bridgekit/issues/15). Catalog metadata describes a tool *across* hosts; if it ever lands, it goes on `PortableTool` directly, not under `hostExtras`. Different decision, different RFC, if at all.
+- **Plugin system / dispatch helpers.** Never opened, deliberately. `hostExtras` is opaque data per known host. It is not an extension point for arbitrary host plugins discovered at runtime; bridgekit knows the host names it supports and adapters consume them.
+- **MCP `outputSchema`.** Mentioned in #28's problem statement but punted to a separate RFC (see §4).
+
+The first three are direct anti-recommendations from the closed-issue audit; the next three keep this RFC focused on the actual gap rather than absorbing adjacent features.
+
+---
 
 ## 7. Sequencing with #29
 
-_TODO: bundle decision._
+[#29](https://github.com/feniix/bridgekit/issues/29) widens `CreateMcpServerOptions.tools` from `readonly PortableTool<TObject>[]` to `readonly PortableTool<TSchema>[]` so that tools whose parameters use TypeBox combinators (`Type.Intersect`, `Type.Composite`, `Type.Union` of `TObject`s) can register without a cast.
+
+**Does #28 implementation need #29 first?** Modestly, yes. Two reasons:
+
+1. **Type ergonomics.** `hostExtras` lands on `PortableTool`, which is generic over `TParams extends TSchema`. The MCP adapter sees the tool through `PortableTool<TObject>` today. A consumer who adds `hostExtras.mcp.annotations` on a tool whose schema is `Type.Intersect(…)` would hit the same widening pain #29 addresses, only now with the new field stacked on top.
+
+2. **Discoverability.** Bundling them in 0.9.0 means a consumer reading the changelog sees one coherent "now you can express per-host metadata and use combinator schemas" story rather than two unrelated minor bumps. Both close active wrapper-duplication patterns at production consumers.
+
+**Recommendation.** Bundle both in **0.9.0**. Land #29 first as a separate commit / sub-PR within the 0.9.0 series so each landing is independently revertable; ship the version once both are in.
+
+**What does *not* need to be sequenced before #28.**
+
+- Closed-error-model items (#33, #35, #36, #38): all resolved as of 0.8.3.
+- The result-guards (#30): already shipped in 0.7.
+- Telemetry / middleware (#11, #16): closed boundaries, not prerequisites.
+
+---
 
 ## 8. Implementation sketch (light)
 
