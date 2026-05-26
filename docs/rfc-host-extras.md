@@ -78,15 +78,152 @@ The consumer evidence comes from three pi-side wrapper patterns in `feniix/pi-ex
 
 ## 2. Proposed API shape
 
-_TODO: type shape, sidecar-vs-top-level trade-off._
+```ts
+import type { TSchema } from "typebox";
+
+/**
+ * Opaque per-host metadata attached to a portable tool definition.
+ * Adapters read the keys they recognize and ignore the rest. New host keys
+ * are introduced additively; the type uses optional members so adding a key
+ * is never a breaking change for existing consumers.
+ *
+ * Module augmentation is supported for custom hosts:
+ *
+ * ```ts
+ * declare module "@feniix/bridgekit" {
+ *   interface PortableToolHostExtras {
+ *     "custom-runtime"?: { something: string };
+ *   }
+ * }
+ * ```
+ */
+export interface PortableToolHostExtras {
+  pi?: {
+    /**
+     * One-shot text shown by pi before TypeBox validation runs. The pi
+     * adapter fires `onUpdate({ content, details: { status: "pending" } })`
+     * with this text exactly once per tool call. Absent → no pre-execute
+     * update.
+     */
+    pendingMessage?: string;
+
+    /**
+     * Short string blended into pi's system prompt to summarize when this
+     * tool should be called. Passed through verbatim to pi's
+     * `registerTool({ promptSnippet })`.
+     */
+    promptSnippet?: string;
+
+    /**
+     * Longer-form guidance bullet points passed through to pi's
+     * `registerTool({ promptGuidelines })`. Each entry is one bullet.
+     */
+    promptGuidelines?: readonly string[];
+
+    /**
+     * Passed through to pi's `registerTool({ renderShell })` for tools that
+     * need to opt out of pi's default content rendering. Most tools omit.
+     */
+    renderShell?: "default" | "self";
+  };
+
+  mcp?: {
+    /**
+     * MCP tool annotations. The MCP spec defines `readOnlyHint`,
+     * `destructiveHint`, `idempotentHint`, and `openWorldHint` as boolean
+     * hints clients may surface to users. The first ship of `hostExtras`
+     * may leave this empty and only claim the namespace; see §4.
+     */
+    annotations?: {
+      readOnlyHint?: boolean;
+      destructiveHint?: boolean;
+      idempotentHint?: boolean;
+      openWorldHint?: boolean;
+    };
+  };
+}
+
+export interface PortableTool<
+  TParams extends TSchema = TSchema,
+  THost extends string = PortableToolBuiltInHost,
+> {
+  name: string;
+  title: string;
+  description: string;
+  parameters: TParams;
+  execute: (
+    args: Static<TParams>,
+    ctx: PortableToolContext<THost>,
+  ) => PortableToolResult | Promise<PortableToolResult>;
+
+  /**
+   * Optional per-host metadata. Adapters consume the keys they recognize.
+   * Absent → no behavior change; no runtime cost.
+   */
+  hostExtras?: PortableToolHostExtras;
+}
+```
+
+### Decision: top-level field on `PortableTool`, not a sidecar option on `registerPiTools`
+
+**Considered alternative.** A second-argument sidecar map on `registerPiTools(pi, tools, { extras: { [toolName]: piExtras } })` and the symmetric thing on `createMcpServer`.
+
+**Why top-level wins.**
+
+1. **Locality.** The pi metadata describes the tool. The tool already exists as a single value at the call site (`definePortableTool({ … })`). A sidecar is exactly the `Record<string, ExtrasFor<host>>` parallel map that both production consumers already maintain and that #28 cites as the problem. Adding a sidecar to bridgekit would reproduce the drift hazard at the bridgekit-API level instead of solving it at the consumer level.
+
+2. **Cross-host symmetry.** MCP's analogous extras (`annotations`) live on the tool registration too. Putting both under one field on the tool means the same tool definition serves both adapters with one source of truth.
+
+3. **Module augmentation works.** Custom hosts can extend `PortableToolHostExtras` via TypeScript module augmentation. A sidecar map keyed by tool-name can't be extended that way without introducing a separate generic on `registerPiTools`.
+
+**The trade-off being made.** A top-level field couples `PortableTool` (defined in `core/define-tool.ts`) to the names of known hosts (`pi`, `mcp`). The mitigation is that the `PortableToolHostExtras` type only contains optional members, no host's extras are referenced by the core's runtime code, and adding or removing a host key is additive at the type level. The core does not import any host-specific code; it only **names** the hosts in a type that's augmentable.
+
+A separate concern: by making `hostExtras` a property on the tool, every host's adapter sees every host's extras (just ignores the unknown ones). This is a feature — the tool author writes one definition; pi-extension authors and MCP-server authors both reach into the same place — and the cost (extras for "host X" living on tools that never run under host X) is negligible because the data is opaque to adapters that don't recognize it.
+
+---
 
 ## 3. Zero-cost when absent
 
-_TODO._
+**Invariant.** A tool definition without `hostExtras` must be observationally identical to a tool definition that omits the field today. No new properties on the host registration, no new code paths inside the adapter execute hot path, no allocation.
+
+Implementation implication for adapters:
+
+```ts
+// pi adapter
+const extras = tool.hostExtras?.pi;
+if (extras?.pendingMessage !== undefined) {
+  // wire the pre-execute onUpdate
+}
+if (extras?.promptSnippet !== undefined) {
+  // include in pi.registerTool
+}
+// …etc. Each key gated on `!== undefined`.
+```
+
+The hot path for a tool with no extras is `tool.hostExtras?.pi` evaluating to `undefined` and short-circuiting. This is verifiable by a test that asserts the pi adapter's `pi.registerTool` call shape is byte-identical for `{ name, title, description, parameters, execute }` vs. `{ name, title, description, parameters, execute, hostExtras: undefined }`.
+
+We will lock this in with a test that snapshots the `PiToolDefinition` object the adapter constructs.
+
+---
 
 ## 4. Cross-host symmetry and the `mcp` namespace
 
-_TODO: MCP annotations namespace; outputSchema deliberately deferred._
+Even if the first ship of `hostExtras` lands with no MCP-side extras consumed, the RFC claims the `mcp` namespace so that future MCP additions are non-breaking type changes rather than restructurings of `PortableTool`.
+
+The MCP spec (v1.x, which bridgekit currently targets — see [`docs/packaging-invariants.md#inv-mcp-sdk-major`](./packaging-invariants.md#inv-mcp-sdk-major)) defines four annotation hints clients may surface:
+
+- `readOnlyHint`: the tool does not modify its environment.
+- `destructiveHint`: the tool may perform destructive updates (applies when `readOnlyHint` is false).
+- `idempotentHint`: repeated calls with the same args have no additional effect (applies when `readOnlyHint` is false).
+- `openWorldHint`: the tool interacts with an open external world (web search, etc.).
+
+These are hints from tool author to client; they do not change validation or execution. They are the natural counterpart to pi's `promptSnippet` / `promptGuidelines`: descriptive metadata that helps the host present the tool to the user.
+
+**Ship strategy.** The first implementation PR for #28 may consume `hostExtras.pi.*` only and leave `hostExtras.mcp.annotations` declared but unconsumed. The MCP adapter implementation lands in a follow-up patch within the same minor (`0.9.x`). The reason to declare it now is to fix the type shape: a consumer adding `hostExtras.mcp.annotations.readOnlyHint = true` against a 0.9.0 that ignores it should not see a different type error when the 0.9.x adapter starts honoring it.
+
+**Not in 0.9.x.** MCP `outputSchema` (mentioned in passing in the #28 problem statement) is a deliberately separate decision. It interacts with the `TObject` → `TSchema` widening in [#29](https://github.com/feniix/bridgekit/issues/29) and with how `executePortableTool` reasons about a tool's *output* contract, which today it does not. Leave it for a later RFC.
+
+---
 
 ## 5. Migration path for existing consumers
 
