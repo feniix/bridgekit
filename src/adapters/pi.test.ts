@@ -380,6 +380,60 @@ test("registered pi tool fires hostExtras.pi.pendingMessage at-most-once per inv
   });
 });
 
+// RFC §9 #3 [GATING] — pendingMessage fires before validation.
+//
+// The existing "before handler" test (Test C above) supplies args that
+// satisfy TypeBox validation, so it cannot distinguish "before handler" from
+// "before validation". This test uses args that FAIL validation and asserts
+// the pre-execute emit still fires before the validation-failure result is
+// returned and the handler is not invoked.
+test("hostExtras.pi.pendingMessage fires before TypeBox validation runs (RFC §9 #3)", async () => {
+  let handlerInvoked = false;
+  const updates: Array<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> = [];
+  const pendingTool = definePortableTool({
+    name: "pending_before_validation",
+    title: "Pending Before Validation",
+    description: "Pre-execute emit must fire even when args fail validation.",
+    parameters: echoParams,
+    execute() {
+      handlerInvoked = true;
+      throw new Error("handler should not run on validation failure");
+    },
+    hostExtras: {
+      pi: { pendingMessage: "Processing..." },
+    },
+  });
+  const registered: RegisteredPiTool[] = [];
+  const pi = {
+    registerTool(tool: RegisteredPiTool) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [pendingTool]);
+  const tool = registered.find((candidate) => candidate.name === "pending_before_validation");
+  assert.ok(tool);
+
+  // `text: 42` violates `text: Type.String()`. Validation rejects before the
+  // handler runs.
+  const result = await tool.execute(
+    "call",
+    { text: 42 },
+    undefined,
+    (update: unknown) =>
+      updates.push(update as { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }),
+    {},
+  );
+
+  assert.equal(handlerInvoked, false, "handler must not run on validation failure");
+  assert.equal(result.isError, true, "validation failure surfaces as isError result");
+  assert.equal(updates.length, 1, "pre-execute emit fires exactly once, before validation");
+  assert.deepEqual(updates[0], {
+    content: [{ type: "text", text: "Processing..." }],
+    details: { status: "pending" },
+  });
+});
+
 test("pre-execute onUpdate throw routes through errorHandling: return as isError result", async () => {
   // Contract: a throwing host `onUpdate` at the pre-execute emit site is
   // routed through the same catch as a handler-thrown exception. In return
