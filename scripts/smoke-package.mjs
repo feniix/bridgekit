@@ -223,7 +223,6 @@ async function assertTypesCompile(installDir) {
         pendingMessage: "Processing...",
         promptSnippet: "snippet",
         promptGuidelines: ["one", "two"],
-        renderShell: "default",
       };
       const mcpExtras: McpHostExtras = {
         annotations: { readOnlyHint: true },

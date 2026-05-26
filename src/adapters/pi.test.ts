@@ -415,7 +415,7 @@ test("registered pi tool with hostExtras.pi.pendingMessage no-ops when onUpdate 
   assert.equal(result.isError, false);
 });
 
-test("registerPiTools passes hostExtras.pi.promptSnippet / promptGuidelines / renderShell through to pi.registerTool (Test E)", () => {
+test("registerPiTools passes hostExtras.pi.promptSnippet / promptGuidelines through to pi.registerTool (Test E)", () => {
   const guidelines = ["Use sparingly.", "Always validate the input."] as const;
   const richTool = definePortableTool({
     name: "rich_tool",
@@ -429,7 +429,6 @@ test("registerPiTools passes hostExtras.pi.promptSnippet / promptGuidelines / re
       pi: {
         promptSnippet: "Call this tool when the user asks to echo text.",
         promptGuidelines: guidelines,
-        renderShell: "self",
       },
     },
   });
@@ -446,7 +445,6 @@ test("registerPiTools passes hostExtras.pi.promptSnippet / promptGuidelines / re
   const registration = registered[0];
   assert.equal(registration?.promptSnippet, "Call this tool when the user asks to echo text.");
   assert.equal(registration?.promptGuidelines, guidelines, "guidelines forwarded by reference (immutable contract)");
-  assert.equal(registration?.renderShell, "self");
 });
 
 test("registerPiTools omits unset pi pass-through fields (byte-identical shape when hostExtras is absent)", () => {
@@ -476,8 +474,8 @@ test("registerPiTools omits unset pi pass-through fields (byte-identical shape w
 });
 
 test("registerPiTools omits unset pass-through fields when only some hostExtras.pi keys are set", () => {
-  // Mixed case: only promptSnippet is set. promptGuidelines and renderShell
-  // must not appear as `undefined` keys on the registration object.
+  // Mixed case: only promptSnippet is set. promptGuidelines must not appear
+  // as an `undefined` key on the registration object.
   const partialTool = definePortableTool({
     name: "partial",
     title: "Partial",

@@ -31,7 +31,6 @@ type PiToolDefinition = {
   // (byte-identical to today's shape).
   promptSnippet?: string;
   promptGuidelines?: readonly string[];
-  renderShell?: "default" | "self";
 };
 
 export type PiToolRegistration = {
@@ -137,7 +136,6 @@ export function registerPiTools(
       // own-property keys are unchanged from the pre-0.9 shape.
       ...(piExtras?.promptSnippet !== undefined && { promptSnippet: piExtras.promptSnippet }),
       ...(piExtras?.promptGuidelines !== undefined && { promptGuidelines: piExtras.promptGuidelines }),
-      ...(piExtras?.renderShell !== undefined && { renderShell: piExtras.renderShell }),
       async execute(_toolCallId, params, signal, onUpdate, _ctx) {
         // Pre-execute lifecycle hook. Fires exactly once per call, before
         // TypeBox validation runs, when the tool declares a non-empty

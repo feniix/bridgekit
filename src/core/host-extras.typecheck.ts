@@ -38,7 +38,6 @@ const piTool = definePortableTool({
       pendingMessage: "Processing...",
       promptSnippet: "Use this tool to echo text.",
       promptGuidelines: ["Prefer concise text.", "Do not exceed 100 chars."] as const,
-      renderShell: "default",
     },
   },
 });

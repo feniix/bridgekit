@@ -79,14 +79,6 @@ export interface PiHostExtras {
    * once attached to a tool definition.
    */
   promptGuidelines?: readonly string[];
-
-  /**
-   * Optional render mode the pi host may consume. `"default"` lets pi render
-   * the result inside its standard tool-output shell; `"self"` indicates the
-   * tool draws its own UI. Passed through to pi's `registerTool` call when
-   * set; absent → field omitted from the registration payload.
-   */
-  renderShell?: "default" | "self";
 }
 
 /**

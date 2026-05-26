@@ -40,18 +40,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `PortableTool.hostExtras` — optional per-host metadata namespace for
   host-specific fields without polluting the host-neutral tool definition.
-  `hostExtras.pi.pendingMessage` fires a pre-execute `onUpdate` so pi-side
-  tools can surface a "Processing..." signal without bypassing
-  `registerPiTools`. `hostExtras.pi.promptSnippet` / `promptGuidelines` /
-  `renderShell` pass through to the pi host's `registerTool` call.
-  `hostExtras.mcp.annotations` (`title` / `readOnlyHint` / `destructiveHint`
-  / `idempotentHint` / `openWorldHint`) attaches MCP advisory hints to
-  `tools/list` entries. Tools that don't set `hostExtras` see zero behavior
-  change: the pi registration payload's key set is byte-identical to 0.8.x
-  and the MCP `Tool` entry omits the `annotations` field entirely. The shape
-  is module-augmentable: a custom-host adapter can extend
-  `PortableToolHostExtras` via `declare module "@feniix/bridgekit"` to claim
-  its own namespace. Resolves [#28](https://github.com/feniix/bridgekit/issues/28).
+  `hostExtras.pi` carries `pendingMessage` (fires a pre-execute `onUpdate`
+  so pi-side tools can surface a "Processing..." signal without bypassing
+  `registerPiTools`), `promptSnippet`, and `promptGuidelines` (passed
+  through to the pi host's `registerTool` call). `hostExtras.mcp.annotations`
+  (`title` / `readOnlyHint` / `destructiveHint` / `idempotentHint` /
+  `openWorldHint`) is consumed in this release: annotations are attached to
+  `tools/list` entries, closing the RFC §4 30-day rollback gate in the same
+  release that declares the namespace rather than deferring to 0.9.x. Tools
+  that don't set `hostExtras` see zero behavior change: the pi registration
+  payload's key set is byte-identical to 0.8.x and the MCP `Tool` entry omits
+  the `annotations` field entirely. The shape is module-augmentable: a
+  custom-host adapter can extend `PortableToolHostExtras` via
+  `declare module "@feniix/bridgekit"` to claim its own namespace. Resolves
+  [#28](https://github.com/feniix/bridgekit/issues/28).
 - `createMcpServer` now rejects duplicate tool names at construction with
   a tool-attributed error (code `BRIDGEKIT_MCP_DUPLICATE_TOOL_NAME`). The
   previous behavior silently overwrote earlier registrations in the dispatch
