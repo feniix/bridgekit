@@ -1,6 +1,6 @@
 import type { TSchema } from "typebox";
 import type { TLocalizedValidationError } from "typebox/error";
-import { Check, Errors } from "typebox/value";
+import { Check, Errors, Pointer } from "typebox/value";
 import type {
   PortableTool,
   PortableToolBuiltInHost,
@@ -10,6 +10,10 @@ import type {
 } from "./define-tool.js";
 
 const ROOT_FIELD = "(root)";
+
+function fieldFromPath(instancePath: string): string {
+  return instancePath.split("/").filter(Boolean).at(-1) ?? ROOT_FIELD;
+}
 
 /**
  * JSON-Schema-shaped record describing a Union branch as TypeBox emits it.
@@ -109,19 +113,6 @@ function readUnionBranches(node: unknown): UnionObjectBranch[] | undefined {
   return branches;
 }
 
-function readValueAtPath(value: unknown, instancePath: string): unknown {
-  if (instancePath === "") return value;
-  const segments = instancePath.split("/").filter(Boolean);
-  let current: unknown = value;
-  for (const segment of segments) {
-    if (current === null || current === undefined || typeof current !== "object") return undefined;
-    // Object property access works for both Records and Arrays (arr["0"]
-    // resolves to arr[0]).
-    current = (current as Record<string, unknown>)[segment];
-  }
-  return current;
-}
-
 function branchDiscriminatorMatches(branch: UnionObjectBranch, value: unknown): boolean {
   // A branch matches its discriminator when every prop with a discriminator-
   // eligible schema (Literal / enum / anyOf-of-Literal) is present on the
@@ -179,7 +170,8 @@ function suppressSiblingErrorsUnderUnion(
   }
   if (unionPaths.size === 0) return errors;
 
-  // Resolve each union path to (active branch | "no-active") in one pass.
+  // Pre-compute resolutions in one schema-walk pass so the filter callback
+  // below reads only decisions, not schema structure.
   type Resolution =
     | { kind: "no-active" }
     | {
@@ -196,7 +188,7 @@ function suppressSiblingErrorsUnderUnion(
       resolutions.set(path, { kind: "no-active" });
       continue;
     }
-    const branchValue = readValueAtPath(value, path);
+    const branchValue = Pointer.Get(value, path);
     const matchedIndices: number[] = [];
     for (let i = 0; i < branches.length; i++) {
       if (branchDiscriminatorMatches(branches[i], branchValue)) matchedIndices.push(i);
@@ -318,28 +310,25 @@ function expandTypeBoxError(error: TLocalizedValidationError): PortableValidatio
   // failure see exactly what tag(s) are accepted, rather than the opaque
   // `must be equal to constant`.
   if (error.keyword === "const") {
-    const segments = error.instancePath.split("/").filter(Boolean);
     return [
       {
-        field: segments.at(-1) ?? ROOT_FIELD,
+        field: fieldFromPath(error.instancePath),
         message: `must equal ${JSON.stringify(error.params.allowedValue)}`,
       },
     ];
   }
   if (error.keyword === "enum") {
-    const segments = error.instancePath.split("/").filter(Boolean);
     const allowed = error.params.allowedValues ?? [];
     return [
       {
-        field: segments.at(-1) ?? ROOT_FIELD,
+        field: fieldFromPath(error.instancePath),
         message:
           allowed.length > 0 ? `must equal one of ${allowed.map((v) => JSON.stringify(v)).join(", ")}` : error.message,
       },
     ];
   }
 
-  const segments = error.instancePath.split("/").filter(Boolean);
-  return [{ field: segments.at(-1) ?? ROOT_FIELD, message: error.message }];
+  return [{ field: fieldFromPath(error.instancePath), message: error.message }];
 }
 
 export function validatePortableToolArgs<THost extends string = PortableToolBuiltInHost>(

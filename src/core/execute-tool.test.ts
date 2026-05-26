@@ -18,6 +18,13 @@ function getValidationErrors(result: {
   return fromAny(result.structuredContent?.validationErrors);
 }
 
+// Canonical discriminated-union shape used across several tests below.
+// Branch A: { op: "create", name: string }; Branch B: { op: "delete", id: string }.
+const opUnionParams = Type.Union([
+  Type.Object({ op: Type.Literal("create"), name: Type.String() }),
+  Type.Object({ op: Type.Literal("delete"), id: Type.String() }),
+]);
+
 const echoParams = Type.Object({
   text: Type.String({ description: "Text to echo." }),
   uppercase: Type.Optional(Type.Boolean({ description: "Whether to uppercase the text." })),
@@ -295,10 +302,7 @@ test("validatePortableToolArgs: discriminated union surfaces only the active bra
     name: "discriminated_union",
     title: "Discriminated Union",
     description: "Union of two object branches with a `op` literal discriminator.",
-    parameters: Type.Union([
-      Type.Object({ op: Type.Literal("create"), name: Type.String() }),
-      Type.Object({ op: Type.Literal("delete"), id: Type.String() }),
-    ]),
+    parameters: opUnionParams,
     execute() {
       return { text: "ok" };
     },
@@ -319,10 +323,7 @@ test("validatePortableToolArgs: discriminated union with invalid discriminator f
     name: "discriminated_union_invalid",
     title: "Discriminated Union Invalid",
     description: "Union with invalid discriminator value.",
-    parameters: Type.Union([
-      Type.Object({ op: Type.Literal("create"), name: Type.String() }),
-      Type.Object({ op: Type.Literal("delete"), id: Type.String() }),
-    ]),
+    parameters: opUnionParams,
     execute() {
       return { text: "ok" };
     },
@@ -353,12 +354,7 @@ test("validatePortableToolArgs: nested discriminated union surfaces active branc
     name: "nested_discriminated_union",
     title: "Nested Discriminated Union",
     description: "Object wrapping a discriminated union.",
-    parameters: Type.Object({
-      event: Type.Union([
-        Type.Object({ op: Type.Literal("create"), name: Type.String() }),
-        Type.Object({ op: Type.Literal("delete"), id: Type.String() }),
-      ]),
-    }),
+    parameters: Type.Object({ event: opUnionParams }),
     execute() {
       return { text: "ok" };
     },
@@ -426,14 +422,7 @@ test("validatePortableToolArgs: array of discriminated unions resolves per eleme
     name: "array_of_unions",
     title: "Array of Discriminated Unions",
     description: "Array of operations, each a discriminated union.",
-    parameters: Type.Object({
-      events: Type.Array(
-        Type.Union([
-          Type.Object({ op: Type.Literal("create"), name: Type.String() }),
-          Type.Object({ op: Type.Literal("delete"), id: Type.String() }),
-        ]),
-      ),
-    }),
+    parameters: Type.Object({ events: Type.Array(opUnionParams) }),
     execute() {
       return { text: "ok" };
     },
