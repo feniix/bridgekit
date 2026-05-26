@@ -141,6 +141,39 @@ new default `"return"` mode, prefer the result guards over inspecting a
 `"domain"`). The guards operate on a `PortableToolResult`; they are not
 designed to be called on the pi adapter's wire object.
 
+### Per-host metadata via `hostExtras`
+
+`PortableTool.hostExtras` is an optional namespace for host-specific fields that should travel with the tool definition rather than a parallel sidecar map. The pi adapter reads `hostExtras.pi`; the MCP adapter reads `hostExtras.mcp`; each adapter ignores keys it does not recognise. Tools that omit `hostExtras` see no behavior change.
+
+```ts
+import { Type } from "typebox";
+import { definePortableTool } from "@feniix/bridgekit";
+
+export const generateSummaryTool = definePortableTool({
+  name: "generate_summary",
+  title: "Generate Summary",
+  description: "Summarise a block of text.",
+  parameters: Type.Object({ text: Type.String() }),
+  execute(args) {
+    return { text: args.text.slice(0, 80) };
+  },
+  hostExtras: {
+    pi: {
+      // Fires once before TypeBox validation runs. Lets the pi host show a
+      // "Processing..." signal without a custom registration wrapper.
+      pendingMessage: "Summarising...",
+      promptSnippet: "Use this tool when the user asks for a short summary.",
+      promptGuidelines: ["Prefer < 80 chars.", "Strip markdown."],
+    },
+    mcp: {
+      annotations: { readOnlyHint: true },
+    },
+  },
+});
+```
+
+See `docs/rfc-host-extras.md` for the design rationale (which fields are in scope, why a top-level field beats a sidecar map, the closure rule for future additions). `PortableToolHostExtras` is module-augmentable for custom host adapters; declare your namespace via `declare module "@feniix/bridgekit"`.
+
 ## MCP adapter
 
 ```ts

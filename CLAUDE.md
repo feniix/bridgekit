@@ -80,6 +80,7 @@ definePortableTool<typeof params, "custom-runtime">({ ... })
 - Consumers must use only the three public entrypoints — never deep-import from `dist/` or `src/`. The smoke test asserts `ERR_PACKAGE_PATH_NOT_EXPORTED` for `@feniix/bridgekit/dist/...`.
 - For downstream examples/docs that expose MCP stdio through npm `bin` and depend on generated output, prefer a checked-in `bin/` wrapper over pointing directly at `dist/`. The wrapper should resolve the package-local generated server, optionally run the package-local build for workspace/local execution, preserve build failures, and have executable mode verified by `npm pack --dry-run --json`.
 - Biome (`biome.json`) is the only formatter/linter. Enforced rules of note: `noExplicitAny`, `noNonNullAssertion`, `noUnusedImports`. Two-space indent, 120-col, double quotes, semicolons.
+- `PortableTool.hostExtras` is the canonical place for per-host metadata (0.9+). Tool definitions stay host-neutral; host-specific concerns (pi's `pendingMessage` / `promptSnippet` / `promptGuidelines` / `renderShell`, MCP's `annotations`) live in the corresponding `hostExtras.<host>` namespace. Adding host-specific fields directly to `PortableTool`'s top-level shape is wrong — extend `PortableToolHostExtras` instead (via TypeScript module augmentation for custom-host adapters). Each adapter's read path must gate on `!== undefined` so tools without `hostExtras` produce byte-identical wire payloads to pre-0.9 versions; pin with a no-hostExtras key-set assertion alongside any new field.
 
 ## Tests
 

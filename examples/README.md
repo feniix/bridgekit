@@ -329,7 +329,50 @@ Use `PortableToolHost<CustomHost>` for values that can be either a built-in host
 
 ---
 
-## 5. Package checklist
+## 5. Per-host metadata via `hostExtras`
+
+When a tool needs host-specific metadata — pi's `pendingMessage` for a "Processing..." signal, MCP's annotations as advisory hints to clients — the canonical place is `PortableTool.hostExtras`. Each host has its own namespace; adapters read the keys they recognise and ignore the rest. Tools that omit `hostExtras` see no behavior change.
+
+```ts
+import { Type } from "typebox";
+import { definePortableTool } from "@feniix/bridgekit";
+
+export const summariseTool = definePortableTool({
+  name: "summarise",
+  title: "Summarise",
+  description: "Generate a short summary of a block of text.",
+  parameters: Type.Object({ text: Type.String() }),
+  execute(args) {
+    return { text: args.text.slice(0, 80) };
+  },
+  hostExtras: {
+    pi: {
+      // Fires once before TypeBox validation runs — surfaces a "Processing..."
+      // signal to the pi host without a custom registration wrapper.
+      pendingMessage: "Summarising...",
+      promptSnippet: "Use this tool when the user asks for a short summary.",
+      promptGuidelines: ["Prefer < 80 chars.", "Strip markdown."],
+    },
+    mcp: {
+      // Advisory hints clients may surface. Do not affect validation or
+      // execution; round-trip verbatim on `tools/list` entries.
+      annotations: { readOnlyHint: true },
+    },
+  },
+});
+```
+
+Best practices for `hostExtras`:
+
+- Keep tool *behavior* host-neutral. `hostExtras` carries *data* the adapter reads on the tool's behalf; do not embed callbacks or runtime logic.
+- Set only the fields the adapter recognises; unrecognised keys are silently ignored, but they add noise to the definition.
+- For custom-host adapters, extend `PortableToolHostExtras` via `declare module "@feniix/bridgekit"` so consumers of your adapter get type safety on the new namespace.
+
+See `docs/rfc-host-extras.md` for the full design rationale (which fields qualify, why a top-level field beats a sidecar map, the closure rule for future additions).
+
+---
+
+## 6. Package checklist
 
 For publishable tool packages:
 
