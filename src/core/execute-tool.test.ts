@@ -258,6 +258,34 @@ test("validatePortableToolArgs: union / discriminator mismatch dedupes by (field
   assert.equal(pairs.size, errors.length);
 });
 
+test("validatePortableToolArgs: union of objects collapses sibling required errors under the anyOf summary", async () => {
+  // Repro for #35: a union of two object branches with disjoint required
+  // props, against `{}`, previously surfaced both "a" and "b" as missing —
+  // misleading because the consumer only needs to satisfy ONE branch. The
+  // `anyOf` summary at the same path is the correct signal; sibling
+  // `required` entries are suppressed.
+  //
+  // The earlier `union_mismatch` test (Object-wrapping-union, `{ kind: "c" }`)
+  // is intentionally unchanged by this rule: its sibling errors at `/kind`
+  // are `const`, which are NOT in the suppression set — they carry real
+  // discriminator info about which branch was intended.
+  const tool = definePortableTool({
+    name: "union_of_objects",
+    title: "Union Of Objects",
+    description: "Union of two object branches with disjoint required props.",
+    parameters: Type.Union([Type.Object({ a: Type.String() }), Type.Object({ b: Type.Number() })]),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, {}, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "(root)");
+  assert.match(errors[0].message, /anyOf/);
+});
+
 test("validatePortableToolArgs: multiple missing required properties expand to one error per field", async () => {
   const tool = definePortableTool({
     name: "multiple_missing_required",

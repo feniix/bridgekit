@@ -4,7 +4,19 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.0] - Unreleased
+## [0.8.1] - Unreleased
+
+### Fixed
+
+- Union-of-objects validation no longer surfaces phantom missing-required-
+  property entries for every branch. When TypeBox emits an `anyOf`/`oneOf`
+  error at a path, sibling `required`/`additionalProperties` entries at the
+  same path are now suppressed so consumers see only the union summary.
+  `const`/`enum` discriminator errors at deeper paths are kept (they're
+  signal about which branch was intended).
+  Resolves [#35](https://github.com/feniix/bridgekit/issues/35).
+
+## [0.8.0] - 2026-05-26
 
 ### Breaking
 
