@@ -286,6 +286,86 @@ test("validatePortableToolArgs: union of objects collapses sibling required erro
   assert.match(errors[0].message, /anyOf/);
 });
 
+test("validatePortableToolArgs: discriminated union surfaces only the active branch's missing required prop", async () => {
+  // Issue #38: when an `anyOf`/`oneOf` fires at a path and exactly one branch's
+  // discriminator (`Literal`/`const`) is satisfied by the input, surface ONLY
+  // that branch's `required` errors. The other branches' phantoms are still
+  // suppressed.
+  const tool = definePortableTool({
+    name: "discriminated_union",
+    title: "Discriminated Union",
+    description: "Union of two object branches with a `op` literal discriminator.",
+    parameters: Type.Union([
+      Type.Object({ op: Type.Literal("create"), name: Type.String() }),
+      Type.Object({ op: Type.Literal("delete"), id: Type.String() }),
+    ]),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { op: "create" }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "name");
+  assert.match(errors[0].message, /required property name/);
+});
+
+test("validatePortableToolArgs: discriminated union with invalid discriminator falls back to suppress-all", async () => {
+  // Zero branches match — no actionable "you picked X, forgot Y" hint is
+  // possible. Behavior falls back to PR #37: anyOf summary survives, per-branch
+  // `required` phantoms are suppressed. The user fixes the discriminator first.
+  const tool = definePortableTool({
+    name: "discriminated_union_invalid",
+    title: "Discriminated Union Invalid",
+    description: "Union with invalid discriminator value.",
+    parameters: Type.Union([
+      Type.Object({ op: Type.Literal("create"), name: Type.String() }),
+      Type.Object({ op: Type.Literal("delete"), id: Type.String() }),
+    ]),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { op: "unknown" }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  // No per-branch `required` phantoms survive — they have no actionable owner.
+  for (const error of errors) {
+    assert.notEqual(error.field, "name");
+    assert.notEqual(error.field, "id");
+  }
+  // The anyOf summary at (root) must remain, plus the const errors at /op
+  // (which the existing rule already preserves).
+  const fields = errors.map((e) => e.field);
+  assert.ok(fields.includes("(root)") || fields.includes("op"));
+});
+
+test("validatePortableToolArgs: nested discriminated union surfaces active branch's missing prop at the right path", async () => {
+  // Same algorithm, but the Union is wrapped in an Object property. The union
+  // path is "/event"; the active branch should still drive sibling preservation.
+  const tool = definePortableTool({
+    name: "nested_discriminated_union",
+    title: "Nested Discriminated Union",
+    description: "Object wrapping a discriminated union.",
+    parameters: Type.Object({
+      event: Type.Union([
+        Type.Object({ op: Type.Literal("create"), name: Type.String() }),
+        Type.Object({ op: Type.Literal("delete"), id: Type.String() }),
+      ]),
+    }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { event: { op: "create" } }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "name");
+  assert.match(errors[0].message, /required property name/);
+});
+
 test("validatePortableToolArgs: multiple missing required properties expand to one error per field", async () => {
   const tool = definePortableTool({
     name: "multiple_missing_required",
