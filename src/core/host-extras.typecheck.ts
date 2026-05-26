@@ -6,6 +6,13 @@
 //      about natively. The augmentation lives in this same file; without it
 //      `hostExtras["custom-runtime"]` would be a type error.
 //
+// IMPORTANT: the `declare module "@feniix/bridgekit"` block below augments
+// the package interface for the entire `tsc -b` program — not just this
+// file. Adding another `*.typecheck.ts` fixture that re-declares the
+// `"custom-runtime"` namespace (or any other previously-claimed key) will
+// produce a duplicate-declaration error at the program level. Future
+// negative-case fixtures must use distinct namespace names.
+//
 // Excluded from `npm test` (`*.typecheck.ts` glob) and from the published
 // tarball (`package.json#files`).
 

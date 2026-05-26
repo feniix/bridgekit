@@ -50,14 +50,24 @@ export interface PortableToolContext<THost extends string = PortableToolBuiltInH
  * Pi-specific entries on `PortableTool.hostExtras`. Read only by the pi
  * adapter; the MCP adapter ignores this namespace.
  *
+ * **Snapshot semantics.** Pi-side fields are read at registration time:
+ * `pendingMessage` is re-read at each tool invocation (so a mutation between
+ * two calls would be observed), while `promptSnippet` / `promptGuidelines`
+ * are captured once during `registerPiTools` and never re-read. Treat all
+ * pi-side fields as immutable once `registerPiTools` returns.
+ *
  * @see PortableToolHostExtras
  */
 export interface PiHostExtras {
   /**
    * One-shot text the pi adapter emits as `onUpdate(...)` exactly once,
    * **before** TypeBox validation runs. When unset (or absent on the tool),
-   * no pre-execute update is emitted. When the registered pi host does not
-   * supply an `onUpdate` callback at call time, the adapter silently no-ops.
+   * no pre-execute update is emitted. An empty string is treated as unset
+   * and produces no update. When the registered pi host does not supply an
+   * `onUpdate` callback at call time, the adapter silently no-ops.
+   *
+   * Held by reference at registration time; treat `pendingMessage` as
+   * immutable once attached to a tool definition.
    *
    * @example
    * hostExtras: { pi: { pendingMessage: "Processing..." } }
@@ -148,6 +158,9 @@ export interface PortableTool<TParams extends TSchema = TSchema, THost extends s
    * unknown host namespaces are ignored. Absent → no behavior change.
    *
    * @see PortableToolHostExtras
+   * @see docs/rfc-host-extras.md for design rationale (admission criteria,
+   * why a top-level field beats a sidecar map, closure rules for future
+   * additions).
    */
   hostExtras?: PortableToolHostExtras;
 }

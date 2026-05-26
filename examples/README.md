@@ -370,6 +370,80 @@ Best practices for `hostExtras`:
 
 See `docs/rfc-host-extras.md` for the full design rationale (which fields qualify, why a top-level field beats a sidecar map, the closure rule for future additions).
 
+### Migrating from a custom registration loop
+
+Before `hostExtras`, packages that needed pi-specific per-tool metadata
+typically kept a sidecar map plus a custom `toPiTool` wrapper that bypassed
+`registerPiTools`. The before-shape drifts out of sync the first time a tool
+is added without its sidecar entry; the after-shape co-locates the metadata
+with the tool, removes the wrapper, and uses the canonical adapter directly.
+
+**Before** — sidecar `PENDING_MESSAGES` plus a custom registration loop:
+
+```ts
+// extensions/index.ts (before)
+import { executePortableTool } from "@feniix/bridgekit";
+import { createTools } from "./tools.js";
+
+const PENDING_MESSAGES: Record<string, string> = {
+  generate_summary: "Generating summary...",
+  rewrite_paragraph: "Rewriting...",
+};
+
+export default function extension(pi: { registerTool: (tool: unknown) => void }) {
+  for (const tool of createTools()) {
+    pi.registerTool({
+      name: tool.name,
+      label: tool.title,
+      description: tool.description,
+      parameters: tool.parameters,
+      async execute(_id: string, params: unknown, signal: AbortSignal, onUpdate?: (u: unknown) => void) {
+        onUpdate?.({
+          content: [{ type: "text", text: PENDING_MESSAGES[tool.name] ?? "" }],
+          details: { status: "pending" },
+        });
+        const result = await executePortableTool(tool, params, { host: "pi", signal });
+        return { content: [{ type: "text", text: result.text }], details: result.structuredContent ?? {} };
+      },
+    });
+  }
+}
+```
+
+**After** — `pendingMessage` carried on each tool, `registerPiTools` used directly:
+
+```ts
+// extensions/tools.ts (after — each tool declares its own pending message)
+import { Type } from "typebox";
+import { definePortableTool } from "@feniix/bridgekit";
+
+export const generateSummaryTool = definePortableTool({
+  name: "generate_summary",
+  title: "Generate Summary",
+  description: "Summarise a block of text.",
+  parameters: Type.Object({ text: Type.String() }),
+  execute(args) {
+    return { text: args.text.slice(0, 80) };
+  },
+  hostExtras: {
+    pi: { pendingMessage: "Generating summary..." },
+  },
+});
+
+// extensions/index.ts (after — sidecar map deleted, custom loop deleted)
+import { registerPiTools } from "@feniix/bridgekit/pi";
+import { createTools } from "./tools.js";
+
+export default function extension(pi: Parameters<typeof registerPiTools>[0]) {
+  registerPiTools(pi, createTools());
+}
+```
+
+The sidecar map deletes entirely, the per-tool wrapper deletes, and the
+remaining wiring is the same three-line shape every other consumer uses.
+See `docs/rfc-host-extras.md` §5 for the canonical motivation and the
+per-consumer migration deltas.
+
 ---
 
 ## 6. Package checklist
