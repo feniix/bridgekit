@@ -21,9 +21,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   assert.equal(result.structuredContent.validationErrors[0].field, "file_path");
   ```
 
-  After this rename, validation and domain errors share the same
-  `{ field, message }` per-item shape, so consumers reading `.field` no longer
-  need to branch on which kind of failure produced the entry.
+  Entries *inside* `validationErrors[]` share the `{ field, message }` shape
+  with handler-emitted domain-failure data so iteration code can read `.field`
+  uniformly. The `validationErrors[]` array itself only exists on the
+  `kind: "validation"` branch of `PortableToolErrorDetails` — always narrow
+  with `isValidationFailure` (or the discriminator) before iterating.
 
 - **`validationErrors[]` cardinality change.** Previously, a TypeBox error
   with the message `must have required properties X, Y` produced a single
@@ -51,15 +53,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Duplicate `(field, message)` pairs are deduplicated.** Union/discriminator
   mismatches previously emitted multiple identical `(field, message)` entries
-  (one per failed union branch); they are now collapsed. Consumers locking in
-  exact counts on union failures may need to adjust.
+  (one per failed union branch); they are now collapsed. Dedup only removes
+  entries — it never introduces new ones — so `validationErrors.length` can
+  only decrease relative to raw TypeBox output. Consumers locking in exact
+  counts on union failures may need to adjust.
 
 ### Notes on field derivation
 
-- `field` is derived from TypeBox's structured error: required-property errors
-  read `params.requiredProperties` directly (locale- and message-format-
-  independent); other errors take the last meaningful segment of
-  `instancePath` (e.g. `/text` → `"text"`, `/items/0/name` → `"name"`).
+- `field` is derived from TypeBox's structured error:
+  - `keyword === "required"` reads `params.requiredProperties` and emits one
+    entry per missing prop name.
+  - `keyword === "additionalProperties"` reads `params.additionalProperties`
+    and emits one entry per offending key name. (Previously fell back to the
+    `(root)` sentinel — the offending key is now surfaced as `field`.)
+  - Other errors take the last meaningful segment of `instancePath`
+    (e.g. `/text` → `"text"`, `/items/0/name` → `"name"`).
+- The structured-access path is locale- and message-format-independent.
 - For array-element validation, `field` is the leaf segment, which can be a
   numeric index (e.g. `field: "0"`) and loses the path context. If positional
   information matters, keep schemas permissive at the BridgeKit boundary and
