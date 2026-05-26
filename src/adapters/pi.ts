@@ -24,6 +24,13 @@ type PiToolDefinition = {
     onUpdate?: (update: PiToolUpdate) => void,
     ctx?: unknown,
   ): Promise<PiToolResult>;
+  // Optional pass-through fields sourced from `hostExtras.pi`. The pi SDK
+  // accepts these on its own `registerTool` shape; bridgekit just forwards
+  // them when set so consumers do not have to roll a parallel registration
+  // loop. Absent on the tool → field omitted from the registration payload
+  // (byte-identical to today's shape).
+  promptSnippet?: string;
+  promptGuidelines?: readonly string[];
 };
 
 export type PiToolRegistration = {
@@ -118,14 +125,37 @@ export function registerPiTools(
     );
   }
   for (const tool of tools) {
+    const piExtras = tool.hostExtras?.pi;
     pi.registerTool({
       name: tool.name,
       label: tool.title,
       description: tool.description,
       parameters: tool.parameters,
+      // Pass-through pi-side metadata. Each field is gated on `!== undefined`
+      // so tools without `hostExtras.pi` build a registration object whose
+      // own-property keys are unchanged from the pre-0.9 shape.
+      ...(piExtras?.promptSnippet !== undefined && { promptSnippet: piExtras.promptSnippet }),
+      ...(piExtras?.promptGuidelines !== undefined && { promptGuidelines: piExtras.promptGuidelines }),
       async execute(_toolCallId, params, signal, onUpdate, _ctx) {
         let result: PortableToolResult;
         try {
+          // Pre-execute lifecycle hook. Fires exactly once per call, before
+          // TypeBox validation runs, when the tool declares a non-empty
+          // `hostExtras.pi.pendingMessage`. Silently no-ops when the pi host
+          // does not supply `onUpdate`. See RFC §3 (Gap B).
+          //
+          // Wrapped inside the same try/catch that guards the handler so a
+          // throwing host `onUpdate` is routed through `errorHandling` (and
+          // does not skip past the catch as an uncaught exception). The
+          // handler is NOT invoked when the pre-execute emit throws —
+          // erroring before validation is a host-channel failure, not an
+          // argument failure.
+          if (piExtras?.pendingMessage !== undefined && piExtras.pendingMessage !== "") {
+            onUpdate?.({
+              content: [{ type: "text", text: piExtras.pendingMessage } satisfies PiContent],
+              details: { status: "pending" },
+            });
+          }
           result = await executePortableTool(tool, params, {
             host: "pi",
             signal,

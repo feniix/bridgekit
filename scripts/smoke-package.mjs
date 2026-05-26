@@ -87,11 +87,14 @@ async function assertTypesCompile(installDir) {
         executePortableTool,
         isDomainFailure,
         isValidationFailure,
+        type McpHostExtras,
+        type PiHostExtras,
         type PortableDomainFailure,
         type PortableToolBuiltInHost,
         type PortableToolContext,
         type PortableToolErrorDetails,
         type PortableToolHost,
+        type PortableToolHostExtras,
         type PortableToolResult,
         type PortableValidationFailure,
       } from "@feniix/bridgekit";
@@ -208,6 +211,38 @@ async function assertTypesCompile(installDir) {
       const piRegistrationOptions: RegisterPiToolsOptions = { errorHandling: "return" };
       const piWiring: PiToolRegistration = { registerTool() { return undefined; } };
       registerPiTools(piWiring, [tool], piRegistrationOptions);
+
+      // hostExtras: native pi + mcp shapes plus module-augmented custom host.
+      // Locks the public surface of issue #28 against installed declarations.
+      declare module "@feniix/bridgekit" {
+        interface PortableToolHostExtras {
+          "custom-runtime"?: { something: string };
+        }
+      }
+      const piExtras: PiHostExtras = {
+        pendingMessage: "Processing...",
+        promptSnippet: "snippet",
+        promptGuidelines: ["one", "two"],
+      };
+      const mcpExtras: McpHostExtras = {
+        annotations: { readOnlyHint: true },
+      };
+      const allExtras: PortableToolHostExtras = {
+        pi: piExtras,
+        mcp: mcpExtras,
+        "custom-runtime": { something: "x" },
+      };
+      const toolWithExtras = definePortableTool({
+        name: "with_extras",
+        title: "With Extras",
+        description: "Tool that carries hostExtras.",
+        parameters,
+        execute(args) {
+          return { text: args.text };
+        },
+        hostExtras: allExtras,
+      });
+      void toolWithExtras;
     `,
   );
 
