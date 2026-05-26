@@ -415,6 +415,94 @@ test("registered pi tool with hostExtras.pi.pendingMessage no-ops when onUpdate 
   assert.equal(result.isError, false);
 });
 
+test("registerPiTools passes hostExtras.pi.promptSnippet / promptGuidelines / renderShell through to pi.registerTool (Test E)", () => {
+  const guidelines = ["Use sparingly.", "Always validate the input."] as const;
+  const richTool = definePortableTool({
+    name: "rich_tool",
+    title: "Rich Tool",
+    description: "Tool with prompt metadata.",
+    parameters: echoParams,
+    execute(args) {
+      return { text: args.text };
+    },
+    hostExtras: {
+      pi: {
+        promptSnippet: "Call this tool when the user asks to echo text.",
+        promptGuidelines: guidelines,
+        renderShell: "self",
+      },
+    },
+  });
+  const registered: Array<Record<string, unknown>> = [];
+  const pi = {
+    registerTool(tool: Record<string, unknown>) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [richTool]);
+
+  assert.equal(registered.length, 1);
+  const registration = registered[0];
+  assert.equal(registration?.promptSnippet, "Call this tool when the user asks to echo text.");
+  assert.equal(registration?.promptGuidelines, guidelines, "guidelines forwarded by reference (immutable contract)");
+  assert.equal(registration?.renderShell, "self");
+});
+
+test("registerPiTools omits unset pi pass-through fields (byte-identical shape when hostExtras is absent)", () => {
+  // Zero-cost-when-absent: a tool without hostExtras must produce a
+  // registration whose own-property keys exactly match the pre-0.9 set
+  // {name, label, description, parameters, execute}. Pinned so a future
+  // refactor that unconditionally spreads pi-extras keys is caught.
+  const plainTool = definePortableTool({
+    name: "plain",
+    title: "Plain",
+    description: "No hostExtras.",
+    parameters: echoParams,
+    execute(args) {
+      return { text: args.text };
+    },
+  });
+  const registered: Array<Record<string, unknown>> = [];
+  const pi = {
+    registerTool(tool: Record<string, unknown>) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [plainTool]);
+
+  assert.deepEqual(Object.keys(registered[0] ?? {}).sort(), ["description", "execute", "label", "name", "parameters"]);
+});
+
+test("registerPiTools omits unset pass-through fields when only some hostExtras.pi keys are set", () => {
+  // Mixed case: only promptSnippet is set. promptGuidelines and renderShell
+  // must not appear as `undefined` keys on the registration object.
+  const partialTool = definePortableTool({
+    name: "partial",
+    title: "Partial",
+    description: "Only promptSnippet is set.",
+    parameters: echoParams,
+    execute(args) {
+      return { text: args.text };
+    },
+    hostExtras: {
+      pi: { promptSnippet: "snippet" },
+    },
+  });
+  const registered: Array<Record<string, unknown>> = [];
+  const pi = {
+    registerTool(tool: Record<string, unknown>) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [partialTool]);
+
+  const keys = Object.keys(registered[0] ?? {}).sort();
+  assert.deepEqual(keys, ["description", "execute", "label", "name", "parameters", "promptSnippet"]);
+});
+
 test("registered pi tool does not emit pre-execute update when pendingMessage is an empty string", async () => {
   // RFC §3: "Must not fire when hostExtras.pi.pendingMessage is unset or
   // empty string." Empty-string is a valid declarative no-op (cleaner than

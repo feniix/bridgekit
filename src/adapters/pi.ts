@@ -24,6 +24,14 @@ type PiToolDefinition = {
     onUpdate?: (update: PiToolUpdate) => void,
     ctx?: unknown,
   ): Promise<PiToolResult>;
+  // Optional pass-through fields sourced from `hostExtras.pi`. The pi SDK
+  // accepts these on its own `registerTool` shape; bridgekit just forwards
+  // them when set so consumers do not have to roll a parallel registration
+  // loop. Absent on the tool → field omitted from the registration payload
+  // (byte-identical to today's shape).
+  promptSnippet?: string;
+  promptGuidelines?: readonly string[];
+  renderShell?: "default" | "self";
 };
 
 export type PiToolRegistration = {
@@ -124,6 +132,12 @@ export function registerPiTools(
       label: tool.title,
       description: tool.description,
       parameters: tool.parameters,
+      // Pass-through pi-side metadata. Each field is gated on `!== undefined`
+      // so tools without `hostExtras.pi` build a registration object whose
+      // own-property keys are unchanged from the pre-0.9 shape.
+      ...(piExtras?.promptSnippet !== undefined && { promptSnippet: piExtras.promptSnippet }),
+      ...(piExtras?.promptGuidelines !== undefined && { promptGuidelines: piExtras.promptGuidelines }),
+      ...(piExtras?.renderShell !== undefined && { renderShell: piExtras.renderShell }),
       async execute(_toolCallId, params, signal, onUpdate, _ctx) {
         // Pre-execute lifecycle hook. Fires exactly once per call, before
         // TypeBox validation runs, when the tool declares a non-empty
