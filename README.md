@@ -178,6 +178,8 @@ if (process.argv[1] && realpathIfPossible(resolve(process.argv[1])) === realpath
 
 The MCP adapter uses low-level `tools/list` and `tools/call` handlers so TypeBox schemas are exposed as JSON Schema directly. It intentionally does not expose a high-level `registerMcpTools` helper.
 
+Tool `parameters` must resolve to a JSON-Schema object at the top level. `Type.Object(...)` is the common case; `Type.Intersect([Type.Object(...), Type.Object(...)])` of object schemas is also accepted (its `allOf` lowering is recognised, and `type: "object"` is synthesised onto the `tools/list` response so MCP clients that validate the inputSchema shape stay happy). Non-object top-level schemas (`Type.String()`, `Type.Union([Type.Object(...), Type.Object(...)])`, etc.) throw at server construction with a named-tool error so the failure surfaces at adapter setup, not at first `tools/call`.
+
 Portable validation failures and portable `isError: true` results return `CallToolResult` with `isError: true`. `structuredContent` is preserved; `details` is used only as a fallback when `structuredContent` is absent. Exporting a server-options factory keeps MCP entrypoints import-passive and easy to test without starting stdio.
 
 The two adapters now read in parallel: invalid args and portable `isError` results return `{ isError: true }` from both hosts by default, and the same result-guard helpers (`isValidationFailure`, `isDomainFailure`) narrow them on either side.

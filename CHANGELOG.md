@@ -4,7 +4,20 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - Unreleased
+
+### Changed
+
+- Widened `createMcpServer` / `runMcpStdioServer` `tools` parameter from
+  `PortableTool<TObject>[]` to `PortableTool<TSchema>[]`. `Type.Intersect([
+  Type.Object(...), Type.Object(...)])` is now accepted alongside
+  `Type.Object(...)`. Schemas that don't resolve to a JSON-Schema object at the
+  top level throw at server construction with a named-tool error message
+  pointing to the actionable wrapping recipe. On the wire, `tools/list`
+  synthesises `type: "object"` on schemas whose top-level lowering is `allOf`
+  so MCP SDK clients that Zod-validate `inputSchema.type` continue to accept
+  them; existing `Type.Object` consumers see no change in payload shape.
+  Resolves [#29](https://github.com/feniix/bridgekit/issues/29).
 
 ### Added
 
