@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { definePortableTool } from "@feniix/bridgekit";
 import * as mcp from "@feniix/bridgekit/mcp";
-import { createMcpServer } from "@feniix/bridgekit/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Type } from "typebox";
 import { signalFromExtra } from "./mcp-signal.js";
+
+// Pull from the namespace import so `surface.registerMcpTools === undefined`
+// (above) stays load-bearing on the same symbol the rest of the file uses.
+const { createMcpServer } = mcp;
 
 test("MCP subpath exposes createMcpServer and runMcpStdioServer without a high-level register helper", () => {
   const surface = mcp as Record<string, unknown>;
@@ -52,6 +55,14 @@ test("createMcpServer accepts Type.Intersect of objects and round-trips a call",
     const list = await client.listTools();
     assert.equal(list.tools.length, 1);
     assert.equal(list.tools[0]?.name, "intersect_tool");
+    // Wire-shape contract: top-level `type: "object"` must be present (the
+    // MCP SDK Zod-validates it on the client side), and the original
+    // `allOf` composition must round-trip unchanged so client-side
+    // validators can still see the per-branch object schemas.
+    const inputSchema = list.tools[0]?.inputSchema as { type?: string; allOf?: unknown[] };
+    assert.equal(inputSchema?.type, "object");
+    assert.ok(Array.isArray(inputSchema?.allOf));
+    assert.equal(inputSchema?.allOf?.length, 2);
     const result = await client.callTool({ name: "intersect_tool", arguments: { a: "x", b: 1 } });
     assert.equal(result.isError, false);
     assert.deepEqual(result.structuredContent, { a: "x", b: 1 });
@@ -76,7 +87,7 @@ test("createMcpServer throws at construction when a tool's parameters are Type.S
     () => createMcpServer({ name: "bad-server", version: "0.1.0", tools: [tool] }),
     (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.match(error.message, /"foo"/);
+      assert.match(error.message, /^createMcpServer: tool "foo"/);
       assert.match(error.message, /Type\.Object\(/);
       return true;
     },
@@ -103,9 +114,107 @@ test("createMcpServer throws at construction for Type.Union of objects at the to
     () => createMcpServer({ name: "bad-server", version: "0.1.0", tools: [tool] }),
     (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.match(error.message, /"foo"/);
+      assert.match(error.message, /^createMcpServer: tool "foo"/);
       assert.match(error.message, /Type\.Object\(/);
+      // Union-specific guidance: Type.Intersect (AND) is the wrong recipe
+      // for a Union (OR), so the message must point at flatten/split.
+      assert.match(error.message, /flatten branches/);
       return true;
     },
   );
+});
+
+// Coverage-gap tests for the `Intersect` edge shapes (#29 follow-up).
+// `isObjectSchema` rejects empty `allOf` and mixed-branch `allOf`, and
+// accepts nested `allOf` of object schemas via its recursive descent. Only
+// the trivial two-branch case is exercised by the positive test above.
+
+test("createMcpServer throws at construction for empty Type.Intersect", () => {
+  // `Type.Intersect([])` lowers to `{ allOf: [] }`. `isObjectSchema` rejects
+  // empty allOf (no branches means no object guarantee on the wire).
+  const tool = definePortableTool({
+    name: "empty_intersect",
+    title: "Empty Intersect",
+    description: "Empty Type.Intersect; must be rejected at construction.",
+    parameters: Type.Intersect([]),
+    execute() {
+      return { text: "noop" };
+    },
+  });
+
+  assert.throws(
+    () => createMcpServer({ name: "bad-server", version: "0.1.0", tools: [tool] }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /^createMcpServer: tool "empty_intersect"/);
+      return true;
+    },
+  );
+});
+
+test("createMcpServer throws at construction for Type.Intersect mixing an object and a primitive branch", () => {
+  // `Type.Intersect([Type.Object(...), Type.String()])` lowers to allOf with
+  // a non-object branch. `isObjectSchema`'s recursive `every` rejects it;
+  // schemaTypeLabel surfaces the offending branch by index.
+  const tool = definePortableTool({
+    name: "mixed_intersect",
+    title: "Mixed Intersect",
+    description: "Mixed-branch Type.Intersect; must be rejected at construction.",
+    parameters: Type.Intersect([Type.Object({ a: Type.String() }), Type.String()]),
+    execute() {
+      return { text: "noop" };
+    },
+  });
+
+  assert.throws(
+    () => createMcpServer({ name: "bad-server", version: "0.1.0", tools: [tool] }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /^createMcpServer: tool "mixed_intersect"/);
+      // The mixed-branch case names the offending branch index/type rather
+      // than the misdirecting bare "allOf" label.
+      assert.match(error.message, /allOf\[1\]/);
+      return true;
+    },
+  );
+});
+
+test("createMcpServer accepts nested Type.Intersect of object schemas and round-trips a call", async () => {
+  // Nested intersect: allOf[0] is itself an allOf of two objects.
+  // `isObjectSchema` descends recursively, so this must be accepted.
+  const nestedParams = Type.Intersect([
+    Type.Intersect([Type.Object({ a: Type.String() }), Type.Object({ b: Type.Number() })]),
+    Type.Object({ c: Type.Boolean() }),
+  ]);
+  const tool = definePortableTool({
+    name: "nested_intersect",
+    title: "Nested Intersect",
+    description: "Verifies recursive allOf descent accepts the schema.",
+    parameters: nestedParams,
+    execute(args) {
+      return { text: `${args.a}:${args.b}:${args.c}`, structuredContent: { a: args.a, b: args.b, c: args.c } };
+    },
+  });
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createMcpServer({ name: "nested-intersect-test", version: "0.1.0", tools: [tool] });
+  const client = new Client({ name: "nested-intersect-test-client", version: "0.1.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const list = await client.listTools();
+    assert.equal(list.tools.length, 1);
+    assert.equal(list.tools[0]?.name, "nested_intersect");
+    const inputSchema = list.tools[0]?.inputSchema as { type?: string; allOf?: unknown[] };
+    assert.equal(inputSchema?.type, "object");
+    assert.ok(Array.isArray(inputSchema?.allOf));
+    const result = await client.callTool({
+      name: "nested_intersect",
+      arguments: { a: "x", b: 1, c: true },
+    });
+    assert.equal(result.isError, false);
+    assert.deepEqual(result.structuredContent, { a: "x", b: 1, c: true });
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });

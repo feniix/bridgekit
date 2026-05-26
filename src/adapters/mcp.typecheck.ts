@@ -32,3 +32,15 @@ const intersectParamTool = definePortableTool({
 // `tsc` reads it during the standard typecheck.
 createMcpServer({ name: "bad-server", version: "0.1.0", tools: [stringParamTool] });
 createMcpServer({ name: "ok-server", version: "0.1.0", tools: [intersectParamTool] });
+
+// Negative type assertion: `tools` must be `PortableTool` definitions, not
+// loose object literals. Widening to `PortableTool<TSchema>` did not (and
+// must not) widen to `unknown` — a missing `parameters`/`execute` should
+// still fail at compile time, otherwise we'd lose the type-level floor that
+// catches misuse before the runtime guard.
+createMcpServer({
+  name: "bad-server",
+  version: "0.1.0",
+  // @ts-expect-error tools must be PortableTool definitions, not loose objects.
+  tools: [{ name: "incomplete" }],
+});
