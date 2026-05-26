@@ -12,7 +12,12 @@ Use this package when you need to define a tool once and expose it through both 
 ## Import map
 
 ```ts
-import { definePortableTool, executePortableTool } from "@feniix/bridgekit";
+import {
+  definePortableTool,
+  executePortableTool,
+  isDomainFailure,
+  isValidationFailure,
+} from "@feniix/bridgekit";
 import { registerPiTools } from "@feniix/bridgekit/pi";
 import { createMcpServer, runMcpStdioServer } from "@feniix/bridgekit/mcp";
 ```
@@ -65,9 +70,10 @@ export function createTools() {
 
 ## Host behavior
 
-- pi invalid arguments and portable `isError: true` results throw `PortableToolExecutionError`, because pi expects native tool failures. Tests should assert rejected execution plus `.details`, not a returned `{ isError: true }` object.
-- MCP invalid arguments and portable `isError: true` results return `CallToolResult` with `isError: true`.
+- pi invalid arguments and portable `isError: true` results return `{ content, details, isError: true }` by default (as of 0.7). Branch on `result.isError` and narrow with `isValidationFailure` / `isDomainFailure` from `@feniix/bridgekit`.
+- MCP invalid arguments and portable `isError: true` results return `CallToolResult` with `isError: true`. Same guards narrow the result.
 - MCP preserves `structuredContent`; pi maps `structuredContent` into the pi `details` field. Both adapters fall back to `details` for legacy/debug payloads when `structuredContent` is absent.
+- `registerPiTools(pi, tools, { errorHandling: "throw" })` opts into the pre-0.7 behavior where `isError` results throw `PortableToolExecutionError`. This mode is `@deprecated` and scheduled for removal in 1.0; do not adopt it for new code.
 
 ## Custom host typing
 

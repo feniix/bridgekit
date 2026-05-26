@@ -21,6 +21,8 @@ Read these files in order:
 import {
   definePortableTool,
   executePortableTool,
+  isDomainFailure,
+  isValidationFailure,
   type PortableTool,
   type PortableToolBuiltInHost,
   type PortableToolContext,
@@ -88,7 +90,34 @@ export default function extension(pi: Parameters<typeof registerPiTools>[0]) {
 }
 ```
 
-Portable validation failures and portable results with `isError: true` reject with `PortableToolExecutionError` in pi so the host sees a native tool failure. The error message is the portable `text`, and `.details` is populated from `structuredContent` or `details`. Progress updates from `ctx.progress?.(...)` map to pi tool updates.
+By default (`errorHandling: "return"`, as of 0.7) the pi adapter mirrors the MCP adapter: portable validation failures and portable `isError: true` results surface as `{ content, details, isError: true }` so consumers can branch on `result.isError` and narrow with `isValidationFailure` / `isDomainFailure`. `details` is populated from `structuredContent` first, then from `details`, then `{}`. Progress updates from `ctx.progress?.(...)` map to pi tool updates.
+
+The pre-0.7 behavior — throw `PortableToolExecutionError` on `isError` — is still available for one deprecation cycle:
+
+```ts
+registerPiTools(pi, createTools(), { errorHandling: "throw" });
+```
+
+`errorHandling: "throw"` is marked `@deprecated` and will be removed in 1.0. Migrate by switching to the default and branching on the returned result:
+
+```ts
+// Before (0.6 and earlier)
+try {
+  const result = await piTool.execute(...);
+} catch (err) {
+  if (isPortableToolExecutionError(err)) {
+    if (err.details.kind === "validation") { /* TypeBox errors */ }
+    else { /* domain failure */ }
+  }
+}
+
+// After (0.7+)
+const result = await piTool.execute(...);
+if (result.isError) {
+  if (isValidationFailure(result)) { /* result.structuredContent.validationErrors */ }
+  else if (isDomainFailure(result)) { /* handler-level error */ }
+}
+```
 
 ## MCP adapter
 
@@ -127,7 +156,9 @@ if (process.argv[1] && realpathIfPossible(resolve(process.argv[1])) === realpath
 
 The MCP adapter uses low-level `tools/list` and `tools/call` handlers so TypeBox schemas are exposed as JSON Schema directly. It intentionally does not expose a high-level `registerMcpTools` helper.
 
-MCP invalid input and portable `isError: true` results return `CallToolResult` with `isError: true`. Exporting a server-options factory keeps MCP entrypoints import-passive and easy to test without starting stdio.
+Portable validation failures and portable `isError: true` results return `CallToolResult` with `isError: true`. `structuredContent` is preserved; `details` is used only as a fallback when `structuredContent` is absent. Exporting a server-options factory keeps MCP entrypoints import-passive and easy to test without starting stdio.
+
+The two adapters now read in parallel: invalid args and portable `isError` results return `{ isError: true }` from both hosts by default, and the same result-guard helpers (`isValidationFailure`, `isDomainFailure`) narrow them on either side.
 
 ## Custom host typing
 
