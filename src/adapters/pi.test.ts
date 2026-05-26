@@ -239,6 +239,215 @@ test("registered pi tool (default return mode): invalid args return isError=true
   assert.equal(details.validationErrors[0].field, "text");
 });
 
+// --- hostExtras.pi.pendingMessage (issue #28, RFC §3 Gap B) ---
+
+test("registered pi tool without hostExtras emits zero updates before the handler runs (Test A)", async () => {
+  // Zero-cost-when-absent invariant: a tool without `hostExtras` must not
+  // produce any pre-execute onUpdate. The handler emits progress updates,
+  // but they all originate from inside execute() — never before it.
+  let handlerEntered = false;
+  const handlerEmittedAt: number[] = [];
+  const observedUpdateOrder: number[] = [];
+  const echoTool = definePortableTool({
+    name: "no_extras",
+    title: "No Extras",
+    description: "Tool without hostExtras; no pre-execute update expected.",
+    parameters: echoParams,
+    execute(args, ctx) {
+      handlerEntered = true;
+      handlerEmittedAt.push(observedUpdateOrder.length);
+      ctx.progress?.({ text: "starting", structuredContent: { phase: "start" } });
+      return { text: args.text };
+    },
+  });
+  const registered: RegisteredPiTool[] = [];
+  const pi = {
+    registerTool(tool: RegisteredPiTool) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [echoTool]);
+  const tool = registered.find((candidate) => candidate.name === "no_extras");
+  assert.ok(tool);
+
+  let updateCount = 0;
+  await tool.execute(
+    "tool-call-no-extras",
+    { text: "hello" },
+    undefined,
+    () => {
+      observedUpdateOrder.push(updateCount);
+      updateCount += 1;
+    },
+    {},
+  );
+
+  // The handler entered before any update was observed, so the first update
+  // index (if any) is at-or-after handler entry. The handler's own progress
+  // call is the only update — there is no pre-execute one.
+  assert.equal(handlerEntered, true);
+  assert.equal(updateCount, 1, "exactly one update — from the handler's progress call");
+  assert.equal(handlerEmittedAt[0], 0, "handler ran before any update reached onUpdate");
+});
+
+test("registered pi tool fires hostExtras.pi.pendingMessage exactly once before the handler runs (Test C)", async () => {
+  let handlerEntered = false;
+  let updateCountBeforeHandler = 0;
+  const updates: Array<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> = [];
+  const pendingTool = definePortableTool({
+    name: "pending_msg",
+    title: "Pending Msg",
+    description: "Tool with hostExtras.pi.pendingMessage.",
+    parameters: echoParams,
+    execute(args) {
+      // The pre-execute onUpdate must have already fired by the time the
+      // handler runs.
+      updateCountBeforeHandler = updates.length;
+      handlerEntered = true;
+      return { text: args.text };
+    },
+    hostExtras: {
+      pi: { pendingMessage: "Processing..." },
+    },
+  });
+  const registered: RegisteredPiTool[] = [];
+  const pi = {
+    registerTool(tool: RegisteredPiTool) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [pendingTool]);
+  const tool = registered.find((candidate) => candidate.name === "pending_msg");
+  assert.ok(tool);
+
+  await tool.execute(
+    "tool-call-pending",
+    { text: "hello" },
+    undefined,
+    (update: unknown) =>
+      updates.push(update as { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }),
+    {},
+  );
+
+  assert.equal(handlerEntered, true);
+  assert.equal(updateCountBeforeHandler, 1, "pre-execute onUpdate fired before the handler ran");
+  assert.deepEqual(updates[0], {
+    content: [{ type: "text", text: "Processing..." }],
+    details: { status: "pending" },
+  });
+});
+
+test("registered pi tool fires hostExtras.pi.pendingMessage at-most-once per invocation (Test D)", async () => {
+  const pendingTool = definePortableTool({
+    name: "pending_once",
+    title: "Pending Once",
+    description: "Pre-execute message must not accumulate across sequential calls.",
+    parameters: echoParams,
+    execute(args) {
+      return { text: args.text };
+    },
+    hostExtras: {
+      pi: { pendingMessage: "Working..." },
+    },
+  });
+  const registered: RegisteredPiTool[] = [];
+  const pi = {
+    registerTool(tool: RegisteredPiTool) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [pendingTool]);
+  const tool = registered.find((candidate) => candidate.name === "pending_once");
+  assert.ok(tool);
+
+  const firstUpdates: unknown[] = [];
+  await tool.execute("call-1", { text: "a" }, undefined, (update: unknown) => firstUpdates.push(update), {});
+  assert.equal(firstUpdates.length, 1, "first invocation: exactly one pre-execute onUpdate");
+  assert.deepEqual(firstUpdates[0], {
+    content: [{ type: "text", text: "Working..." }],
+    details: { status: "pending" },
+  });
+
+  const secondUpdates: unknown[] = [];
+  await tool.execute("call-2", { text: "b" }, undefined, (update: unknown) => secondUpdates.push(update), {});
+  assert.equal(secondUpdates.length, 1, "second invocation: exactly one pre-execute onUpdate (not zero, not two)");
+  assert.deepEqual(secondUpdates[0], {
+    content: [{ type: "text", text: "Working..." }],
+    details: { status: "pending" },
+  });
+});
+
+test("registered pi tool with hostExtras.pi.pendingMessage no-ops when onUpdate is undefined", async () => {
+  // RFC §2: when the host does not provide onUpdate, the adapter silently
+  // no-ops — no throw, no stored emit. Pinned so a future refactor that
+  // queues updates internally cannot regress the contract.
+  let handlerEntered = false;
+  const pendingTool = definePortableTool({
+    name: "pending_no_onupdate",
+    title: "Pending No onUpdate",
+    description: "hostExtras.pi.pendingMessage with no onUpdate provided.",
+    parameters: echoParams,
+    execute(args) {
+      handlerEntered = true;
+      return { text: args.text };
+    },
+    hostExtras: {
+      pi: { pendingMessage: "Should not throw." },
+    },
+  });
+  const registered: RegisteredPiTool[] = [];
+  const pi = {
+    registerTool(tool: RegisteredPiTool) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [pendingTool]);
+  const tool = registered.find((candidate) => candidate.name === "pending_no_onupdate");
+  assert.ok(tool);
+
+  // No onUpdate (undefined). The adapter must run the handler without throwing.
+  const result = await tool.execute("call", { text: "x" }, undefined, undefined, {});
+  assert.equal(handlerEntered, true);
+  assert.equal(result.isError, false);
+});
+
+test("registered pi tool does not emit pre-execute update when pendingMessage is an empty string", async () => {
+  // RFC §3: "Must not fire when hostExtras.pi.pendingMessage is unset or
+  // empty string." Empty-string is a valid declarative no-op (cleaner than
+  // a conditional spread at the call site); pin the behavior so a refactor
+  // that drops the empty-string guard surfaces here.
+  const pendingTool = definePortableTool({
+    name: "pending_empty",
+    title: "Pending Empty",
+    description: "hostExtras.pi.pendingMessage = empty string.",
+    parameters: echoParams,
+    execute(args) {
+      return { text: args.text };
+    },
+    hostExtras: {
+      pi: { pendingMessage: "" },
+    },
+  });
+  const registered: RegisteredPiTool[] = [];
+  const pi = {
+    registerTool(tool: RegisteredPiTool) {
+      registered.push(tool);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [pendingTool]);
+  const tool = registered.find((candidate) => candidate.name === "pending_empty");
+  assert.ok(tool);
+
+  const updates: unknown[] = [];
+  await tool.execute("call", { text: "x" }, undefined, (update: unknown) => updates.push(update), {});
+  assert.equal(updates.length, 0, "empty-string pendingMessage produces no update");
+});
+
 test("registered pi tool (opt-in throw mode): invalid args throw without calling the handler", async () => {
   let called = false;
   const echoTool = definePortableTool({

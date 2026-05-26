@@ -118,12 +118,23 @@ export function registerPiTools(
     );
   }
   for (const tool of tools) {
+    const piExtras = tool.hostExtras?.pi;
     pi.registerTool({
       name: tool.name,
       label: tool.title,
       description: tool.description,
       parameters: tool.parameters,
       async execute(_toolCallId, params, signal, onUpdate, _ctx) {
+        // Pre-execute lifecycle hook. Fires exactly once per call, before
+        // TypeBox validation runs, when the tool declares a non-empty
+        // `hostExtras.pi.pendingMessage`. Silently no-ops when the pi host
+        // does not supply `onUpdate`. See RFC §3 (Gap B).
+        if (piExtras?.pendingMessage !== undefined && piExtras.pendingMessage !== "") {
+          onUpdate?.({
+            content: [{ type: "text", text: piExtras.pendingMessage } satisfies PiContent],
+            details: { status: "pending" },
+          });
+        }
         let result: PortableToolResult;
         try {
           result = await executePortableTool(tool, params, {
