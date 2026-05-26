@@ -18,7 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   paths were already correct via structured `params` and are unchanged.
   Resolves [#36](https://github.com/feniix/bridgekit/issues/36).
 
-## [0.8.2] - Unreleased
+## [0.8.2] - 2026-05-26
 
 ### Fixed
 
