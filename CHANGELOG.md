@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.8.3] - Unreleased
 
+### Added
+
+- RFC: `docs/rfc-host-extras.md` (design doc for [#28](https://github.com/feniix/bridgekit/issues/28); no code change).
+
 ### Fixed
 
 - `PortableValidationError.field` now preserves the full property name when
