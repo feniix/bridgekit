@@ -16,6 +16,78 @@ function fieldFromPath(instancePath: string): string {
 }
 
 /**
+ * Resolve the leaf field name of an instancePath against the actual schema.
+ *
+ * TypeBox does not escape `/` inside property names when building
+ * `instancePath` (it does not follow JSON Pointer RFC 6901's `~1` encoding),
+ * so a property literally named `a/b` produces `instancePath: "/a/b"`. The
+ * string-split fallback (`fieldFromPath`) would then surface `"b"` and lose
+ * the prefix. This helper walks the schema greedily — at each object node it
+ * matches the longest prefix of remaining path segments that names a real
+ * property key, descending into the matched sub-schema — and returns the
+ * actual leaf key. Array nodes consume a single numeric segment via `items`.
+ *
+ * Returns `undefined` if the walk gets stuck (the schema does not model the
+ * data path — e.g. `additionalProperties` content). The caller then falls
+ * back to the string-split `fieldFromPath`, preserving prior behavior.
+ *
+ * The `required` and `additionalProperties` callers already read structured
+ * `params` and are unaffected; this helper covers the `const` / `enum` /
+ * default keyword branches.
+ */
+function fieldFromSchemaWalk(schema: TSchema, instancePath: string): string | undefined {
+  if (instancePath === "") return undefined;
+  const segments = instancePath.split("/").filter(Boolean);
+  if (segments.length === 0) return undefined;
+  let current: unknown = schema;
+  let lastKey: string | undefined;
+  let i = 0;
+  while (i < segments.length) {
+    if (!current || typeof current !== "object") return undefined;
+    const node = current as { properties?: Record<string, unknown>; items?: unknown };
+    // Array descent: numeric segment against an `items` schema. Tuple-form
+    // `items` (array) indexes positionally; schema-form descends uniformly.
+    if (node.items !== undefined && /^\d+$/.test(segments[i])) {
+      const idx = Number(segments[i]);
+      if (Array.isArray(node.items)) {
+        if (idx >= node.items.length) return undefined;
+        current = node.items[idx];
+      } else {
+        current = node.items;
+      }
+      lastKey = segments[i];
+      i++;
+      continue;
+    }
+    // Object descent: greedy longest-prefix match against `properties` keys.
+    // This is what lets `a/b` resolve to a single key when the schema
+    // declares it, even though the instancePath segments it as ["a", "b"].
+    if (node.properties && typeof node.properties === "object") {
+      const props = node.properties;
+      let matched = -1;
+      for (let j = segments.length; j > i; j--) {
+        const candidate = segments.slice(i, j).join("/");
+        if (Object.hasOwn(props, candidate)) {
+          matched = j;
+          lastKey = candidate;
+          current = props[candidate];
+          break;
+        }
+      }
+      if (matched === -1) return undefined;
+      i = matched;
+      continue;
+    }
+    return undefined;
+  }
+  return lastKey;
+}
+
+function fieldFromError(schema: TSchema, error: TLocalizedValidationError): string {
+  return fieldFromSchemaWalk(schema, error.instancePath) ?? fieldFromPath(error.instancePath);
+}
+
+/**
  * JSON-Schema-shaped record describing a Union branch as TypeBox emits it.
  * We deliberately keep this loose (no TypeBox internals like the `Kind`
  * symbol) so the helper stays robust across minor TypeBox upgrades — the
@@ -281,7 +353,7 @@ function suppressSiblingErrorsUnderUnion(
   });
 }
 
-function expandTypeBoxError(error: TLocalizedValidationError): PortableValidationError[] {
+function expandTypeBoxError(schema: TSchema, error: TLocalizedValidationError): PortableValidationError[] {
   // Read offending property names from TypeBox's structured `params` rather
   // than parsing the message string. Two payoffs: locale independence (the
   // helper works the same after `Locale.Set("de_DE")`), and faithful
@@ -312,7 +384,7 @@ function expandTypeBoxError(error: TLocalizedValidationError): PortableValidatio
   if (error.keyword === "const") {
     return [
       {
-        field: fieldFromPath(error.instancePath),
+        field: fieldFromError(schema, error),
         message: `must equal ${JSON.stringify(error.params.allowedValue)}`,
       },
     ];
@@ -321,14 +393,14 @@ function expandTypeBoxError(error: TLocalizedValidationError): PortableValidatio
     const allowed = error.params.allowedValues ?? [];
     return [
       {
-        field: fieldFromPath(error.instancePath),
+        field: fieldFromError(schema, error),
         message:
           allowed.length > 0 ? `must equal one of ${allowed.map((v) => JSON.stringify(v)).join(", ")}` : error.message,
       },
     ];
   }
 
-  return [{ field: fieldFromPath(error.instancePath), message: error.message }];
+  return [{ field: fieldFromError(schema, error), message: error.message }];
 }
 
 export function validatePortableToolArgs<THost extends string = PortableToolBuiltInHost>(
@@ -351,7 +423,7 @@ export function validatePortableToolArgs<THost extends string = PortableToolBuil
   ] as TLocalizedValidationError[]);
   const seen = new Set<string>();
   const errors = rawErrors
-    .flatMap((error) => expandTypeBoxError(error))
+    .flatMap((error) => expandTypeBoxError(tool.parameters, error))
     .filter(({ field, message }) => {
       const key = JSON.stringify([field, message]);
       if (seen.has(key)) return false;
