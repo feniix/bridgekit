@@ -79,9 +79,20 @@ export async function runBinWrapperWithDeps(options: BinWrapperOptions, deps: Bi
     // recoverable. Only bail if the artifact we need is actually missing.
     if (!existsSync(entryPath)) {
       const prefix = options.logPrefix ?? "bridgekit-bin";
-      console.error(
-        `[${prefix}] Failed to build the local MCP server. Run \`npm run ${options.buildScript}\` and try again.`,
-      );
+      // A child killed by the timeout returns status: null + signal set.
+      // Distinguish that from a build error so the operator sees the actual
+      // cause and knows about buildTimeoutMs.
+      if (build.signal !== null) {
+        const timeoutMs = options.buildTimeoutMs ?? 60_000;
+        console.error(
+          `[${prefix}] Build timed out after ${timeoutMs}ms (signal ${build.signal}). ` +
+            `Raise buildTimeoutMs or run \`npm run ${options.buildScript}\` manually.`,
+        );
+      } else {
+        console.error(
+          `[${prefix}] Failed to build the local MCP server. Run \`npm run ${options.buildScript}\` and try again.`,
+        );
+      }
       deps.exit(build.status && build.status !== 0 ? build.status : 1);
       return;
     }

@@ -234,6 +234,40 @@ test("entry missing -> build exits 0 but entry still missing -> exits with code 
   }
 });
 
+test("entry missing -> build killed by timeout -> exits with code 1; diagnostic names the timeout", async () => {
+  const fx = makeFixture();
+  const captured: string[] = [];
+  const originalConsoleError = console.error;
+  console.error = (message: unknown) => {
+    captured.push(String(message));
+  };
+
+  try {
+    let thrown: unknown;
+    try {
+      const deps: BinWrapperDeps = {
+        // spawnSync timeout: status null, signal SIGTERM.
+        spawnSync: () => fakeSpawnResult(null, "SIGTERM"),
+        exit: exitStub(),
+      };
+      await runBinWrapperWithDeps(makeOptions(fx, { buildTimeoutMs: 250 }), deps);
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.ok(thrown instanceof ExitInvoked, `expected ExitInvoked, got ${thrown}`);
+    assert.equal((thrown as ExitInvoked).code, 1);
+    assert.equal(captured.length, 1);
+    assert.match(captured[0] ?? "", /\[bridgekit-bin\] Build timed out after 250ms/);
+    assert.match(captured[0] ?? "", /signal SIGTERM/);
+    assert.match(captured[0] ?? "", /Raise buildTimeoutMs/);
+    assert.doesNotMatch(captured[0] ?? "", /Failed to build the local MCP server/);
+  } finally {
+    console.error = originalConsoleError;
+    fx.cleanup();
+  }
+});
+
 test("entry exists but doesn't export runServer -> throws documented error", async () => {
   const fx = makeFixture();
   fx.writeEntry(`export const notRunServer = 1;\n`);
