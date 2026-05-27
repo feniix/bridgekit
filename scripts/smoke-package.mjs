@@ -124,6 +124,17 @@ async function assertTypesCompile(installDir) {
         buildScript: "build:mcp",
       };
       void _binWrapperOpts;
+      // 0.13.0 (#59): MCP-stdio-bin-shaped literal — buildStdio routes the
+      // build subprocess's stdout to /dev/null so it cannot contaminate the
+      // parent's JSON-RPC framing. Pin that BinWrapperOptions surfaces the
+      // optional field through the installed declarations.
+      const _binWrapperOptsMcp: BinWrapperOptions = {
+        metaUrl: "file:///x",
+        mcpEntry: "dist/extensions/mcp-server.js",
+        buildScript: "build:mcp",
+        buildStdio: ["ignore", "inherit", "inherit"],
+      };
+      void _binWrapperOptsMcp;
       void runBinWrapper;
 
       // Regression pin: the internal test-injection seams must never leak
