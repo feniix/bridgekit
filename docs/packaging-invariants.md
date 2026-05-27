@@ -18,7 +18,7 @@ This catalog originally backed two scripts: `verify-bridgekit-dist.mjs` (manifes
 
 **Failure mode**: A consumer's bundler can't tree-shake bridgekit. Unused subpath imports drag in the MCP SDK or pi adapter code anyway. No runtime failure — purely a silent perf regression invisible to bridgekit's own tests.
 
-**Motivation**: The three-entrypoint split (`.`, `./pi`, `./mcp`) is performance-load-bearing for consumers; `sideEffects: false` is the second half of the contract that makes the split work. No other check catches this.
+**Motivation**: The four-entrypoint split (`.`, `./pi`, `./mcp`, `./bin-wrapper`) is performance-load-bearing for consumers; `sideEffects: false` is the second half of the contract that makes the split work. No other check catches this.
 
 **Removable?** No.
 
@@ -72,7 +72,7 @@ This catalog originally backed two scripts: `verify-bridgekit-dist.mjs` (manifes
 
 ## inv-pack-file-list-shape
 
-**Assertion**: The packed tarball file list includes every required public entry (`package.json`, `README.md`, `llms.txt`, `examples/README.md`, the six `dist/src/{index,pi,mcp}.{js,d.ts}` files) and excludes `*.test.*`, `*.typecheck.*`, `*.map`, `tsconfig.tsbuildinfo`.
+**Assertion**: The packed tarball file list includes every required public entry (`package.json`, `README.md`, `llms.txt`, `examples/README.md`, the eight `dist/src/{index,pi,mcp,bin-wrapper}.{js,d.ts}` files) and excludes `*.test.*`, `*.typecheck.*`, `*.map`, `tsconfig.tsbuildinfo`. The internal `dist/src/bin-wrapper-internal.{js,d.ts}` ships in the tarball (the public `bin-wrapper.js` imports from it at runtime) but is not reachable through `package.json#exports`; see `inv-deep-imports-fail` below.
 
 **Where**: `scripts/smoke-package.mjs:assertPackFileList`.
 
@@ -91,6 +91,7 @@ This catalog originally backed two scripts: `verify-bridgekit-dist.mjs` (manifes
 - `@feniix/bridgekit`: `["definePortableTool", "executePortableTool", "isDomainFailure", "isValidationFailure", "validatePortableToolArgs"]`
 - `@feniix/bridgekit/pi`: `["PortableToolExecutionError", "isPortableToolExecutionError", "registerPiTools"]`
 - `@feniix/bridgekit/mcp`: `["createMcpServer", "runMcpStdioServer"]`
+- `@feniix/bridgekit/bin-wrapper`: `["runBinWrapper"]` (also: `typeof runBinWrapper === "function"`)
 
 **Where**: `scripts/smoke-package.mjs:assertRuntimeExports`.
 
@@ -121,13 +122,20 @@ This catalog originally backed two scripts: `verify-bridgekit-dist.mjs` (manifes
 
 ## inv-deep-imports-fail
 
-**Assertion**: `await import("@feniix/bridgekit/dist/src/index.js")` from an installed consumer fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+**Assertion**: From an installed consumer, the following deep imports all fail (either `ERR_PACKAGE_PATH_NOT_EXPORTED` or `ERR_MODULE_NOT_FOUND` — exports-map rejection or unresolvable subpath):
+
+- `@feniix/bridgekit/dist/src/index.js`
+- `@feniix/bridgekit/dist/src/bin-wrapper.js`
+- `@feniix/bridgekit/bin-wrapper-internal`
+- `@feniix/bridgekit/dist/src/bin-wrapper-internal.js`
+
+The last two pin that the internal module backing `runBinWrapper` is unreachable through any deep import even though it ships in the tarball.
 
 **Where**: `scripts/smoke-package.mjs:assertUnsupportedDeepImportFails`.
 
 **Failure mode**: The `exports` map widens (a wildcard, a forgotten directory) and consumers start deep-importing — which removes bridgekit's ability to refactor `dist/` layout without a major version bump.
 
-**Motivation**: The three-entrypoint discipline (`.`, `./pi`, `./mcp`) is the single most important shape of the package surface. This check proves that arbitrary `dist/` paths are *actively rejected*, not merely undocumented.
+**Motivation**: The four-entrypoint discipline (`.`, `./pi`, `./mcp`, `./bin-wrapper`) is the single most important shape of the package surface. This check proves that arbitrary `dist/` paths are *actively rejected*, not merely undocumented.
 
 **Removable?** No.
 
