@@ -4,6 +4,18 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-05-26
+
+### Fixed
+
+- pi adapter now spreads `hostExtras.pi.promptGuidelines` into a fresh
+  `string[]` before handing it to `pi.registerTool`. Bridgekit's declared type
+  stays `readonly string[]` (signals immutability of consumer-owned metadata),
+  but the boundary copy satisfies pi-coding-agent's mutable `string[]`
+  contract. Resolves contravariance friction observed in three downstream
+  consumers that previously needed `pi as unknown as PiToolRegistration`
+  casts. Resolves [#47](https://github.com/feniix/bridgekit/issues/47).
+
 ## [0.9.0] - 2026-05-26
 
 ### Changed

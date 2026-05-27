@@ -1,6 +1,6 @@
 {
   "name": "@feniix/bridgekit",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "BridgeKit defines TypeBox-backed tools once and adapts them to pi, MCP, and other hosts.",
   "keywords": [
     "pi",
