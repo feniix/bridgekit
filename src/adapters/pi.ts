@@ -30,7 +30,15 @@ type PiToolDefinition = {
   // loop. Absent on the tool → field omitted from the registration payload
   // (byte-identical to today's shape).
   promptSnippet?: string;
-  promptGuidelines?: readonly string[];
+  // Mutable `string[]` to match pi-coding-agent's ExtensionAPI registerTool
+  // signature. Contravariance on the registerTool parameter forced consumers
+  // to add an `unknown` cast at the call site when bridgekit declared
+  // `readonly string[]` here, even though the runtime contract is sound (the
+  // spread-copy below produces a fresh mutable array since 0.9.1). The
+  // consumer-facing source type — PiHostExtras.promptGuidelines on
+  // PortableTool.hostExtras.pi — stays `readonly string[]` because the
+  // consumer's metadata is immutable from bridgekit's perspective.
+  promptGuidelines?: string[];
 };
 
 export type PiToolRegistration = {

@@ -113,10 +113,13 @@ Some hosts, such as pi in source-extension packages, may intentionally load Type
     metaUrl: import.meta.url,
     mcpEntry: "dist/extensions/mcp-server.js",
     buildScript: "build:mcp",
+    // MCP stdio bins: route the build subprocess's stdout to /dev/null so it
+    // cannot contaminate the parent's JSON-RPC framing on process.stdout.
+    buildStdio: ["ignore", "inherit", "inherit"],
   });
   ```
 
-  `mcpEntry` and `buildScript` must be literal strings — sourcing them from CLI args or env vars opens arbitrary-file import and Windows command injection. The MCP entry module must export `async function runServer(): Promise<void>`.
+  `mcpEntry` and `buildScript` must be literal strings — sourcing them from CLI args or env vars opens arbitrary-file import and Windows command injection. The MCP entry module must export `async function runServer(): Promise<void>`. `buildStdio` defaults to `"inherit"`; MCP stdio server bins should override to `["ignore", "inherit", "inherit"]` (since 0.13.0) because `process.stdout` is the JSON-RPC channel and the build subprocess otherwise contaminates framing.
 - Narrow the MCP build to the MCP entrypoint and shared host-neutral modules; avoid compiling pi adapter entrypoints into the standalone MCP path.
 - Put runtime imports used by the compiled MCP bin in `dependencies`, not only peers or dev dependencies.
 - Declare BridgeKit's Node engine requirement in the downstream package (`>=22.19.0`).
