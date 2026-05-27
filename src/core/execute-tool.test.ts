@@ -623,6 +623,11 @@ test("validatePortableToolArgs: comma in property name survives intact (structur
 });
 
 test("validatePortableToolArgs: non-object args produce field=(root), not empty string", async () => {
+  // This test also exercises the walker-undefined -> instancePath fallback:
+  // the wrong-type-at-root error has schemaPath "#" (empty after splitting)
+  // so fieldFromSchemaWalk returns undefined and fieldFromPath("") yields
+  // the (root) sentinel. If the walker regresses to always returning a
+  // truthy value, this fallback path stops being exercised.
   const tool = definePortableTool({
     name: "object_schema_null_args",
     title: "Object Schema Null Args",
@@ -642,6 +647,75 @@ test("validatePortableToolArgs: non-object args produce field=(root), not empty 
   // double-colon. Match structurally to stay resilient to TypeBox locale
   // changes that might rephrase "must be object".
   assert.match(result.text, /^Invalid arguments for object_schema_null_args: \(root\): /);
+});
+
+test("validatePortableToolArgs: property names matching walker command tokens resolve to the literal name", async () => {
+  // Command tokens (`properties`, `items`, `allOf`, `anyOf`, `oneOf`) are
+  // commands only in *command position* — i.e. when they appear in schemaPath
+  // immediately after a `properties` segment they are property names, not
+  // structural markers. A schema with literal property names matching the
+  // command tokens must resolve each error to the literal name.
+  //
+  // The walker handles this correctly because it consumes `properties` first,
+  // then matches the next segment(s) against the parent's `properties` keys;
+  // a property literally named `allOf` is matched as a key, not interpreted
+  // as the allOf-descent command (which would only fire if `head === "allOf"`
+  // AND the current node has an `allOf` array — neither holds here).
+  const tool = definePortableTool({
+    name: "command_token_props",
+    title: "Command Token Props",
+    description: "Schema whose property names collide with walker command tokens.",
+    parameters: Type.Object({
+      properties: Type.String(),
+      items: Type.String(),
+      allOf: Type.String(),
+      type: Type.String(),
+    }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { properties: 1, items: 2, allOf: 3, type: 4 }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  // Every error should resolve to its literal property-name field (not a
+  // structural sentinel like "(root)" or a stripped descendant).
+  const fields = errors.map((e) => e.field).sort();
+  assert.deepEqual(fields, ["allOf", "items", "properties", "type"]);
+});
+
+test("validatePortableToolArgs: depth-3 overlapping prefix resolves to nested leaf, not slash-named sibling", async () => {
+  // Extension of the issue #43 depth-2 disambiguation test to depth 3:
+  // a slash-named property "a/b/c" lives alongside a nested path a.b.c.
+  // Both produce instancePath "/a/b/c" for a wrong-type at the leaf; the
+  // schemaPath walker disambiguates because the two cases are
+  // #/properties/a/b/c vs #/properties/a/properties/b/properties/c. Locks
+  // in that the greedy longest-prefix match doesn't over-eagerly absorb
+  // intermediate segments when a literal slash-name candidate exists at the
+  // parent level.
+  const tool = definePortableTool({
+    name: "depth3_overlap",
+    title: "Depth-3 Overlap",
+    description: "Slash-named property colliding with depth-3 nested path.",
+    parameters: Type.Object({
+      "a/b/c": Type.String(),
+      a: Type.Object({ b: Type.Object({ c: Type.Number() }) }),
+    }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  // Wrong-type at the nested leaf; the slash-named sibling is valid.
+  const result = await executePortableTool(tool, { "a/b/c": "ok", a: { b: { c: "not-a-number" } } }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  const offending = errors.find((e) => e.message.includes("number"));
+  assert.ok(offending, "expected a wrong-type error mentioning number");
+  assert.equal(offending.field, "c", "field should disambiguate to nested leaf 'c'");
+  assert.ok(
+    !errors.some((e) => e.field === "a/b/c"),
+    "no error should resolve to 'a/b/c' — the slash-named sibling was valid",
+  );
 });
 
 test("validatePortableToolArgs: additionalProperties=false surfaces the offending key as field", async () => {
