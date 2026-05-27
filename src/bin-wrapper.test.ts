@@ -130,8 +130,7 @@ test("entry missing -> build succeeds -> pass-through", async () => {
   assert.equal(existsSync(fx.entryAbsPath), false);
 
   let spawnCalls = 0;
-  let spawnArgs: { command?: string; args?: readonly string[]; cwd?: unknown; shell?: unknown; timeout?: unknown } =
-    {};
+  let spawnArgs: { command?: string; args?: readonly string[]; cwd?: unknown; shell?: unknown; timeout?: unknown } = {};
 
   try {
     const deps: BinWrapperDeps = {

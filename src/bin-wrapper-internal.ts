@@ -90,16 +90,15 @@ export async function runBinWrapperWithDeps(options: BinWrapperOptions, deps: Bi
           `[${prefix}] Build timed out after ${timeoutMs}ms (signal ${build.signal}). ` +
             `Raise buildTimeoutMs or run \`npm run ${options.buildScript}\` manually.`,
         );
+        deps.exit(1);
       } else {
         console.error(
           `[${prefix}] Failed to build the local MCP server. Run \`npm run ${options.buildScript}\` and try again.`,
         );
+        // Propagate the build's non-zero status if present; fall back to 1
+        // when status===0 with missing entry or status===null without signal.
+        deps.exit(build.status !== null && build.status !== 0 ? build.status : 1);
       }
-      // Propagate the build's non-zero status if present (and not signal-killed,
-      // where status is null); fall back to 1 for any other failure shape
-      // (status===0 with missing entry, status===null without signal, etc.).
-      deps.exit(build.signal === null && build.status !== null && build.status !== 0 ? build.status : 1);
-      return;
     }
   }
 
