@@ -5,20 +5,23 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { type BinWrapperOptions, runBinWrapper } from "@feniix/bridgekit/bin-wrapper";
+// Surface check: the public API resolves through the package exports map.
+import { runBinWrapper } from "@feniix/bridgekit/bin-wrapper";
+import {
+  type BinWrapperDeps,
+  type BinWrapperOptions,
+  type BinWrapperSpawnSync,
+  defaultBinWrapperDeps,
+  runBinWrapperWithDeps,
+} from "./bin-wrapper-internal.js";
 
-type SpawnSeam = NonNullable<BinWrapperOptions["_spawnSync"]>;
+// Public smoke check — the package surface still exports a callable function.
+// The behavior tests below exercise runBinWrapperWithDeps directly so they can
+// inject deps without polluting the public BinWrapperOptions shape.
+test("public surface: runBinWrapper is a callable function", () => {
+  assert.equal(typeof runBinWrapper, "function");
+});
 
-/**
- * Build a temp "package" directory shaped like a real downstream consumer:
- *
- *   <root>/
- *     bin/<binName>.js   # the script that calls runBinWrapper(import.meta.url)
- *     dist/extensions/   # where the MCP entry lives (or doesn't)
- *
- * Returns the metaUrl the bin script would pass and helpers to manipulate
- * the entry file.
- */
 function makeFixture(): {
   metaUrl: string;
   packageRoot: string;
@@ -31,8 +34,6 @@ function makeFixture(): {
   const binDir = join(tmpRoot, "bin");
   mkdirSync(binDir, { recursive: true });
   const binFile = join(binDir, "fixture-bin.js");
-  // The bin script doesn't have to be real code on disk; we just need a valid
-  // file:// URL whose parent's parent is the package root.
   writeFileSync(binFile, "// fixture bin\n");
 
   const entryRelPath = "dist/extensions/mcp-server.js";
@@ -53,19 +54,10 @@ function makeFixture(): {
   };
 }
 
-/**
- * Build a fake `SpawnSyncReturns` with the fields the helper touches
- * (`status`). Other fields are zeroed.
- */
-function fakeSpawnResult(status: number | null): SpawnSyncReturns<Buffer> {
-  return { status, signal: null, output: [], pid: 0, stdout: Buffer.from(""), stderr: Buffer.from("") };
+function fakeSpawnResult(status: number | null, signal: NodeJS.Signals | null = null): SpawnSyncReturns<Buffer> {
+  return { status, signal, output: [], pid: 0, stdout: Buffer.from(""), stderr: Buffer.from("") };
 }
 
-/**
- * Sentinel thrown by the stubbed `_exit` so tests can assert the helper
- * tried to exit with a specific code without actually exiting the test
- * runner.
- */
 class ExitInvoked extends Error {
   constructor(public readonly code: number) {
     super(`process.exit(${code})`);
@@ -78,10 +70,17 @@ const exitStub = (): ((code: number) => never) => {
   };
 };
 
-// Each entry module written by the fixture is unique per test (path includes
-// the temp dir), so dynamic import caching across tests cannot leak state.
-// We coordinate "did runServer fire?" via a tmpfile flag rather than shared
-// module state so the assertions stay process-isolation-safe.
+function makeOptions(
+  fx: ReturnType<typeof makeFixture>,
+  overrides: Partial<BinWrapperOptions> = {},
+): BinWrapperOptions {
+  return {
+    metaUrl: fx.metaUrl,
+    mcpEntry: fx.entryRelPath,
+    buildScript: "build:mcp",
+    ...overrides,
+  };
+}
 
 test("entry exists -> pass-through; spawnSync is not called", async () => {
   const fx = makeFixture();
@@ -93,15 +92,14 @@ test("entry exists -> pass-through; spawnSync is not called", async () => {
 
   let spawnCalls = 0;
   try {
-    await runBinWrapper({
-      metaUrl: fx.metaUrl,
-      mcpEntry: fx.entryRelPath,
-      buildScript: "build:mcp",
-      _spawnSync: ((): SpawnSyncReturns<Buffer> => {
+    const deps: BinWrapperDeps = {
+      spawnSync: (() => {
         spawnCalls += 1;
         return fakeSpawnResult(0);
-      }) satisfies SpawnSeam,
-    });
+      }) satisfies BinWrapperSpawnSync,
+      exit: defaultBinWrapperDeps.exit,
+    };
+    await runBinWrapperWithDeps(makeOptions(fx), deps);
 
     assert.equal(spawnCalls, 0, "spawnSync must not run when the entry exists");
     assert.equal(existsSync(flagFile), true, "runServer must have been invoked");
@@ -117,34 +115,33 @@ test("entry missing -> build succeeds -> pass-through", async () => {
     `import { writeFileSync } from "node:fs";\n` +
     `export async function runServer() { writeFileSync(${JSON.stringify(flagFile)}, "ok"); }\n`;
 
-  // Pre-condition: entry does NOT exist yet.
   assert.equal(existsSync(fx.entryAbsPath), false);
 
   let spawnCalls = 0;
-  let spawnArgs: { command?: string; args?: readonly string[]; cwd?: unknown } = {};
+  let spawnArgs: { command?: string; args?: readonly string[]; cwd?: unknown; shell?: unknown } = {};
 
   try {
-    await runBinWrapper({
-      metaUrl: fx.metaUrl,
-      mcpEntry: fx.entryRelPath,
-      buildScript: "build:mcp",
-      _spawnSync: (command, args, options) => {
+    const deps: BinWrapperDeps = {
+      spawnSync: (command, args, options) => {
         spawnCalls += 1;
         spawnArgs = {
-          command: command as string,
-          args: args as readonly string[],
-          cwd: (options as { cwd?: unknown })?.cwd,
+          command,
+          args,
+          cwd: options.cwd,
+          shell: options.shell,
         };
-        // Simulate `npm run build:mcp` materialising the entry.
         fx.writeEntry(entrySource);
         return fakeSpawnResult(0);
       },
-    });
+      exit: defaultBinWrapperDeps.exit,
+    };
+    await runBinWrapperWithDeps(makeOptions(fx), deps);
 
     assert.equal(spawnCalls, 1);
     assert.equal(spawnArgs.command, "npm");
     assert.deepEqual(spawnArgs.args, ["run", "build:mcp", "--silent"]);
     assert.equal(spawnArgs.cwd, resolve(dirname(fileURLToPath(fx.metaUrl)), ".."));
+    assert.equal(spawnArgs.shell, process.platform === "win32");
     assert.equal(existsSync(flagFile), true);
   } finally {
     fx.cleanup();
@@ -162,13 +159,11 @@ test("entry missing -> build fails non-zero -> exits with build status; logs the
   try {
     let thrown: unknown;
     try {
-      await runBinWrapper({
-        metaUrl: fx.metaUrl,
-        mcpEntry: fx.entryRelPath,
-        buildScript: "build:mcp",
-        _spawnSync: () => fakeSpawnResult(2),
-        _exit: exitStub(),
-      });
+      const deps: BinWrapperDeps = {
+        spawnSync: () => fakeSpawnResult(2),
+        exit: exitStub(),
+      };
+      await runBinWrapperWithDeps(makeOptions(fx), deps);
     } catch (error) {
       thrown = error;
     }
@@ -195,14 +190,11 @@ test("entry missing -> build exits 0 but entry still missing -> exits with code 
   try {
     let thrown: unknown;
     try {
-      await runBinWrapper({
-        metaUrl: fx.metaUrl,
-        mcpEntry: fx.entryRelPath,
-        buildScript: "build:mcp",
-        // Build reports success but doesn't actually produce the entry.
-        _spawnSync: () => fakeSpawnResult(0),
-        _exit: exitStub(),
-      });
+      const deps: BinWrapperDeps = {
+        spawnSync: () => fakeSpawnResult(0),
+        exit: exitStub(),
+      };
+      await runBinWrapperWithDeps(makeOptions(fx), deps);
     } catch (error) {
       thrown = error;
     }
@@ -222,20 +214,13 @@ test("entry exists but doesn't export runServer -> throws documented error", asy
   fx.writeEntry(`export const notRunServer = 1;\n`);
 
   try {
-    await assert.rejects(
-      runBinWrapper({
-        metaUrl: fx.metaUrl,
-        mcpEntry: fx.entryRelPath,
-        buildScript: "build:mcp",
-      }),
-      (error: unknown) => {
-        assert.ok(error instanceof Error);
-        assert.match(error.message, /\[bridgekit\/bin-wrapper\] entry/);
-        assert.match(error.message, /does not export a runServer\(\) function/);
-        assert.match(error.message, /export async function runServer\(\)/);
-        return true;
-      },
-    );
+    await assert.rejects(runBinWrapperWithDeps(makeOptions(fx), defaultBinWrapperDeps), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /\[bridgekit\/bin-wrapper\] entry/);
+      assert.match(error.message, /does not export a runServer\(\) function/);
+      assert.match(error.message, /export async function runServer\(\)/);
+      return true;
+    });
   } finally {
     fx.cleanup();
   }

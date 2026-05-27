@@ -71,13 +71,15 @@ async function assertUnsupportedDeepImportFails(installDir) {
     for (const specifier of [
       "@feniix/bridgekit/dist/src/index.js",
       "@feniix/bridgekit/dist/src/bin-wrapper.js",
+      "@feniix/bridgekit/bin-wrapper-internal",
+      "@feniix/bridgekit/dist/src/bin-wrapper-internal.js",
     ]) {
       try {
         await import(specifier);
         throw new Error("deep import unexpectedly succeeded: " + specifier);
       } catch (error) {
         if (error?.message?.startsWith?.("deep import unexpectedly succeeded")) throw error;
-        if (error?.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED") throw error;
+        if (error?.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED" && error?.code !== "ERR_MODULE_NOT_FOUND") throw error;
       }
     }
   `;
@@ -123,6 +125,18 @@ async function assertTypesCompile(installDir) {
       };
       void _binWrapperOpts;
       void runBinWrapper;
+
+      // Regression pin: the internal test-injection seams must never leak
+      // into the published BinWrapperOptions type. If a future refactor
+      // re-exposes _spawnSync / _existsSync / _exit, these @ts-expect-error
+      // directives become unused and TypeScript errors here.
+      // @ts-expect-error _spawnSync is not part of BinWrapperOptions.
+      const _bad1: BinWrapperOptions = { metaUrl: "file:///x", mcpEntry: "y", buildScript: "z", _spawnSync: () => undefined as never };
+      // @ts-expect-error _existsSync is not part of BinWrapperOptions.
+      const _bad2: BinWrapperOptions = { metaUrl: "file:///x", mcpEntry: "y", buildScript: "z", _existsSync: () => true };
+      // @ts-expect-error _exit is not part of BinWrapperOptions.
+      const _bad3: BinWrapperOptions = { metaUrl: "file:///x", mcpEntry: "y", buildScript: "z", _exit: () => { throw new Error("x"); } };
+      void _bad1; void _bad2; void _bad3;
 
       const parameters = Type.Object({ text: Type.String() });
       type Parameters = Static<typeof parameters>;
