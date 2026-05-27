@@ -80,7 +80,6 @@ import {
   type PortableTool,
   type PortableToolBuiltInHost,
   type PortableToolContext,
-  type PortableToolHost,
   type PortableToolResult,
   type PortableValidationError,
 } from "@feniix/bridgekit";
@@ -231,41 +230,6 @@ Tool `parameters` must resolve to a JSON-Schema object at the top level. `Type.O
 Portable validation failures and portable `isError: true` results return `CallToolResult` with `isError: true`. `structuredContent` is preserved; `details` is used only as a fallback when `structuredContent` is absent. Exporting a server-options factory keeps MCP entrypoints import-passive and easy to test without starting stdio.
 
 The two adapters now read in parallel: invalid args and portable `isError` results return `{ isError: true }` from both hosts by default, and the same result-guard helpers (`isValidationFailure`, `isDomainFailure`) narrow them on either side.
-
-### Custom host typing
-
-Default portable tools accept the built-in host union:
-
-```ts
-type BuiltIn = "pi" | "mcp" | "test";
-```
-
-Custom adapters opt in explicitly:
-
-```ts
-import { Type } from "typebox";
-import { definePortableTool, type PortableToolHost } from "@feniix/bridgekit";
-
-const params = Type.Object({ text: Type.String() });
-
-type CustomHost = "custom-runtime";
-
-export const customTool = definePortableTool<typeof params, CustomHost>({
-  name: "custom_echo",
-  title: "Custom Echo",
-  description: "Echoes text in a custom runtime.",
-  parameters: params,
-  execute(args, ctx) {
-    const host: CustomHost = ctx.host;
-    return { text: `${host}: ${args.text}` };
-  },
-});
-
-const hostValue: PortableToolHost<CustomHost> = "custom-runtime";
-void hostValue;
-```
-
-Use `PortableToolHost<CustomHost>` for values that may be either a built-in host or your extension. Use the `PortableTool`/`PortableToolContext` generic when a tool or adapter is custom-host-only.
 
 ## Best practices
 

@@ -283,53 +283,7 @@ MCP behavior:
 
 ---
 
-## 4. Use custom host typing for custom adapters
-
-Default portable tools accept only built-in hosts: `"pi" | "mcp" | "test"`.
-
-If you are writing a custom adapter, opt in explicitly so the handler can safely narrow `ctx.host`:
-
-```ts
-import { Type } from "typebox";
-import {
-  definePortableTool,
-  executePortableTool,
-  type PortableTool,
-  type PortableToolContext,
-  type PortableToolHost,
-} from "@feniix/bridgekit";
-
-const params = Type.Object({ text: Type.String() });
-
-type CustomHost = "custom-runtime";
-type CustomTool = PortableTool<typeof params, CustomHost>;
-
-const customTool = definePortableTool<typeof params, CustomHost>({
-  name: "custom_echo",
-  title: "Custom Echo",
-  description: "Echoes text in a custom runtime.",
-  parameters: params,
-  execute(args, ctx) {
-    const host: CustomHost = ctx.host;
-    return { text: `${host}: ${args.text}` };
-  },
-});
-
-async function runCustomTool(tool: CustomTool, text: string) {
-  const ctx: PortableToolContext<CustomHost> = { host: "custom-runtime" };
-  return executePortableTool(tool, { text }, ctx);
-}
-
-const hostValue: PortableToolHost<CustomHost> = "custom-runtime";
-void hostValue;
-void customTool;
-```
-
-Use `PortableToolHost<CustomHost>` for values that can be either a built-in host or your custom extension. Use `PortableToolContext<CustomHost>` or `PortableTool<Schema, CustomHost>` when a tool is custom-host-only.
-
----
-
-## 5. Per-host metadata via `hostExtras`
+## 4. Per-host metadata via `hostExtras`
 
 When a tool needs host-specific metadata — pi's `pendingMessage` for a "Processing..." signal, MCP's annotations as advisory hints to clients — the canonical place is `PortableTool.hostExtras`. Each host has its own namespace; adapters read the keys they recognise and ignore the rest. Tools that omit `hostExtras` see no behavior change.
 
@@ -446,7 +400,7 @@ per-consumer migration deltas.
 
 ---
 
-## 6. Package checklist
+## 5. Package checklist
 
 For publishable tool packages:
 
