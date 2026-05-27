@@ -4,7 +4,7 @@
 // fails with ERR_PACKAGE_PATH_NOT_EXPORTED (pinned by scripts/smoke-package.mjs
 // under inv-deep-imports-fail).
 
-import { spawnSync as defaultSpawnSync, type SpawnSyncOptions, type SpawnSyncReturns } from "node:child_process";
+import { type SpawnSyncOptions, type SpawnSyncReturns, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -59,7 +59,7 @@ const DEFAULT_BUILD_TIMEOUT_MS = 60_000;
 const DEFAULT_LOG_PREFIX = "bridgekit-bin";
 
 export const defaultBinWrapperDeps: BinWrapperDeps = {
-  spawnSync: defaultSpawnSync as BinWrapperSpawnSync,
+  spawnSync,
   exit: process.exit,
 };
 
