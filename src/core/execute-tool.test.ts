@@ -531,6 +531,42 @@ test("validatePortableToolArgs: slash in property name inside Type.Intersect res
   assert.match(offending.message, /must be string/);
 });
 
+test("validatePortableToolArgs: disambiguates slash-named property from nested-object path via schemaPath", async () => {
+  // Issue #43: schema with BOTH a slash-named property AND a nested path
+  // that produce the same instancePath ("/a/b"). Pre-0.9.2, the greedy
+  // instancePath walker returned "a/b" for both cases, producing an
+  // internally inconsistent error (e.g. '"a/b" must be number' when "a/b"
+  // was declared as Type.String() — the wrong-type was actually at a.b).
+  // The schemaPath-based walker disambiguates because the two cases have
+  // structurally distinct paths: #/properties/a/b vs
+  // #/properties/a/properties/b.
+  const tool = definePortableTool({
+    name: "ambiguous_prefix",
+    title: "Ambiguous Prefix",
+    description: "Overlapping-prefix schema for #43 regression.",
+    parameters: Type.Object({
+      "a/b": Type.String(),
+      a: Type.Object({ b: Type.Number() }),
+    }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  // Wrong-type at nested a.b; the slash-named "a/b" is valid.
+  const result = await executePortableTool(tool, { "a/b": "ok", a: { b: "not-a-number" } }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  // The wrong-type should resolve to field "b" (the nested property), not
+  // "a/b" (the slash-named sibling).
+  const offending = errors.find((e) => e.message.includes("number"));
+  assert.ok(offending, "expected a wrong-type error mentioning number");
+  assert.equal(offending.field, "b", "field should disambiguate to nested 'b', not slash-named 'a/b'");
+  assert.ok(
+    !errors.some((e) => e.field === "a/b"),
+    "no error should resolve to 'a/b' since the slash-named property was valid",
+  );
+});
+
 test("validatePortableToolArgs: comma in property name survives intact (structured access, not message parsing)", async () => {
   // The previous regex-based approach would split "must have required
   // properties a,b" into ["a", "b"]. Structured access reads
