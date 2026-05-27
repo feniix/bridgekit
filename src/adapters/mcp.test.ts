@@ -4,7 +4,7 @@ import { definePortableTool, type PortableToolHostExtras } from "@feniix/bridgek
 import * as mcp from "@feniix/bridgekit/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { Type } from "typebox";
+import { type TObject, Type } from "typebox";
 import { signalFromExtra } from "./mcp-signal.js";
 
 // Pull from the namespace import so `surface.registerMcpTools === undefined`
@@ -188,6 +188,54 @@ test("createMcpServer rejects bare Type.Ref top-level schemas via the same $ref 
       assert.match(error.message, /^createMcpServer: tool "bare_ref_tool"/);
       assert.match(error.message, /type="\$ref"/);
       assert.equal((error as Error & { code?: string }).code, "BRIDGEKIT_MCP_REF_PARAMETERS");
+      return true;
+    },
+  );
+});
+
+// Issue #51: hand-crafted hybrid `{ type: "object", $ref: "Name", ... }` schema
+// must be rejected via the $ref branch, not the type-object early-return in
+// isObjectSchema. TypeBox does not produce this shape today; the regression
+// guards against any future schema producer (including direct JSON Schema
+// authors) emitting the hybrid and bypassing the $ref-specific recipe added
+// in 0.9.3. The `as unknown as TObject` cast is intentional — the test
+// constructs raw JSON Schema rather than going through `Type.*`, since the
+// whole point is to exercise the bypass class TypeBox itself does not emit.
+test('createMcpServer rejects hybrid {$ref, type: "object"} schemas via the $ref branch', () => {
+  const hybridSchema = {
+    type: "object",
+    $ref: "Node",
+    $defs: { Node: { type: "object", properties: { value: { type: "string" } } } },
+    properties: { value: { type: "string" } },
+  };
+
+  const tool = definePortableTool({
+    name: "hybrid_tool",
+    title: "Hybrid Tool",
+    description: "Hand-crafted {type: object, $ref: ...} hybrid; must be rejected via $ref branch.",
+    parameters: hybridSchema as unknown as TObject,
+    execute: () => ({ text: "ok" }),
+  });
+
+  assert.throws(
+    () => createMcpServer({ name: "bad-server", version: "0.1.0", tools: [tool] }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /^createMcpServer: tool "hybrid_tool"/);
+      assert.match(error.message, /type="\$ref"/);
+      // Load-bearing: must be the $ref branch's code, NOT the generic
+      // non-object branch's code. Without this, the test would pass if the
+      // hybrid fell into the wrong branch.
+      assert.equal((error as Error & { code?: string }).code, "BRIDGEKIT_MCP_REF_PARAMETERS");
+      // Load-bearing negative: the generic branch's exact example string
+      // (`Type.Object({ value: Type.String() })`) must NOT appear. Mirrors
+      // the Type.Cyclic test's negative assertion — pinning on the literal
+      // generic example avoids collision with the $ref recipe's own
+      // "wrap the target shape directly with Type.Object(...)" phrasing.
+      assert.ok(
+        !/Type\.Object\(\{ value: Type\.String\(\) \}\)/.test(error.message),
+        "must not emit the generic Type.Object wrap recipe for hybrid $ref+type schemas",
+      );
       return true;
     },
   );

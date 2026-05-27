@@ -53,7 +53,12 @@ function toMcpResult(result: PortableToolResult): CallToolResult {
  */
 function isObjectSchema(schema: unknown): boolean {
   if (typeof schema !== "object" || schema === null) return false;
-  const candidate = schema as { type?: unknown; allOf?: unknown };
+  const candidate = schema as { $ref?: unknown; type?: unknown; allOf?: unknown };
+  // $ref takes structural precedence: a hybrid {type: "object", $ref: "..."}
+  // is not an inlined object schema — it's a reference, and
+  // assertObjectShapedParameters owns the rejection recipe. Return false so
+  // the $ref branch runs.
+  if (typeof candidate.$ref === "string") return false;
   if (candidate.type === "object") return true;
   if (Array.isArray(candidate.allOf) && candidate.allOf.length > 0) {
     return candidate.allOf.every((entry) => isObjectSchema(entry));
