@@ -531,6 +531,39 @@ test("validatePortableToolArgs: slash in property name inside Type.Intersect res
   assert.match(offending.message, /must be string/);
 });
 
+test("validatePortableToolArgs: slash-named property holding a Type.Union preserves the slash-name through anyOf branch errors", async () => {
+  // Issue #43 follow-up: the schemaPath-based walker introduced in 0.9.2
+  // missed anyOf/oneOf descent. For Type.Object({"a/b": Type.Union(...)}),
+  // TypeBox emits per-branch errors with schemaPath ending in /anyOf/<i>/...
+  // Without an anyOf handler, the walker would match "a/b" at /properties/,
+  // then bail on /anyOf/, return undefined, and the fallback would strip
+  // the prefix to "b". The carry-through fix preserves "a/b" through the
+  // branch descent — same semantic as the 0.9.0 allOf descent.
+  const tool = definePortableTool({
+    name: "slash_with_union",
+    title: "Slash With Union",
+    description: "Slash-named property holding a Type.Union value.",
+    parameters: Type.Object({
+      "a/b": Type.Union([Type.Number(), Type.String()]),
+    }),
+    execute: () => ({ text: "ok" }),
+  });
+  // Boolean satisfies neither branch of the Union.
+  const result = await executePortableTool(tool, { "a/b": true }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  // The error(s) should carry the slash-named field, not the fallback "b".
+  // Load-bearing negative — without the carry-through, field would be "b".
+  assert.ok(
+    !errors.some((e) => e.field === "b"),
+    "no error should resolve to 'b' — the slash-name must carry through anyOf",
+  );
+  assert.ok(
+    errors.some((e) => e.field === "a/b"),
+    "at least one error should resolve to 'a/b'",
+  );
+});
+
 test("validatePortableToolArgs: disambiguates slash-named property from nested-object path via schemaPath", async () => {
   // Issue #43: schema with BOTH a slash-named property AND a nested path
   // that produce the same instancePath ("/a/b"). Pre-0.9.2, the greedy
