@@ -255,6 +255,7 @@ Options:
 - `buildScript` (required): npm script to invoke when the entry is missing (e.g. `"build:mcp"`).
 - `buildTimeoutMs` (optional, default `60_000`): timeout for the build subprocess. Distinct "Build timed out…" diagnostic fires when exceeded.
 - `logPrefix` (optional, default `"bridgekit-bin"`): prefix on the "Failed to build…" diagnostic.
+- `buildStdio` (optional, default `"inherit"`): `stdio` mode passed to `spawnSync` when the build script runs. **MCP stdio server bins should pass `["ignore", "inherit", "inherit"]`** so the build subprocess's stdout cannot contaminate the parent's JSON-RPC framing channel (`process.stdout`). stderr stays inherited so build diagnostics remain visible.
 
 The MCP entry module must export `async function runServer(): Promise<void>`. Consumers with a different export name can alias on export.
 
