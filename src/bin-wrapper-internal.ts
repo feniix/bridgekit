@@ -73,7 +73,11 @@ export async function runBinWrapperWithDeps(options: BinWrapperOptions, deps: Bi
       timeout: options.buildTimeoutMs ?? 60_000,
     });
 
-    if (build.status !== 0 || !existsSync(entryPath)) {
+    // File presence is the load-bearing signal: a build that exits non-zero
+    // *after* emitting the entry (e.g. tsc with a post-emit diagnostic, or a
+    // build pipeline whose final step is non-fatal lint/test) is still
+    // recoverable. Only bail if the artifact we need is actually missing.
+    if (!existsSync(entryPath)) {
       const prefix = options.logPrefix ?? "bridgekit-bin";
       console.error(
         `[${prefix}] Failed to build the local MCP server. Run \`npm run ${options.buildScript}\` and try again.`,

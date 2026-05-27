@@ -179,6 +179,31 @@ test("entry missing -> build fails non-zero -> exits with build status; logs the
   }
 });
 
+test("entry missing -> build exits non-zero but artifact produced -> pass-through (recovery)", async () => {
+  const fx = makeFixture();
+  const flagFile = join(fx.packageRoot, "ran.flag");
+  const entrySource =
+    `import { writeFileSync } from "node:fs";\n` +
+    `export async function runServer() { writeFileSync(${JSON.stringify(flagFile)}, "ok"); }\n`;
+
+  try {
+    const deps: BinWrapperDeps = {
+      spawnSync: () => {
+        // Simulate a build that emitted the entry but exited non-zero
+        // (e.g. tsc emitted .js then reported a post-emit diagnostic).
+        fx.writeEntry(entrySource);
+        return fakeSpawnResult(2);
+      },
+      exit: exitStub(),
+    };
+    await runBinWrapperWithDeps(makeOptions(fx), deps);
+
+    assert.equal(existsSync(flagFile), true, "runServer must run when the entry was produced");
+  } finally {
+    fx.cleanup();
+  }
+});
+
 test("entry missing -> build exits 0 but entry still missing -> exits with code 1", async () => {
   const fx = makeFixture();
   const captured: string[] = [];
