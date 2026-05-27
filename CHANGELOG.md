@@ -4,6 +4,40 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-05-27
+
+### Added
+
+- New `buildStdio` option on `BinWrapperOptions`
+  (`@feniix/bridgekit/bin-wrapper`). Default `"inherit"` preserves
+  existing behavior. **MCP stdio server bins should pass
+  `["ignore", "inherit", "inherit"]`** — the build subprocess's stdout
+  otherwise contaminates the parent's JSON-RPC framing on its own
+  stdout. The default-`"inherit"` behavior was a latent risk for the
+  two current consumers that adopted `runBinWrapper` (works today only
+  because `npm run <script> --silent` happens to be quiet under tsc) and
+  an active blocker for `pi-exa`, which could not migrate from its
+  hand-rolled wrapper. Resolves
+  [#59](https://github.com/feniix/bridgekit/issues/59).
+
+### Changed
+
+- `PiToolDefinition.promptGuidelines` (the internal tool-shape declared
+  in `src/adapters/pi.ts` and exposed via
+  `PiToolRegistration["registerTool"]`'s parameter) widened from
+  `readonly string[]` to `string[]` to close a contravariance gap with
+  pi-coding-agent's `ExtensionAPI`. The runtime contract is unchanged —
+  `registerPiTools` has spread-copied the source array into a fresh
+  `string[]` before handing it to `pi.registerTool` since 0.9.1
+  (PR #48); only the type declaration catches up to reality. Consumers
+  (`pi-exa`, `pi-code-reasoning`, `pi-sequential-thinking`) can drop
+  the `pi as unknown as PiToolRegistration` cast at their
+  `registerPiTools` call sites.
+  `PortableTool.hostExtras.pi.promptGuidelines` (the consumer-facing
+  metadata type) stays `readonly string[]` — that's the right contract
+  for immutable consumer-owned data that bridgekit reads. Resolves
+  [#60](https://github.com/feniix/bridgekit/issues/60).
+
 ## [0.12.0] - 2026-05-27
 
 ### Documentation
