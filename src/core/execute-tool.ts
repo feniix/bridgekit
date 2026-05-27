@@ -3,7 +3,6 @@ import type { TLocalizedValidationError } from "typebox/error";
 import { Check, Errors, Pointer } from "typebox/value";
 import type {
   PortableTool,
-  PortableToolBuiltInHost,
   PortableToolContext,
   PortableToolResult,
   PortableValidationError,
@@ -435,8 +434,8 @@ function expandTypeBoxError(schema: TSchema, error: TLocalizedValidationError): 
   return [{ field: fieldFromError(schema, error), message: error.message }];
 }
 
-export function validatePortableToolArgs<THost extends string = PortableToolBuiltInHost>(
-  tool: PortableTool<TSchema, THost>,
+export function validatePortableToolArgs(
+  tool: PortableTool<TSchema>,
   args: unknown,
 ): { ok: true } | { ok: false; errors: PortableValidationError[] } {
   if (Check(tool.parameters, args)) {
@@ -466,10 +465,10 @@ export function validatePortableToolArgs<THost extends string = PortableToolBuil
   return { ok: false, errors };
 }
 
-export async function executePortableTool<THost extends string = PortableToolBuiltInHost>(
-  tool: PortableTool<TSchema, THost>,
+export async function executePortableTool(
+  tool: PortableTool<TSchema>,
   args: unknown,
-  ctx: PortableToolContext<NoInfer<THost>>,
+  ctx: PortableToolContext,
 ): Promise<PortableToolResult> {
   const validation = validatePortableToolArgs(tool, args);
   if (!validation.ok) {
