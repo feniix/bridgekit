@@ -37,6 +37,10 @@
       "types": "./dist/src/mcp.d.ts",
       "import": "./dist/src/mcp.js"
     },
+    "./bin-wrapper": {
+      "types": "./dist/src/bin-wrapper.d.ts",
+      "import": "./dist/src/bin-wrapper.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
