@@ -64,11 +64,23 @@ class ExitInvoked extends Error {
   }
 }
 
-const exitStub = (): ((code: number) => never) => {
-  return (code: number) => {
-    throw new ExitInvoked(code);
-  };
+const exitStub: (code: number) => never = (code) => {
+  throw new ExitInvoked(code);
 };
+
+function captureConsoleError(): { captured: string[]; restore: () => void } {
+  const captured: string[] = [];
+  const original = console.error;
+  console.error = (message: unknown) => {
+    captured.push(String(message));
+  };
+  return {
+    captured,
+    restore: () => {
+      console.error = original;
+    },
+  };
+}
 
 function makeOptions(
   fx: ReturnType<typeof makeFixture>,
@@ -150,18 +162,14 @@ test("entry missing -> build succeeds -> pass-through", async () => {
 
 test("entry missing -> build fails non-zero -> exits with build status; logs the diagnostic", async () => {
   const fx = makeFixture();
-  const captured: string[] = [];
-  const originalConsoleError = console.error;
-  console.error = (message: unknown) => {
-    captured.push(String(message));
-  };
+  const { captured, restore } = captureConsoleError();
 
   try {
     let thrown: unknown;
     try {
       const deps: BinWrapperDeps = {
         spawnSync: () => fakeSpawnResult(2),
-        exit: exitStub(),
+        exit: exitStub,
       };
       await runBinWrapperWithDeps(makeOptions(fx), deps);
     } catch (error) {
@@ -174,7 +182,7 @@ test("entry missing -> build fails non-zero -> exits with build status; logs the
     assert.match(captured[0] ?? "", /\[bridgekit-bin\] Failed to build the local MCP server/);
     assert.match(captured[0] ?? "", /npm run build:mcp/);
   } finally {
-    console.error = originalConsoleError;
+    restore();
     fx.cleanup();
   }
 });
@@ -194,7 +202,7 @@ test("entry missing -> build exits non-zero but artifact produced -> pass-throug
         fx.writeEntry(entrySource);
         return fakeSpawnResult(2);
       },
-      exit: exitStub(),
+      exit: exitStub,
     };
     await runBinWrapperWithDeps(makeOptions(fx), deps);
 
@@ -206,18 +214,14 @@ test("entry missing -> build exits non-zero but artifact produced -> pass-throug
 
 test("entry missing -> build exits 0 but entry still missing -> exits with code 1", async () => {
   const fx = makeFixture();
-  const captured: string[] = [];
-  const originalConsoleError = console.error;
-  console.error = (message: unknown) => {
-    captured.push(String(message));
-  };
+  const { captured, restore } = captureConsoleError();
 
   try {
     let thrown: unknown;
     try {
       const deps: BinWrapperDeps = {
         spawnSync: () => fakeSpawnResult(0),
-        exit: exitStub(),
+        exit: exitStub,
       };
       await runBinWrapperWithDeps(makeOptions(fx), deps);
     } catch (error) {
@@ -229,18 +233,14 @@ test("entry missing -> build exits 0 but entry still missing -> exits with code 
     assert.equal(captured.length, 1);
     assert.match(captured[0] ?? "", /Failed to build the local MCP server/);
   } finally {
-    console.error = originalConsoleError;
+    restore();
     fx.cleanup();
   }
 });
 
 test("entry missing -> build killed by timeout -> exits with code 1; diagnostic names the timeout", async () => {
   const fx = makeFixture();
-  const captured: string[] = [];
-  const originalConsoleError = console.error;
-  console.error = (message: unknown) => {
-    captured.push(String(message));
-  };
+  const { captured, restore } = captureConsoleError();
 
   try {
     let thrown: unknown;
@@ -248,7 +248,7 @@ test("entry missing -> build killed by timeout -> exits with code 1; diagnostic 
       const deps: BinWrapperDeps = {
         // spawnSync timeout: status null, signal SIGTERM.
         spawnSync: () => fakeSpawnResult(null, "SIGTERM"),
-        exit: exitStub(),
+        exit: exitStub,
       };
       await runBinWrapperWithDeps(makeOptions(fx, { buildTimeoutMs: 250 }), deps);
     } catch (error) {
@@ -263,7 +263,7 @@ test("entry missing -> build killed by timeout -> exits with code 1; diagnostic 
     assert.match(captured[0] ?? "", /Raise buildTimeoutMs/);
     assert.doesNotMatch(captured[0] ?? "", /Failed to build the local MCP server/);
   } finally {
-    console.error = originalConsoleError;
+    restore();
     fx.cleanup();
   }
 });

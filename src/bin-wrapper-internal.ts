@@ -1,7 +1,8 @@
-// Internal implementation of bin-wrapper. Not part of the public package
-// exports map: deep-importing this module via the package name fails with
-// ERR_PACKAGE_PATH_NOT_EXPORTED (pinned by scripts/smoke-package.mjs).
-// Excluded from the published tarball via package.json#files.
+// Internal implementation of bin-wrapper. Ships in the published tarball
+// (the public `bin-wrapper.js` imports from it at runtime) but is not
+// reachable via package.json#exports — deep-importing this module by name
+// fails with ERR_PACKAGE_PATH_NOT_EXPORTED (pinned by scripts/smoke-package.mjs
+// under inv-deep-imports-fail).
 
 import { spawnSync as defaultSpawnSync, type SpawnSyncOptions, type SpawnSyncReturns } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -45,9 +46,7 @@ export interface BinWrapperOptions {
    * @example "build:mcp"
    */
   buildScript: string;
-  /** Build timeout in milliseconds. Default: 60_000. */
   buildTimeoutMs?: number;
-  /** Logger prefix for the "build failed" diagnostic. Default: "bridgekit-bin". */
   logPrefix?: string;
 }
 
@@ -56,9 +55,12 @@ export interface BinWrapperDeps {
   exit: (code: number) => never;
 }
 
+const DEFAULT_BUILD_TIMEOUT_MS = 60_000;
+const DEFAULT_LOG_PREFIX = "bridgekit-bin";
+
 export const defaultBinWrapperDeps: BinWrapperDeps = {
   spawnSync: defaultSpawnSync as BinWrapperSpawnSync,
-  exit: (code: number) => process.exit(code),
+  exit: process.exit,
 };
 
 export async function runBinWrapperWithDeps(options: BinWrapperOptions, deps: BinWrapperDeps): Promise<void> {
@@ -66,11 +68,12 @@ export async function runBinWrapperWithDeps(options: BinWrapperOptions, deps: Bi
   const entryPath = join(packageRoot, options.mcpEntry);
 
   if (!existsSync(entryPath)) {
+    const timeoutMs = options.buildTimeoutMs ?? DEFAULT_BUILD_TIMEOUT_MS;
     const build = deps.spawnSync("npm", ["run", options.buildScript, "--silent"], {
       cwd: packageRoot,
       stdio: "inherit",
       shell: process.platform === "win32",
-      timeout: options.buildTimeoutMs ?? 60_000,
+      timeout: timeoutMs,
     });
 
     // File presence is the load-bearing signal: a build that exits non-zero
@@ -78,12 +81,11 @@ export async function runBinWrapperWithDeps(options: BinWrapperOptions, deps: Bi
     // build pipeline whose final step is non-fatal lint/test) is still
     // recoverable. Only bail if the artifact we need is actually missing.
     if (!existsSync(entryPath)) {
-      const prefix = options.logPrefix ?? "bridgekit-bin";
+      const prefix = options.logPrefix ?? DEFAULT_LOG_PREFIX;
       // A child killed by the timeout returns status: null + signal set.
       // Distinguish that from a build error so the operator sees the actual
       // cause and knows about buildTimeoutMs.
       if (build.signal !== null) {
-        const timeoutMs = options.buildTimeoutMs ?? 60_000;
         console.error(
           `[${prefix}] Build timed out after ${timeoutMs}ms (signal ${build.signal}). ` +
             `Raise buildTimeoutMs or run \`npm run ${options.buildScript}\` manually.`,
@@ -93,7 +95,10 @@ export async function runBinWrapperWithDeps(options: BinWrapperOptions, deps: Bi
           `[${prefix}] Failed to build the local MCP server. Run \`npm run ${options.buildScript}\` and try again.`,
         );
       }
-      deps.exit(build.status && build.status !== 0 ? build.status : 1);
+      // Propagate the build's non-zero status if present (and not signal-killed,
+      // where status is null); fall back to 1 for any other failure shape
+      // (status===0 with missing entry, status===null without signal, etc.).
+      deps.exit(build.signal === null && build.status !== null && build.status !== 0 ? build.status : 1);
       return;
     }
   }
