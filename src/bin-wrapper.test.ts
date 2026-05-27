@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import type { SpawnSyncReturns } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 // Surface check: the public API resolves through the package exports map.
 import { runBinWrapper } from "@feniix/bridgekit/bin-wrapper";
 import {
@@ -152,7 +152,7 @@ test("entry missing -> build succeeds -> pass-through", async () => {
     assert.equal(spawnCalls, 1);
     assert.equal(spawnArgs.command, "npm");
     assert.deepEqual(spawnArgs.args, ["run", "build:mcp", "--silent"]);
-    assert.equal(spawnArgs.cwd, resolve(dirname(fileURLToPath(fx.metaUrl)), ".."));
+    assert.equal(spawnArgs.cwd, fx.packageRoot);
     assert.equal(spawnArgs.shell, process.platform === "win32");
     assert.equal(existsSync(flagFile), true);
   } finally {
