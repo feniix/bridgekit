@@ -163,8 +163,6 @@ export interface PortableTool<TParams extends TSchema = TSchema> {
   hostExtras?: PortableToolHostExtras;
 }
 
-export function definePortableTool<TParams extends TSchema>(
-  tool: PortableTool<TParams>,
-): PortableTool<TParams> {
+export function definePortableTool<TParams extends TSchema>(tool: PortableTool<TParams>): PortableTool<TParams> {
   return tool;
 }

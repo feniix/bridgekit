@@ -1,12 +1,7 @@
 import type { TSchema } from "typebox";
 import type { TLocalizedValidationError } from "typebox/error";
 import { Check, Errors, Pointer } from "typebox/value";
-import type {
-  PortableTool,
-  PortableToolContext,
-  PortableToolResult,
-  PortableValidationError,
-} from "./define-tool.js";
+import type { PortableTool, PortableToolContext, PortableToolResult, PortableValidationError } from "./define-tool.js";
 
 const ROOT_FIELD = "(root)";
 
