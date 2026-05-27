@@ -26,7 +26,7 @@ import { runBinWrapper } from "@feniix/bridgekit/bin-wrapper"; // optional: buil
 - Root entrypoint: host-neutral tool definitions, validation, and execution helpers.
 - `/pi`: pi adapter only.
 - `/mcp`: MCP server adapter only.
-- `/bin-wrapper`: optional helper for npm `bin` scripts that build a local compiled MCP entry on first invocation.
+- `/bin-wrapper`: optional helper for npm `bin` scripts that build a local compiled MCP entry on first invocation. `mcpEntry` and `buildScript` must be literal strings in the caller's source (they're the dynamic-import target and the `spawnSync` arg; sourcing them from env or CLI is an arbitrary-file-import and Windows command-injection vector).
 
 Do not deep-import from `dist/` or `src/` in consumer code. Reading published declarations for documentation is fine; imports should use the package entrypoints above.
 

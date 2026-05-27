@@ -256,6 +256,8 @@ await runBinWrapper({
 
 `mcpEntry` and `buildScript` are the two options consumers typically vary. The MCP entry module must export `runServer(): Promise<void>` (the convention used throughout these examples). `buildTimeoutMs` (default `60_000`) and `logPrefix` (default `"bridgekit-bin"`) are available for tuning but rarely needed.
 
+Both `mcpEntry` and `buildScript` must be **literal strings** in your bin source. The helper joins `mcpEntry` onto the resolved package root and dynamically `import()`s it, and it passes `buildScript` to `spawnSync` (with `shell: true` on Windows where `&`, `|`, and `^` are shell metacharacters). Sourcing either from CLI args, environment variables, or other runtime input exposes arbitrary-file import and Windows command injection — the trusted-literal expectation is the threat model.
+
 Commit the wrapper with executable mode (`chmod +x bin/my-tools-mcp.js`) and verify `npm pack --dry-run --json` includes it with executable mode.
 
 MCP behavior:
