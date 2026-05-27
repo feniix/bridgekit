@@ -66,8 +66,7 @@ test("portable tool context is fixed to the built-in host union", async () => {
   });
 
   const defaultContext: PortableToolContext = { host: "pi" };
-  const defaultHost: PortableToolBuiltInHost = defaultContext.host;
-  assert.equal(defaultHost, "pi");
+  assert.equal(defaultContext.host, "pi");
 
   function rejectInvalidHosts() {
     // @ts-expect-error PortableToolContext.host is fixed to the built-in union.
