@@ -42,7 +42,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (pi-sequential-thinking, pi-exa, pi-code-reasoning) used the generic.
   Resolves [#5](https://github.com/feniix/bridgekit/issues/5).
 
-## [0.9.5] - Unreleased
+## [0.9.5] - 2026-05-27
 
 ### Documentation
 
