@@ -49,6 +49,7 @@ async function assertRuntimeExports(installDir) {
     import * as core from "@feniix/bridgekit";
     import * as pi from "@feniix/bridgekit/pi";
     import * as mcp from "@feniix/bridgekit/mcp";
+    import * as binWrapper from "@feniix/bridgekit/bin-wrapper";
     assert.deepEqual(Object.keys(core).sort(), [
       "definePortableTool",
       "executePortableTool",
@@ -59,18 +60,25 @@ async function assertRuntimeExports(installDir) {
     assert.deepEqual(Object.keys(pi).sort(), ["PortableToolExecutionError", "isPortableToolExecutionError", "registerPiTools"]);
     assert.deepEqual(Object.keys(mcp).sort(), ["createMcpServer", "runMcpStdioServer"]);
     assert.equal(["register", "McpTools"].join("") in mcp, false);
+    assert.deepEqual(Object.keys(binWrapper).sort(), ["runBinWrapper"]);
+    assert.equal(typeof binWrapper.runBinWrapper, "function");
   `;
   await run(process.execPath, ["--input-type=module", "-e", code], { cwd: installDir });
 }
 
 async function assertUnsupportedDeepImportFails(installDir) {
   const code = `
-    try {
-      await import("@feniix/bridgekit/dist/src/index.js");
-      throw new Error("deep import unexpectedly succeeded");
-    } catch (error) {
-      if (error?.message === "deep import unexpectedly succeeded") throw error;
-      if (error?.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED") throw error;
+    for (const specifier of [
+      "@feniix/bridgekit/dist/src/index.js",
+      "@feniix/bridgekit/dist/src/bin-wrapper.js",
+    ]) {
+      try {
+        await import(specifier);
+        throw new Error("deep import unexpectedly succeeded: " + specifier);
+      } catch (error) {
+        if (error?.message?.startsWith?.("deep import unexpectedly succeeded")) throw error;
+        if (error?.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED") throw error;
+      }
     }
   `;
   await run(process.execPath, ["--input-type=module", "-e", code], { cwd: installDir });
@@ -106,6 +114,15 @@ async function assertTypesCompile(installDir) {
         registerPiTools,
       } from "@feniix/bridgekit/pi";
       import { type CreateMcpServerOptions } from "@feniix/bridgekit/mcp";
+      import { runBinWrapper, type BinWrapperOptions } from "@feniix/bridgekit/bin-wrapper";
+
+      const _binWrapperOpts: BinWrapperOptions = {
+        metaUrl: "file:///x",
+        mcpEntry: "dist/extensions/mcp-server.js",
+        buildScript: "build:mcp",
+      };
+      void _binWrapperOpts;
+      void runBinWrapper;
 
       const parameters = Type.Object({ text: Type.String() });
       type Parameters = Static<typeof parameters>;
@@ -317,6 +334,8 @@ function assertPackFileList(entry) {
     "dist/src/pi.d.ts",
     "dist/src/mcp.js",
     "dist/src/mcp.d.ts",
+    "dist/src/bin-wrapper.js",
+    "dist/src/bin-wrapper.d.ts",
   ];
   for (const file of required) {
     assert.ok(files.has(file), `packed file list must include ${file}`);
