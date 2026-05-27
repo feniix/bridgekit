@@ -193,8 +193,10 @@ test("entry missing -> build exits non-zero but artifact produced -> pass-throug
   const entrySource =
     `import { writeFileSync } from "node:fs";\n` +
     `export async function runServer() { writeFileSync(${JSON.stringify(flagFile)}, "ok"); }\n`;
+  const { captured, restore } = captureConsoleError();
 
   try {
+    let exitCalls = 0;
     const deps: BinWrapperDeps = {
       spawnSync: () => {
         // Simulate a build that emitted the entry but exited non-zero
@@ -202,12 +204,18 @@ test("entry missing -> build exits non-zero but artifact produced -> pass-throug
         fx.writeEntry(entrySource);
         return fakeSpawnResult(2);
       },
-      exit: exitStub,
+      exit: (code) => {
+        exitCalls += 1;
+        throw new ExitInvoked(code);
+      },
     };
     await runBinWrapperWithDeps(makeOptions(fx), deps);
 
     assert.equal(existsSync(flagFile), true, "runServer must run when the entry was produced");
+    assert.equal(exitCalls, 0, "deps.exit must not be called on the recovery path");
+    assert.equal(captured.length, 0, "no diagnostic must be emitted on the recovery path");
   } finally {
+    restore();
     fx.cleanup();
   }
 });
