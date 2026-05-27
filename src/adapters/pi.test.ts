@@ -603,6 +603,37 @@ test("registerPiTools passes hostExtras.pi.promptSnippet / promptGuidelines thro
   assert.notStrictEqual(registration?.promptGuidelines, guidelines);
 });
 
+// Issue #47: boundary spread-copy ensures pi.registerTool receives a fresh
+// mutable string[] even though bridgekit's declared type is readonly string[].
+// The notStrictEqual assertion is load-bearing — without it the test would
+// pass with the pre-fix direct pass-through.
+test("registerPiTools hands pi.registerTool a fresh mutable array, not the hostExtras reference", () => {
+  const guidelines: readonly string[] = ["a", "b"];
+  const tool = definePortableTool({
+    name: "fresh_array_tool",
+    title: "Fresh Array Tool",
+    description: "Tool whose promptGuidelines must reach pi as a fresh array.",
+    parameters: Type.Object({}),
+    hostExtras: { pi: { promptGuidelines: guidelines } },
+    execute: () => ({ text: "ok" }),
+  });
+  const registered: Array<Record<string, unknown>> = [];
+  const pi = {
+    registerTool(def: Record<string, unknown>) {
+      registered.push(def);
+    },
+  };
+
+  registerPiTools(fromPartial(pi), [tool]);
+
+  assert.deepEqual(registered[0]?.promptGuidelines, ["a", "b"]);
+  assert.notStrictEqual(
+    registered[0]?.promptGuidelines,
+    guidelines,
+    "load-bearing: fresh array, not the same reference",
+  );
+});
+
 test("registerPiTools omits unset pi pass-through fields (byte-identical shape when hostExtras is absent)", () => {
   // Zero-cost-when-absent: a tool without hostExtras must produce a
   // registration whose own-property keys exactly match the pre-0.9 set
