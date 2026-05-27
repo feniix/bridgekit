@@ -1,15 +1,25 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import {
   CallToolRequestSchema,
   type CallToolResult,
   ListToolsRequestSchema,
+  type ServerNotification,
+  type ServerRequest,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { TSchema } from "typebox";
 import type { PortableTool, PortableToolResult } from "../core/define-tool.js";
 import { executePortableTool } from "../core/execute-tool.js";
-import { signalFromExtra } from "./mcp-signal.js";
+
+// The MCP SDK ships `RequestHandlerExtra<ServerRequest, ServerNotification>`
+// with a non-optional `signal: AbortSignal`. We pull it from `shared/protocol`
+// (the source of truth) rather than the `server/index` re-export. An
+// adversarial type-level pin in `mcp.typecheck.ts` fails closed if the SDK
+// ever reshapes `signal` — that's the regression anchor that lets us read
+// `extra.signal` directly here without a runtime guard.
+type CallToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 
 export interface CreateMcpServerOptions {
   name: string;
@@ -233,7 +243,7 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcpTools }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra: CallToolExtra) => {
     const tool = byName.get(request.params.name);
     if (!tool) {
       return {
@@ -245,7 +255,7 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
     try {
       const result = await executePortableTool(tool, request.params.arguments ?? {}, {
         host: "mcp",
-        signal: signalFromExtra(extra),
+        signal: extra.signal,
       });
       return toMcpResult(result);
     } catch (error) {

@@ -5,7 +5,6 @@ import * as mcp from "@feniix/bridgekit/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { type TObject, Type } from "typebox";
-import { signalFromExtra } from "./mcp-signal.js";
 
 // Pull from the namespace import so `surface.registerMcpTools === undefined`
 // (above) stays load-bearing on the same symbol the rest of the file uses.
@@ -16,16 +15,6 @@ test("MCP subpath exposes createMcpServer and runMcpStdioServer without a high-l
   assert.equal(typeof surface.createMcpServer, "function");
   assert.equal(typeof surface.runMcpStdioServer, "function");
   assert.equal(surface.registerMcpTools, undefined);
-});
-
-test("signalFromExtra extracts only real AbortSignal instances", () => {
-  const controller = new AbortController();
-
-  assert.equal(signalFromExtra(undefined), undefined);
-  assert.equal(signalFromExtra("not-an-object"), undefined);
-  assert.equal(signalFromExtra({}), undefined);
-  assert.equal(signalFromExtra({ signal: "not-a-signal" }), undefined);
-  assert.equal(signalFromExtra({ signal: controller.signal }), controller.signal);
 });
 
 // Issue #29: createMcpServer used to reject Type.Intersect at compile time and
