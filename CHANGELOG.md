@@ -4,6 +4,35 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-05-27
+
+### Documentation
+
+- `README.md` gets a full `bin-wrapper` adapter section under "API
+  reference" — usage example, options breakdown, `runServer`
+  contract, trusted-literal security note, and the missing-entry
+  behavior matrix. Previously the subpath had a single line in the
+  entrypoint table and zero body documentation. Closes the largest
+  gap surfaced by the post-0.11.0 doc audit.
+- `README.md` "Why" bullet and "Packaging" section updated for the
+  four-entrypoint shape and the `runBinWrapper` recommendation
+  (replaces the pre-0.11.0 manual checked-in-wrapper recipe).
+- `llms.txt` rewrites the "Mixed source-loaded hosts and compiled
+  MCP bins" section to lead with `runBinWrapper`. The 8-bullet
+  manual-wrapper recipe is demoted to a fallback bullet for
+  authors writing their own wrapper.
+- `dist/src/bin-wrapper.d.ts` added to the published-declarations
+  lists in `README.md` and `llms.txt`.
+- `docs/README.md` lists `docs/rfc-host-extras.md` in the
+  maintainer-docs catalog. The RFC is JSDoc-linked from
+  `src/core/define-tool.ts` and was missing from the catalog.
+- `src/adapters/mcp.typecheck.ts` fixes a wrong version stamp on
+  the `signalFromExtra` adversarial-pin comment (was `0.10.0 (#3)`,
+  should be `0.11.0 (#3)`). The pin's code is correct; only the
+  comment was wrong.
+
+No API or behavior changes.
+
 ## [0.11.0] - 2026-05-27
 
 ### Added

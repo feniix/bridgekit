@@ -47,7 +47,7 @@ createMcpServer({
   tools: [{ name: "incomplete" }],
 });
 
-// Adversarial pin: `signalFromExtra` was deleted in 0.10.0 (#3) under the
+// Adversarial pin: `signalFromExtra` was deleted in 0.11.0 (#3) under the
 // guarantee that the MCP SDK ships `RequestHandlerExtra<...>` with a
 // non-optional `signal: AbortSignal`. `src/adapters/mcp.ts` reads
 // `extra.signal` directly with no runtime guard, so a future SDK reshape
