@@ -241,6 +241,40 @@ test('createMcpServer rejects hybrid {$ref, type: "object"} schemas via the $ref
   );
 });
 
+// Nested Type.Cyclic inside a Type.Intersect routes to the mixed-Intersect
+// recipe (`allOf[<i>]`), NOT the $ref-specific recipe. The mixed-Intersect
+// recipe is the right one for this case — the actionable fix is to remove
+// the Cyclic branch from the Intersect, not to inline-or-split the ref.
+// Pinned here so a future refactor of isObjectSchema's allOf descent doesn't
+// silently change which recipe fires for the nested case.
+test("createMcpServer routes nested Type.Cyclic inside Type.Intersect to the mixed-Intersect recipe", () => {
+  const Node = Type.Object({ value: Type.String() });
+  const recursive = Type.Cyclic({ Node }, "Node");
+  const tool = definePortableTool({
+    name: "nested_cyclic_intersect",
+    title: "Nested Cyclic in Intersect",
+    description: "Type.Intersect with a Type.Cyclic branch.",
+    parameters: Type.Intersect([Type.Object({ a: Type.String() }), recursive]),
+    execute: () => ({ text: "ok" }),
+  });
+
+  assert.throws(
+    () => createMcpServer({ name: "bad-server", version: "0.1.0", tools: [tool] }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /^createMcpServer: tool "nested_cyclic_intersect"/);
+      // Mixed-Intersect recipe fires (allOf[<i>] label), not the $ref recipe.
+      assert.match(error.message, /allOf\[1\]/);
+      // Load-bearing: this is the generic NON_OBJECT code path, not the
+      // $ref-specific one. The Cyclic is nested inside the Intersect, so the
+      // user's actionable fix is to restructure the Intersect, not to
+      // inline-or-split the ref.
+      assert.equal((error as Error & { code?: string }).code, "BRIDGEKIT_MCP_NON_OBJECT_PARAMETERS");
+      return true;
+    },
+  );
+});
+
 test("createMcpServer throws at construction for empty Type.Intersect", () => {
   const tool = definePortableTool({
     name: "empty_intersect",
