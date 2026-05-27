@@ -1,7 +1,7 @@
 # RFC: Per-host extras on `PortableTool`
 
 - **Issue**: [#28](https://github.com/feniix/bridgekit/issues/28)
-- **Status**: Draft (design pass before implementation).
+- **Status**: Implemented in 0.9.0. Code snippets below show `PortableTool<TParams, THost>` and `PortableToolContext<THost>` — the `<THost>` generic was removed in 0.10.0 (see [#5](https://github.com/feniix/bridgekit/issues/5) and the CHANGELOG). The `hostExtras` design itself is unchanged; mentally substitute `PortableTool<TParams>` and `PortableToolContext` (no generic) when reading the type sketches.
 - **Target release**: 0.9.0, bundled with [#29](https://github.com/feniix/bridgekit/issues/29) (see [§7](#7-sequencing-with-29)).
 - **Scope**: A single optional field, `PortableTool.hostExtras`, that carries host-specific descriptive metadata and a small set of lifecycle hints. Adapters read the keys they recognize and ignore the rest. Tools that omit `hostExtras` see no behavior change and pay no runtime cost.
 

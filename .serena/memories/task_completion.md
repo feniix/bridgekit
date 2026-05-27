@@ -22,7 +22,7 @@ npm run check && npm run test && npm run pack:dry-run && npm run package-smoke
 
 ## After type-only or generic changes
 
-If touching `src/core/define-tool.ts` or `src/core/execute-tool.ts` (especially anything around `PortableTool` generics, `NoInfer<THost>`, or `PortableToolResult` shape), confirm the typecheck fixtures still compile:
+If touching `src/core/define-tool.ts` or `src/core/execute-tool.ts` (especially anything around `PortableTool`'s `TParams` generic, the host-union shape, or `PortableToolResult`), confirm the typecheck fixtures still compile:
 
 - `src/core/result-generic.typecheck.ts`
 - `src/adapters/mcp.typecheck.ts`

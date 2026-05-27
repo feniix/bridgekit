@@ -48,7 +48,7 @@ Each of the three entrypoints (`.`, `./pi`, `./mcp`) maps to its own compiled fi
 
 `executePortableTool` validates args via TypeBox `Check`/`Errors`, and on failure **returns** a result with `isError: true` — it does not throw. Adapters decide whether to surface that as a thrown exception or a structured result.
 
-The host generic in `PortableTool<TParams, THost>` uses TypeScript's built-in `NoInfer<T>` inside `executePortableTool`'s signature so the host type must come from the tool definition, not from the `ctx` argument. This is what makes the `@ts-expect-error` assertions in `execute-tool.test.ts` work for invalid host narrowing. The `NoInfer<THost>` wrap is load-bearing — removing it silently breaks host typing.
+`PortableTool` carries a single generic (`TParams extends TSchema`). The host is a fixed literal union: `PortableToolBuiltInHost = "pi" | "mcp" | "test"`. `PortableToolContext.host` is typed to that union directly, so `@ts-expect-error` assertions in `execute-tool.test.ts` reject any literal outside the union (e.g. `{ host: "custom-adapter" }`). Do not reintroduce a `<THost>` generic — the audit (#5, removed in 0.10.0) confirmed no consumer used it, and the simplification is intentional.
 
 ### Adapter asymmetry (intentional)
 
@@ -59,15 +59,20 @@ Both adapters prefer `structuredContent` over `details`; the latter exists only 
 
 The MCP adapter is built on the SDK's **low-level** `Server` with explicit `ListToolsRequestSchema` / `CallToolRequestSchema` handlers, **not** the high-level `registerTool` helper. This is so TypeBox schemas pass through as MCP `inputSchema` without a JSON Schema conversion step. There is no `registerMcpTools` helper, and two layers (`scripts/smoke-package.mjs` runtime-key check + `src/adapters/mcp.test.ts` surface assertion) enforce its absence. If you think you want to add a high-level wrapper, read the rationale in `README.md` (MCP adapter section) and `docs/extraction.md` first.
 
-### Custom hosts
+### Custom-host adapters
 
-The default host union is `"pi" | "mcp" | "test"`. Adding a new host means opting in via the second generic at tool-definition time:
+The host union is closed: `"pi" | "mcp" | "test"`. There is no extension generic. If you ship an adapter for a host outside this union, cast `ctx.host` at the adapter boundary (the public type-system surface stays small at the cost of one cast per adapter):
 
 ```ts
-definePortableTool<typeof params, "custom-runtime">({ ... })
+// Inside your custom adapter's call site only — not in shared tool files.
+const ctx: PortableToolContext = { host: "test" }; // pick the closest built-in
+await executePortableTool(tool, args, ctx);
+// Then inside execute(args, ctx): treat ctx.host as advisory and use a
+// separate adapter-owned field for custom dispatch — exhaustive switches
+// over ctx.host will fall through for cast literals.
 ```
 
-`PortableToolHost<"custom-runtime">` is the union of built-ins plus the extension; use it for values that may be either.
+For per-host metadata (advisory hints, lifecycle hooks), extend `PortableToolHostExtras` via TypeScript module augmentation rather than the host union. The `hostExtras` namespace is the canonical extension point; the host union itself is closed by design.
 
 ## Conventions
 
@@ -107,6 +112,6 @@ definePortableTool<typeof params, "custom-runtime">({ ... })
 
 1. `README.md` — public API, contracts, packaging.
 2. `llms.txt` — compact agent-facing usage rules and anti-patterns.
-3. `examples/README.md` — copyable layouts for shared tools, pi extension, MCP server, custom host.
+3. `examples/README.md` — copyable layouts for shared tools, pi extension, MCP server, hostExtras.
 4. `dist/src/*.d.ts` (after build) — canonical installed-package type contracts. In a source checkout the matching `src/` files carry the same context.
 5. `docs/extraction.md` / `docs/releasing.md` — historical rationale and future release handoff.

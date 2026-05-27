@@ -15,7 +15,7 @@
 - Use `isError: true` for expected domain failures. **Throw** only for unexpected programmer/adapter/runtime errors.
 - Prefer `structuredContent` over `details` in results. `details` exists only as a fallback for older callers.
 - Respect `ctx.signal` in long-running tools. Emit progress via `ctx.progress?.(...)`.
-- For custom hosts, opt in at definition: `definePortableTool<typeof params, "custom-runtime">(...)`. `PortableToolHost<"custom-runtime">` is the union of built-ins + extension.
+- The host union is closed at `"pi" | "mcp" | "test"`. For a custom-host adapter, cast `ctx.host` at the adapter boundary (one cast per adapter; the public type surface stays small). Custom per-host metadata extends `PortableToolHostExtras` via TypeScript module augmentation, not the host union.
 
 ## Lint / format
 
@@ -37,4 +37,4 @@
 - Do **not** throw inside `executePortableTool` for validation failures — return `isError: true`.
 - Do **not** add `workspace:`/`file:` ranges or `release`/`publish` scripts to `package.json`.
 - Do **not** ship `sourceMappingURL` comments without maps (smoke test re-asserts `sourceMap: false`).
-- Do **not** remove the `NoInfer<THost>` wrap in `executePortableTool`'s signature — it makes host typing come from the tool definition rather than `ctx`.
+- Do **not** reintroduce the `<THost>` generic or `PortableToolHost<TExtension>` alias removed in 0.10.0 (#5). The audit confirmed no consumer used them; host is now a fixed `"pi" | "mcp" | "test"` literal union and custom adapters cast at the boundary.

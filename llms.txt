@@ -6,7 +6,7 @@ Use this package when you need to define a tool once and expose it through both 
 
 1. `README.md` — public API, contracts, best practices, packaging notes.
 2. `llms.txt` — compact agent-facing usage rules and anti-patterns.
-3. `examples/README.md` — copyable end-to-end layouts for shared tools, pi extension wiring, MCP stdio server wiring, and custom hosts.
+3. `examples/README.md` — copyable end-to-end layouts for shared tools, pi extension wiring, MCP stdio server wiring, and per-host metadata via `hostExtras`.
 4. Published declarations such as `dist/src/index.d.ts`, `dist/src/pi.d.ts`, and `dist/src/mcp.d.ts` — canonical installed-package type contracts. In a source checkout, the matching `src/` files contain implementation context.
 
 ## Import map
@@ -95,23 +95,6 @@ if (result.isError) {
   }
 }
 ```
-
-## Custom host typing
-
-Default tools accept only built-in hosts: `"pi" | "mcp" | "test"`.
-For a custom adapter, opt in explicitly:
-
-```ts
-const customTool = definePortableTool<typeof params, "custom-host">({
-  // ...
-  execute(args, ctx) {
-    const host: "custom-host" = ctx.host;
-    return { text: host };
-  },
-});
-```
-
-Use `PortableToolHost<"custom-host">` when a value may be either a built-in host or that extension.
 
 ## Mixed source-loaded hosts and compiled MCP bins
 

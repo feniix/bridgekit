@@ -63,7 +63,7 @@ This package is ESM-only and supports Node.js 22.19.0 or newer. Published module
 
 ## Why
 
-- Define a tool once; ship it to pi and MCP (and custom hosts) without per-host forks.
+- Define a tool once; ship it to pi and MCP without per-host forks.
 - Host-neutral tool files: no pi or MCP SDK imports in the tool definition itself.
 - TypeBox schemas pass through to MCP `inputSchema` directly — no JSON Schema conversion step.
 - Import-passive, `sideEffects: false`, three-entrypoint split (`.`, `./pi`, `./mcp`) so pi-only consumers do not pull the MCP SDK and vice versa.
@@ -80,7 +80,6 @@ import {
   type PortableTool,
   type PortableToolBuiltInHost,
   type PortableToolContext,
-  type PortableToolHost,
   type PortableToolResult,
   type PortableValidationError,
 } from "@feniix/bridgekit";
@@ -232,41 +231,6 @@ Portable validation failures and portable `isError: true` results return `CallTo
 
 The two adapters now read in parallel: invalid args and portable `isError` results return `{ isError: true }` from both hosts by default, and the same result-guard helpers (`isValidationFailure`, `isDomainFailure`) narrow them on either side.
 
-### Custom host typing
-
-Default portable tools accept the built-in host union:
-
-```ts
-type BuiltIn = "pi" | "mcp" | "test";
-```
-
-Custom adapters opt in explicitly:
-
-```ts
-import { Type } from "typebox";
-import { definePortableTool, type PortableToolHost } from "@feniix/bridgekit";
-
-const params = Type.Object({ text: Type.String() });
-
-type CustomHost = "custom-runtime";
-
-export const customTool = definePortableTool<typeof params, CustomHost>({
-  name: "custom_echo",
-  title: "Custom Echo",
-  description: "Echoes text in a custom runtime.",
-  parameters: params,
-  execute(args, ctx) {
-    const host: CustomHost = ctx.host;
-    return { text: `${host}: ${args.text}` };
-  },
-});
-
-const hostValue: PortableToolHost<CustomHost> = "custom-runtime";
-void hostValue;
-```
-
-Use `PortableToolHost<CustomHost>` for values that may be either a built-in host or your extension. Use the `PortableTool`/`PortableToolContext` generic when a tool or adapter is custom-host-only.
-
 ## Best practices
 
 Tool definition best practices:
@@ -306,5 +270,5 @@ Read these files in order:
 
 1. `README.md` — public API, contracts, and best practices.
 2. `llms.txt` — compact agent-facing usage rules and anti-patterns.
-3. `examples/README.md` — copyable layouts for shared tools, pi extensions, MCP stdio servers, and custom hosts.
+3. `examples/README.md` — copyable layouts for shared tools, pi extensions, MCP stdio servers, and per-host metadata via `hostExtras`.
 4. Published declarations such as `dist/src/index.d.ts`, `dist/src/pi.d.ts`, and `dist/src/mcp.d.ts` — canonical installed-package type contracts. In a source checkout, the matching `src/` files contain the same implementation context.

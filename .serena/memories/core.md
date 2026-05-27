@@ -26,10 +26,10 @@ Three public entrypoints (`.`, `./pi`, `./mcp`) — load-bearing split. pi-only 
 - Tool files host-neutral: no pi/MCP imports outside `adapters/`.
 - `PortableToolResult`: `text` (model-visible), `structuredContent` (preferred, machine-readable), `details` (legacy fallback), `isError` (domain failure).
 - `executePortableTool` validates with TypeBox `Check`/`Errors`; on failure **returns** `isError: true` — never throws for validation. Adapters decide whether to throw.
-- Host generic: `PortableTool<TParams, THost>` uses `NoInfer<THost>` inside `executePortableTool` so host type comes from the tool definition, not `ctx`. Locked in by `src/core/result-generic.typecheck.ts`. Removing `NoInfer` silently breaks host narrowing.
+- Host union is closed: `PortableToolBuiltInHost = "pi" | "mcp" | "test"` typed directly on `PortableToolContext.host`. `PortableTool` carries only `TParams extends TSchema` — the `<THost>` generic and `PortableToolHost<TExtension>` alias were removed in 0.10.0 (#5). Custom-host adapters cast `ctx.host` at the adapter boundary; do not reintroduce the host generic.
 - MCP adapter uses SDK **low-level `Server`** with explicit `ListToolsRequestSchema` / `CallToolRequestSchema`. No high-level `registerTool` — so TypeBox schemas pass through as `inputSchema` without JSON Schema conversion. Two layers enforce absence: `scripts/smoke-package.mjs` runtime-key check + `src/adapters/mcp.test.ts` surface assertion.
 - Adapter asymmetry (intentional): pi **throws** `PortableToolExecutionError` on `isError`; MCP **returns** `{ content, structuredContent, isError: true }`.
-- Default host union: `"pi" | "mcp" | "test"`. Extend via second generic on `definePortableTool<typeof params, "custom-runtime">`.
+- `PortableTool.hostExtras` is the canonical per-host metadata namespace (0.9+). Custom-host adapters should add fields via TypeScript module augmentation of `PortableToolHostExtras` rather than extending the host union.
 - ESM internal imports use `.js` extension on `.ts` source (NodeNext): `from "./define-tool.js"`.
 - Consumers must use the three entrypoints only — never deep-import from `dist/` or `src/`. Enforced by smoke test (`ERR_PACKAGE_PATH_NOT_EXPORTED` for `@feniix/bridgekit/dist/...`).
 - `Type.Object(...)` required for MCP-compatible tools (constraint on `createMcpServer`'s `tools` parameter; `mcp.typecheck.ts` locks via `@ts-expect-error`).
@@ -46,7 +46,7 @@ Three public entrypoints (`.`, `./pi`, `./mcp`) — load-bearing split. pi-only 
 
 - `README.md` — public API and contracts.
 - `llms.txt` — compact agent-facing usage rules.
-- `examples/README.md` — copyable layouts (shared tool, pi extension, MCP server, custom host).
+- `examples/README.md` — copyable layouts (shared tool, pi extension, MCP server, hostExtras).
 - `docs/packaging-invariants.md` — per-check catalog enforced by `scripts/smoke-package.mjs`.
 - `docs/extraction.md`, `docs/releasing.md` — historical rationale, release flow.
 - `dist/src/*.d.ts` after build — canonical installed-package contracts.

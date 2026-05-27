@@ -3,10 +3,8 @@ import test from "node:test";
 import {
   definePortableTool,
   executePortableTool,
-  type PortableTool,
   type PortableToolBuiltInHost,
   type PortableToolContext,
-  type PortableToolHost,
   type PortableValidationError,
 } from "@feniix/bridgekit";
 import { fromAny } from "@total-typescript/shoehorn";
@@ -52,12 +50,12 @@ test("executePortableTool runs valid TypeBox-inferred tool args", async () => {
   assert.deepEqual(result, { text: "HELLO", structuredContent: { output: "HELLO" } });
 });
 
-test("default portable tool context keeps the built-in host union", async () => {
+test("portable tool context is fixed to the built-in host union", async () => {
   const observedHosts: PortableToolBuiltInHost[] = [];
   const echoTool = definePortableTool({
     name: "host_union_test",
     title: "Host Union Test",
-    description: "Verifies default host typing.",
+    description: "Verifies fixed-host typing.",
     parameters: echoParams,
     execute(args, ctx) {
       const builtInHost: PortableToolBuiltInHost = ctx.host;
@@ -68,53 +66,18 @@ test("default portable tool context keeps the built-in host union", async () => 
   });
 
   const defaultContext: PortableToolContext = { host: "pi" };
-  const defaultHost: PortableToolHost = defaultContext.host;
-  assert.equal(defaultHost, "pi");
+  assert.equal(defaultContext.host, "pi");
 
-  function rejectInvalidDefaultHosts() {
-    // @ts-expect-error Custom hosts require an explicit PortableTool host generic.
+  function rejectInvalidHosts() {
+    // @ts-expect-error PortableToolContext.host is fixed to the built-in union.
     void executePortableTool(echoTool, { text: "hello" }, { host: "custom-adapter" });
   }
-  void rejectInvalidDefaultHosts;
-
-  function rejectBuiltInOnlyToolInCustomCollections() {
-    // @ts-expect-error Built-in-only tools cannot be treated as custom-host capable.
-    const customHostTools: Array<PortableTool<typeof echoParams, PortableToolHost<"custom-adapter">>> = [echoTool];
-    void customHostTools;
-  }
-  void rejectBuiltInOnlyToolInCustomCollections;
+  void rejectInvalidHosts;
 
   const result = await executePortableTool(echoTool, { text: "hello" }, { host: "mcp" });
 
   assert.equal(result.text, "hello");
   assert.deepEqual(observedHosts, ["mcp", "mcp"]);
-});
-
-test("executePortableTool supports opt-in custom host identifiers", async () => {
-  type CustomHost = PortableToolHost<"custom-adapter">;
-  const observedHosts: CustomHost[] = [];
-  const customTool = definePortableTool<typeof echoParams, "custom-adapter">({
-    name: "custom_host_test",
-    title: "Custom Host Test",
-    description: "Verifies custom host typing.",
-    parameters: echoParams,
-    execute(args, ctx) {
-      const customHost: "custom-adapter" = ctx.host;
-      observedHosts.push(customHost);
-      return { text: `${ctx.host}:${args.text}` };
-    },
-  });
-
-  function rejectInvalidCustomHosts() {
-    // @ts-expect-error Custom-only tools must execute with their declared host.
-    void executePortableTool(customTool, { text: "hello" }, { host: "pi" });
-  }
-  void rejectInvalidCustomHosts;
-
-  const result = await executePortableTool(customTool, { text: "hello" }, { host: "custom-adapter" });
-
-  assert.equal(result.text, "custom-adapter:hello");
-  assert.deepEqual(observedHosts, ["custom-adapter"]);
 });
 
 test("executePortableTool returns validation errors without calling the tool", async () => {

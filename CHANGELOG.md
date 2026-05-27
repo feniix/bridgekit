@@ -4,7 +4,45 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.5] - Unreleased
+## [0.10.0] - Unreleased
+
+### Removed (breaking)
+
+- `PortableToolHost<TExtension extends string>` type alias — replaced by the
+  fixed `PortableToolBuiltInHost = "pi" | "mcp" | "test"` union.
+- `<THost extends string>` generic parameter on `PortableTool`,
+  `PortableToolContext`, `definePortableTool`, `executePortableTool`, and
+  `validatePortableToolArgs`. Host is now a fixed literal union; adapters
+  outside `"pi" | "mcp"` should cast at their adapter boundary instead of
+  extending the type union.
+
+  Migration: drop the second generic argument from any of those types.
+  `PortableTool<typeof params, "custom">` becomes `PortableTool<typeof params>`.
+  `PortableToolContext<"custom">` becomes `PortableToolContext` (cast `host`
+  at the consumer if a custom literal is needed).
+
+  Cast pattern (custom literal at the adapter boundary):
+
+  ```ts
+  // PortableToolContext.host is fixed to PortableToolBuiltInHost.
+  // A direct `as "custom-runtime"` fails under strict (TS2352 — no overlap);
+  // cast through `unknown` instead.
+  const ctx: PortableToolContext = {
+    host: "custom-runtime" as unknown as PortableToolBuiltInHost,
+  };
+  ```
+
+  Caveat: the cast lies at the type-system boundary, so
+  `switch (ctx.host) { ... default: assertNever(ctx.host); }` patterns will
+  fall through on the custom literal at runtime. For custom dispatch, carry
+  the host identifier on an adapter-owned field rather than on `ctx.host`,
+  or do a runtime allowlist check before exhaustive narrowing.
+
+  No consumer in tree or in the three known downstream consumers
+  (pi-sequential-thinking, pi-exa, pi-code-reasoning) used the generic.
+  Resolves [#5](https://github.com/feniix/bridgekit/issues/5).
+
+## [0.9.5] - 2026-05-27
 
 ### Documentation
 
