@@ -1,5 +1,7 @@
 import { definePortableTool } from "@feniix/bridgekit";
 import { createMcpServer } from "@feniix/bridgekit/mcp";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type { ServerNotification, ServerRequest } from "@modelcontextprotocol/sdk/types.js";
 import { Type } from "typebox";
 
 // As of 0.9 the `tools` parameter is typed `PortableTool<TSchema>[]`, so the
@@ -44,3 +46,28 @@ createMcpServer({
   // @ts-expect-error tools must be PortableTool definitions, not loose objects.
   tools: [{ name: "incomplete" }],
 });
+
+// Adversarial pin: `signalFromExtra` was deleted in 0.10.0 (#3) under the
+// guarantee that the MCP SDK ships `RequestHandlerExtra<...>` with a
+// non-optional `signal: AbortSignal`. `src/adapters/mcp.ts` reads
+// `extra.signal` directly with no runtime guard, so a future SDK reshape
+// (e.g. `signal?: AbortSignal`, or `signal: AbortSignal | undefined`)
+// would silently regress cancellation propagation while every behavior
+// test still passes.
+//
+// The pin uses asymmetric assignability to assert *exact* type equality:
+// `Extra["signal"]` must be assignable to `AbortSignal` AND vice versa.
+// A widened type (e.g. `AbortSignal | undefined`) breaks the outer
+// `extends AbortSignal` branch, the conditional resolves to `false`, and
+// the assignment `: _SignalIsExactlyAbortSignal = true` errors at compile
+// time (TS2322 — Type 'true' is not assignable to type 'false'). Verified
+// in both directions during the 0.10.0 cluster: today passes; a manual
+// edit of the SDK's `.d.ts` to make `signal?` optional errors here.
+type _SdkExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
+type _SignalIsExactlyAbortSignal = _SdkExtra["signal"] extends AbortSignal
+  ? AbortSignal extends _SdkExtra["signal"]
+    ? true
+    : false
+  : false;
+const _signalShapeIsAbortSignal: _SignalIsExactlyAbortSignal = true;
+void _signalShapeIsAbortSignal;
