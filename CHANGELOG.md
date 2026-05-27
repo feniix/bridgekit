@@ -4,7 +4,7 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.10.0] - Unreleased
+## [0.11.0] - 2026-05-27
 
 ### Added
 
@@ -32,6 +32,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   adversarial type-level pin in `src/adapters/mcp.typecheck.ts` fails closed
   if the SDK ever changes `signal`'s type. Resolves
   [#3](https://github.com/feniix/bridgekit/issues/3).
+
+## [0.10.0] - 2026-05-27
 
 ### Removed (breaking)
 
