@@ -16,77 +16,99 @@ function fieldFromPath(instancePath: string): string {
 }
 
 /**
- * Resolve the leaf field name of an instancePath against the actual schema.
+ * Resolve the leaf property name from a TypeBox error by walking
+ * `error.schemaPath` rather than `error.instancePath`.
  *
- * TypeBox does not escape `/` inside property names when building
- * `instancePath` (it does not follow JSON Pointer RFC 6901's `~1` encoding),
- * so a property literally named `a/b` produces `instancePath: "/a/b"`. The
- * string-split fallback (`fieldFromPath`) would then surface `"b"` and lose
- * the prefix. This helper walks the schema greedily — at each object node it
- * matches the longest prefix of remaining path segments that names a real
- * property key, descending into the matched sub-schema — and returns the
- * actual leaf key. Array nodes consume a single numeric segment via `items`.
+ * `instancePath` does not escape `/` inside property names (TypeBox does not
+ * follow JSON Pointer RFC 6901's `~1` encoding), so a schema with BOTH a
+ * slash-named property `"a/b"` AND a nested path `a.b` produces the same
+ * `instancePath: "/a/b"` for either failure — the two cases are
+ * indistinguishable from the data path alone. `schemaPath` carries explicit
+ * `/properties/` markers per nesting level, so the two cases become
+ * structurally distinct:
  *
- * `allOf` nodes (TypeBox's `Intersect` lowering) probe each branch in turn
- * with the same remaining path and return the first successful match. This
- * is what lets `Type.Intersect([Object({"a/b": String()}), Object({c: ...})])`
- * resolve a `/a/b` instancePath to the `"a/b"` key in the first branch.
+ *   slash-named `"a/b": Type.String()` wrong type → `#/properties/a/b`
+ *   nested `a: Object({ b: Number() })` wrong type → `#/properties/a/properties/b`
  *
- * Returns `undefined` if the walk gets stuck (the schema does not model the
- * data path — e.g. `additionalProperties` content). The caller then falls
- * back to the string-split `fieldFromPath`, preserving prior behavior.
+ * TypeBox's schemaPath terminates at the violated property's value-schema —
+ * it does NOT append the keyword as a trailing segment (the keyword lives in
+ * `error.keyword` instead). The walker therefore only needs to consume
+ * structural commands (`properties`, `items`, `allOf`) and the property /
+ * branch tokens that follow them.
  *
- * The `required` and `additionalProperties` callers already read structured
- * `params` and are unaffected; this helper covers the `const` / `enum` /
- * default keyword branches.
+ * `allOf` descent (the 0.9.0 Intersect support) is preserved: an
+ * `#/allOf/<i>/properties/<key>` path descends into the i-th branch before
+ * resolving the property. `anyOf` / `oneOf` descent is symmetric: TypeBox
+ * emits per-branch errors with schemaPath `.../anyOf/<i>/...` (or `.../oneOf/<i>/...`)
+ * when a Union (or hand-authored oneOf) sits under a property; the walker
+ * descends into the indexed branch carrying `lastField` through so a
+ * slash-named property holding a `Type.Union(...)` value preserves its
+ * prefix.
+ *
+ * Returns `undefined` if the walk cannot model the schemaPath (e.g.
+ * `additionalProperties` content whose schemaPath stops at `#`). The caller
+ * then falls back to the string-split `fieldFromPath` on `instancePath`,
+ * preserving prior behavior. The `required` and `additionalProperties`
+ * callers already read structured `params` and are unaffected; this helper
+ * covers the `type` / `const` / `enum` / numeric-keyword branches.
  */
-function fieldFromSchemaWalk(schema: TSchema, instancePath: string): string | undefined {
-  if (instancePath === "") return undefined;
-  const segments = instancePath.split("/").filter(Boolean);
+function fieldFromSchemaWalk(schema: TSchema, schemaPath: string): string | undefined {
+  const raw = schemaPath.startsWith("#") ? schemaPath.slice(1) : schemaPath;
+  const segments = raw.split("/").filter(Boolean);
   if (segments.length === 0) return undefined;
-  return walkSegments(schema, segments, 0);
+  return walkSegments(schema, segments, 0, undefined);
 }
 
-function walkSegments(node: unknown, segments: string[], i: number): string | undefined {
-  if (i >= segments.length) return undefined;
+function walkSegments(node: unknown, segments: string[], i: number, lastField: string | undefined): string | undefined {
   if (!node || typeof node !== "object") return undefined;
-  const obj = node as { properties?: Record<string, unknown>; items?: unknown; allOf?: unknown };
-  // Array descent: numeric segment against an `items` schema. Tuple-form
-  // `items` (array) indexes positionally; schema-form descends uniformly.
-  if (obj.items !== undefined && /^\d+$/.test(segments[i])) {
-    const idx = Number(segments[i]);
-    let next: unknown;
-    if (Array.isArray(obj.items)) {
-      if (idx >= obj.items.length) return undefined;
-      next = obj.items[idx];
-    } else {
-      next = obj.items;
-    }
-    if (i + 1 === segments.length) return segments[i];
-    return walkSegments(next, segments, i + 1);
+  if (i >= segments.length) return lastField;
+  const obj = node as {
+    properties?: Record<string, unknown>;
+    items?: unknown;
+    allOf?: unknown;
+    anyOf?: unknown;
+    oneOf?: unknown;
+  };
+  const head = segments[i];
+  // `allOf` / `anyOf` / `oneOf` commands: next segment is the branch index.
+  // Descend into the chosen branch with the rest of the path. `allOf` covers
+  // `Type.Intersect` lowering (0.9.0); `anyOf` covers `Type.Union` (and the
+  // hand-authored `oneOf` shape). `lastField` carries through unchanged — a
+  // slash-named property whose value is a Union must keep its prefix when
+  // the walker descends into a per-branch error.
+  if (head === "allOf" && Array.isArray(obj.allOf) && i + 1 < segments.length) {
+    const idx = Number(segments[i + 1]);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= obj.allOf.length) return undefined;
+    return walkSegments(obj.allOf[idx], segments, i + 2, lastField);
   }
-  // Object descent: greedy longest-prefix match against `properties` keys.
-  // This is what lets `a/b` resolve to a single key when the schema
-  // declares it, even though the instancePath segments it as ["a", "b"].
-  if (obj.properties && typeof obj.properties === "object") {
+  if (head === "anyOf" && Array.isArray(obj.anyOf) && i + 1 < segments.length) {
+    const idx = Number(segments[i + 1]);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= obj.anyOf.length) return undefined;
+    return walkSegments(obj.anyOf[idx], segments, i + 2, lastField);
+  }
+  if (head === "oneOf" && Array.isArray(obj.oneOf) && i + 1 < segments.length) {
+    const idx = Number(segments[i + 1]);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= obj.oneOf.length) return undefined;
+    return walkSegments(obj.oneOf[idx], segments, i + 2, lastField);
+  }
+  // `items` command: array element schema. TypeBox emits a single `items`
+  // marker regardless of element index (the data-side index is in
+  // instancePath, not schemaPath). Tuple-form `items` (array) is not
+  // expected here from TypeBox lowering — schema-form is uniform.
+  if (head === "items" && obj.items !== undefined) {
+    return walkSegments(obj.items, segments, i + 1, lastField);
+  }
+  // `properties` command: subsequent segments form the property name (joined
+  // by `/` to recover slash-named keys). Consume by greedy longest-prefix
+  // match against the parent's actual `properties` keys, then descend.
+  if (head === "properties" && obj.properties && typeof obj.properties === "object") {
     const props = obj.properties;
-    for (let j = segments.length; j > i; j--) {
-      const candidate = segments.slice(i, j).join("/");
+    for (let j = segments.length; j > i + 1; j--) {
+      const candidate = segments.slice(i + 1, j).join("/");
       if (Object.hasOwn(props, candidate)) {
-        if (j === segments.length) return candidate;
-        const child = walkSegments(props[candidate], segments, j);
+        const child = walkSegments(props[candidate], segments, j, candidate);
         if (child !== undefined) return child;
       }
-    }
-    return undefined;
-  }
-  // allOf descent: TypeBox's Intersect lowering. Each branch sees the full
-  // remaining path; return the first branch that resolves. This is the
-  // schema-side mirror of how Intersect merges property contributions.
-  if (Array.isArray(obj.allOf)) {
-    for (const branch of obj.allOf) {
-      const matched = walkSegments(branch, segments, i);
-      if (matched !== undefined) return matched;
     }
     return undefined;
   }
@@ -94,7 +116,7 @@ function walkSegments(node: unknown, segments: string[], i: number): string | un
 }
 
 function fieldFromError(schema: TSchema, error: TLocalizedValidationError): string {
-  return fieldFromSchemaWalk(schema, error.instancePath) ?? fieldFromPath(error.instancePath);
+  return fieldFromSchemaWalk(schema, error.schemaPath) ?? fieldFromPath(error.instancePath);
 }
 
 /**

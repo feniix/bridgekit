@@ -4,6 +4,26 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-05-26
+
+### Fixed
+
+- `PortableValidationError.field` now disambiguates slash-named properties
+  (`"a/b": Type.String()`) from nested-object paths (`a: Type.Object({ b: ... })`)
+  that produce identical `instancePath` values. The field-derivation walker
+  reads `error.schemaPath` instead, which carries explicit `/properties/`
+  markers per nesting level. Behavior change limited to the overlapping-prefix
+  case from PR #42's adversarial review; the common slash-named-property case
+  from 0.8.3 and the `Type.Intersect` `allOf` descent from 0.9.0 are unchanged.
+  The walker treats `anyOf` and `oneOf` as branch-descent commands (parallel
+  to the 0.9.0 `allOf` handler), so slash-named properties holding
+  `Type.Union(...)` values preserve their prefix through per-branch errors.
+  Pre-fix, the walker would match the slash-name at the `properties` level,
+  then bail on `anyOf` with no handler, and the fallback would strip the
+  prefix to the trailing segment. The walker now handles all three
+  JSON-Schema combinators (`allOf`, `anyOf`, `oneOf`) symmetrically.
+  Resolves [#43](https://github.com/feniix/bridgekit/issues/43).
+
 ## [0.9.1] - 2026-05-26
 
 ### Fixed
