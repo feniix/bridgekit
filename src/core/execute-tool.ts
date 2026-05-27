@@ -38,7 +38,12 @@ function fieldFromPath(instancePath: string): string {
  *
  * `allOf` descent (the 0.9.0 Intersect support) is preserved: an
  * `#/allOf/<i>/properties/<key>` path descends into the i-th branch before
- * resolving the property.
+ * resolving the property. `anyOf` / `oneOf` descent is symmetric: TypeBox
+ * emits per-branch errors with schemaPath `.../anyOf/<i>/...` (or `.../oneOf/<i>/...`)
+ * when a Union (or hand-authored oneOf) sits under a property; the walker
+ * descends into the indexed branch carrying `lastField` through so a
+ * slash-named property holding a `Type.Union(...)` value preserves its
+ * prefix.
  *
  * Returns `undefined` if the walk cannot model the schemaPath (e.g.
  * `additionalProperties` content whose schemaPath stops at `#`). The caller
@@ -57,14 +62,34 @@ function fieldFromSchemaWalk(schema: TSchema, schemaPath: string): string | unde
 function walkSegments(node: unknown, segments: string[], i: number, lastField: string | undefined): string | undefined {
   if (!node || typeof node !== "object") return undefined;
   if (i >= segments.length) return lastField;
-  const obj = node as { properties?: Record<string, unknown>; items?: unknown; allOf?: unknown };
+  const obj = node as {
+    properties?: Record<string, unknown>;
+    items?: unknown;
+    allOf?: unknown;
+    anyOf?: unknown;
+    oneOf?: unknown;
+  };
   const head = segments[i];
-  // `allOf` command (Intersect lowering): next segment is the branch index.
-  // Descend into the chosen branch with the rest of the path.
+  // `allOf` / `anyOf` / `oneOf` commands: next segment is the branch index.
+  // Descend into the chosen branch with the rest of the path. `allOf` covers
+  // `Type.Intersect` lowering (0.9.0); `anyOf` covers `Type.Union` (and the
+  // hand-authored `oneOf` shape). `lastField` carries through unchanged — a
+  // slash-named property whose value is a Union must keep its prefix when
+  // the walker descends into a per-branch error.
   if (head === "allOf" && Array.isArray(obj.allOf) && i + 1 < segments.length) {
     const idx = Number(segments[i + 1]);
     if (!Number.isInteger(idx) || idx < 0 || idx >= obj.allOf.length) return undefined;
     return walkSegments(obj.allOf[idx], segments, i + 2, lastField);
+  }
+  if (head === "anyOf" && Array.isArray(obj.anyOf) && i + 1 < segments.length) {
+    const idx = Number(segments[i + 1]);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= obj.anyOf.length) return undefined;
+    return walkSegments(obj.anyOf[idx], segments, i + 2, lastField);
+  }
+  if (head === "oneOf" && Array.isArray(obj.oneOf) && i + 1 < segments.length) {
+    const idx = Number(segments[i + 1]);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= obj.oneOf.length) return undefined;
+    return walkSegments(obj.oneOf[idx], segments, i + 2, lastField);
   }
   // `items` command: array element schema. TypeBox emits a single `items`
   // marker regardless of element index (the data-side index is in
