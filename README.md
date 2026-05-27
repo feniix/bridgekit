@@ -2,20 +2,74 @@
 
 BridgeKit provides reusable TypeBox-backed tool definitions and adapters for exposing one tool implementation through pi, MCP, and other hosts.
 
-## Runtime support
+## Quickstart
+
+```ts
+// src/tools.ts
+import { Type } from "typebox";
+import { definePortableTool } from "@feniix/bridgekit";
+
+export const echoTool = definePortableTool({
+  name: "echo",
+  title: "Echo",
+  description: "Echo text back to the caller.",
+  parameters: Type.Object({ text: Type.String() }),
+  execute(args, ctx) {
+    return {
+      text: args.text,
+      structuredContent: { text: args.text, host: ctx.host },
+    };
+  },
+  hostExtras: {
+    pi: { pendingMessage: "Echoing..." },
+    mcp: { annotations: { readOnlyHint: true } },
+  },
+});
+
+export function createTools() {
+  return [echoTool];
+}
+```
+
+```ts
+// src/mcp-server.ts
+import { runMcpStdioServer } from "@feniix/bridgekit/mcp";
+import { createTools } from "./tools.js";
+
+await runMcpStdioServer({
+  name: "my-tools",
+  version: "0.1.0",
+  tools: createTools(),
+});
+```
+
+```ts
+// src/pi-extension.ts
+import { registerPiTools } from "@feniix/bridgekit/pi";
+import { createTools } from "./tools.js";
+
+export default function extension(pi: Parameters<typeof registerPiTools>[0]) {
+  registerPiTools(pi, createTools());
+}
+```
+
+## Install
+
+```bash
+npm install @feniix/bridgekit typebox
+```
 
 This package is ESM-only and supports Node.js 22.19.0 or newer. Published modules are import-passive and marked as side-effect free; tools are registered or servers are started only when the exported adapter functions are called.
 
-## For coding agents
+## Why
 
-Read these files in order:
+- Define a tool once; ship it to pi and MCP (and custom hosts) without per-host forks.
+- Host-neutral tool files: no pi or MCP SDK imports in the tool definition itself.
+- TypeBox schemas pass through to MCP `inputSchema` directly — no JSON Schema conversion step.
+- Import-passive, `sideEffects: false`, three-entrypoint split (`.`, `./pi`, `./mcp`) so pi-only consumers do not pull the MCP SDK and vice versa.
+- Conformance-tested public surface: a packed-install smoke test enforces the runtime export set, deep-import rejection, and type-level strictness against the installed declarations.
 
-1. `README.md` — public API, contracts, and best practices.
-2. `llms.txt` — compact agent-facing usage rules and anti-patterns.
-3. `examples/README.md` — copyable layouts for shared tools, pi extensions, MCP stdio servers, and custom hosts.
-4. Published declarations such as `dist/src/index.d.ts`, `dist/src/pi.d.ts`, and `dist/src/mcp.d.ts` — canonical installed-package type contracts. In a source checkout, the matching `src/` files contain the same implementation context.
-
-## Entrypoints
+## API reference
 
 ```ts
 import {
@@ -40,46 +94,7 @@ import { createMcpServer, runMcpStdioServer } from "@feniix/bridgekit/mcp";
 
 Do not deep-import from `dist/` or `src/` in consuming packages.
 
-## Core tools
-
-Define tools once in host-neutral files:
-
-```ts
-import { Type } from "typebox";
-import { definePortableTool } from "@feniix/bridgekit";
-
-export const echoTool = definePortableTool({
-  name: "echo",
-  title: "Echo",
-  description: "Echo text.",
-  parameters: Type.Object({ text: Type.String() }),
-  execute(args, ctx) {
-    return {
-      text: args.text,
-      structuredContent: { text: args.text, host: ctx.host },
-    };
-  },
-});
-
-export function createTools() {
-  return [echoTool];
-}
-```
-
-Tool definition best practices:
-
-- Keep tool files host-neutral: no pi imports, no MCP SDK imports.
-- Use TypeBox `Type.Object(...)` schemas so MCP can expose input schemas directly.
-- Return `text` for model-visible output and `structuredContent` for machine-readable data.
-- Use `isError: true` for expected/domain failures that should be represented as tool output.
-- Throw only for unexpected programmer, adapter, or runtime failures.
-- Respect `ctx.signal` in long-running tools.
-- Use `ctx.progress?.(...)` for incremental updates.
-- Keep modules import-passive; do not register tools or start servers at import time.
-- For stateful tools, export a `createTools()` factory instead of a module-level singleton so each host runtime gets isolated state.
-- TypeBox validation happens before `execute`; use a permissive schema plus domain validation if you need custom guidance for structurally invalid input.
-
-## pi adapter
+### pi adapter
 
 ```ts
 import { registerPiTools } from "@feniix/bridgekit/pi";
@@ -141,7 +156,7 @@ new default `"return"` mode, prefer the result guards over inspecting a
 `"domain"`). The guards operate on a `PortableToolResult`; they are not
 designed to be called on the pi adapter's wire object.
 
-### Per-host metadata via `hostExtras`
+#### Per-host metadata via `hostExtras`
 
 `PortableTool.hostExtras` is an optional namespace for host-specific fields that should travel with the tool definition rather than a parallel sidecar map. The pi adapter reads `hostExtras.pi`; the MCP adapter reads `hostExtras.mcp`; each adapter ignores keys it does not recognise. Tools that omit `hostExtras` see no behavior change.
 
@@ -174,7 +189,7 @@ export const generateSummaryTool = definePortableTool({
 
 See `docs/rfc-host-extras.md` for the design rationale (which fields are in scope, why a top-level field beats a sidecar map, the closure rule for future additions). `PortableToolHostExtras` is module-augmentable for custom host adapters; declare your namespace via `declare module "@feniix/bridgekit"`.
 
-## MCP adapter
+### MCP adapter
 
 ```ts
 import { realpathSync } from "node:fs";
@@ -217,7 +232,7 @@ Portable validation failures and portable `isError: true` results return `CallTo
 
 The two adapters now read in parallel: invalid args and portable `isError` results return `{ isError: true }` from both hosts by default, and the same result-guard helpers (`isValidationFailure`, `isDomainFailure`) narrow them on either side.
 
-## Custom host typing
+### Custom host typing
 
 Default portable tools accept the built-in host union:
 
@@ -252,7 +267,24 @@ void hostValue;
 
 Use `PortableToolHost<CustomHost>` for values that may be either a built-in host or your extension. Use the `PortableTool`/`PortableToolContext` generic when a tool or adapter is custom-host-only.
 
-## Package and release checklist
+## Best practices
+
+Tool definition best practices:
+
+- Keep tool files host-neutral: no pi imports, no MCP SDK imports.
+- Use TypeBox `Type.Object(...)` schemas so MCP can expose input schemas directly.
+- Return `text` for model-visible output and `structuredContent` for machine-readable data.
+- Use `isError: true` for expected/domain failures that should be represented as tool output.
+- Throw only for unexpected programmer, adapter, or runtime failures.
+- Respect `ctx.signal` in long-running tools.
+- Use `ctx.progress?.(...)` for incremental updates.
+- Keep modules import-passive; do not register tools or start servers at import time.
+- For stateful tools, export a `createTools()` factory instead of a module-level singleton so each host runtime gets isolated state.
+- TypeBox validation happens before `execute`; use a permissive schema plus domain validation if you need custom guidance for structurally invalid input.
+
+## Packaging
+
+Package and release checklist:
 
 - Publish compiled JavaScript plus generated `.d.ts` declarations for runtime entrypoints.
 - Keep `exports`, `main`, and `types` aligned with built files.
@@ -267,3 +299,12 @@ Use `PortableToolHost<CustomHost>` for values that may be either a built-in host
 - Treat `docs/releasing.md` as the future release handoff; this repository is not configured for automated publish yet.
 
 See `examples/README.md` for complete copyable examples.
+
+## For coding agents
+
+Read these files in order:
+
+1. `README.md` — public API, contracts, and best practices.
+2. `llms.txt` — compact agent-facing usage rules and anti-patterns.
+3. `examples/README.md` — copyable layouts for shared tools, pi extensions, MCP stdio servers, and custom hosts.
+4. Published declarations such as `dist/src/index.d.ts`, `dist/src/pi.d.ts`, and `dist/src/mcp.d.ts` — canonical installed-package type contracts. In a source checkout, the matching `src/` files contain the same implementation context.

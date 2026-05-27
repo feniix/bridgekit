@@ -4,6 +4,24 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5] - Unreleased
+
+### Documentation
+
+- README restructured to quickstart-first ordering: a copy-pasteable
+  three-file working example (`tools.ts`, `mcp-server.ts`,
+  `pi-extension.ts`) now lands above the fold; runtime requirements,
+  the import map, best practices, packaging, and the coding-agent
+  section all move below. Content preserved; no new entrypoints, no
+  API changes, no behavioral effects. Resolves
+  [#19](https://github.com/feniix/bridgekit/issues/19).
+- `docs/packaging-invariants.md` adds a cross-reference under
+  `inv-mcp-sdk-major` pointing at `toInputSchema`'s JSDoc in
+  `src/adapters/mcp.ts` as the canonical record of the SDK-v1
+  `inputSchema.type` Zod-validation quirk that the `allOf` →
+  `type: "object"` synthesis addresses. Resolves
+  [#45](https://github.com/feniix/bridgekit/issues/45).
+
 ## [0.9.4] - 2026-05-27
 
 ### Fixed

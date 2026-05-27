@@ -48,6 +48,10 @@ This catalog originally backed two scripts: `verify-bridgekit-dist.mjs` (manifes
 
 **Motivation**: v2 migration is a separate decision documented in `docs/releasing.md#mcp-sdk-stance`. Catching this at the manifest level (rather than waiting for the runtime to break) keeps PR review focused.
 
+**Related v1 quirks to revisit on v2 bump**:
+
+- `tools/list` synthesizes `type: "object"` on schemas whose top-level lowering is `allOf` (e.g., `Type.Intersect`-rooted tools). See `toInputSchema`'s JSDoc in `src/adapters/mcp.ts` for the canonical record. The synthesis exists because the MCP SDK v1 client Zod-validates `inputSchema.type === "object"`; if SDK v2 relaxes or moves that check, this synthesis can be removed.
+
 **Removable?** Only when an explicit v2 migration ratifies the SDK bump.
 
 ---
