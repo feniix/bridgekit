@@ -241,35 +241,20 @@ For mixed source-loaded pi + compiled MCP packages, keep the pi source entrypoin
 }
 ```
 
-The wrapper should resolve the generated MCP server relative to the installed package, build it when missing in local/workspace execution, and preserve build failures:
+The wrapper should resolve the generated MCP server relative to the installed package, build it when missing in local/workspace execution, and preserve build failures. BridgeKit ships this as a built-in helper under the `/bin-wrapper` subpath:
 
 ```js
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
-import { spawnSync } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { runBinWrapper } from "@feniix/bridgekit/bin-wrapper";
 
-const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const serverPath = join(packageRoot, "dist", "extensions", "mcp-server.js");
-
-if (!existsSync(serverPath)) {
-  const build = spawnSync("npm", ["run", "build:mcp", "--silent"], {
-    cwd: packageRoot,
-    stdio: "inherit",
-    shell: process.platform === "win32",
-    timeout: 60_000,
-  });
-
-  if (build.status !== 0 || !existsSync(serverPath)) {
-    console.error("[my-tools] Failed to build the local MCP server. Run `npm run build:mcp` and try again.");
-    process.exit(build.status && build.status !== 0 ? build.status : 1);
-  }
-}
-
-const { runServer } = await import(pathToFileURL(serverPath).href);
-await runServer();
+await runBinWrapper({
+  metaUrl: import.meta.url,
+  mcpEntry: "dist/extensions/mcp-server.js",
+  buildScript: "build:mcp",
+});
 ```
+
+`mcpEntry` and `buildScript` are the two options consumers typically vary. The MCP entry module must export `runServer(): Promise<void>` (the convention used throughout these examples). `buildTimeoutMs` (default `60_000`) and `logPrefix` (default `"bridgekit-bin"`) are available for tuning but rarely needed.
 
 Commit the wrapper with executable mode (`chmod +x bin/my-tools-mcp.js`) and verify `npm pack --dry-run --json` includes it with executable mode.
 
