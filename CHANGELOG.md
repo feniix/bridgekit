@@ -21,6 +21,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `PortableToolContext<"custom">` becomes `PortableToolContext` (cast `host`
   at the consumer if a custom literal is needed).
 
+  Cast pattern (custom literal at the adapter boundary):
+
+  ```ts
+  // PortableToolContext.host is fixed to PortableToolBuiltInHost.
+  // A direct `as "custom-runtime"` fails under strict (TS2352 — no overlap);
+  // cast through `unknown` instead.
+  const ctx: PortableToolContext = {
+    host: "custom-runtime" as unknown as PortableToolBuiltInHost,
+  };
+  ```
+
+  Caveat: the cast lies at the type-system boundary, so
+  `switch (ctx.host) { ... default: assertNever(ctx.host); }` patterns will
+  fall through on the custom literal at runtime. For custom dispatch, carry
+  the host identifier on an adapter-owned field rather than on `ctx.host`,
+  or do a runtime allowlist check before exhaustive narrowing.
+
   No consumer in tree or in the three known downstream consumers
   (pi-sequential-thinking, pi-exa, pi-code-reasoning) used the generic.
   Resolves [#5](https://github.com/feniix/bridgekit/issues/5).
