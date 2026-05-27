@@ -4,7 +4,20 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.3] - Unreleased
+## [0.9.4] - 2026-05-27
+
+### Fixed
+
+- `isObjectSchema` now short-circuits on `$ref` before checking
+  `type === "object"`, closing a hole where a hybrid `{type: "object", $ref:
+  "..."}` schema would bypass the construction-time `$ref` rejection
+  introduced in 0.9.3. The hybrid shape is not produced by TypeBox today;
+  the fix guards against future schema producers (including hand-crafted
+  JSON Schema). Existing `Type.Object` (no `$ref`), `Type.Cyclic` (`$ref`
+  without `type`), and `Type.Intersect` (`allOf` at root, no `$ref`)
+  behavior is unchanged. Resolves [#51](https://github.com/feniix/bridgekit/issues/51).
+
+## [0.9.3] - 2026-05-27
 
 ### Fixed
 
