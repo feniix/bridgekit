@@ -72,7 +72,7 @@ This catalog originally backed two scripts: `verify-bridgekit-dist.mjs` (manifes
 
 ## inv-pack-file-list-shape
 
-**Assertion**: The packed tarball file list includes every required public entry (`package.json`, `README.md`, `llms.txt`, `examples/README.md`, the eight `dist/src/{index,pi,mcp,bin-wrapper}.{js,d.ts}` files) and excludes `*.test.*`, `*.typecheck.*`, `*.map`, `tsconfig.tsbuildinfo`. The internal `dist/src/bin-wrapper-internal.{js,d.ts}` ships in the tarball (the public `bin-wrapper.js` imports from it at runtime) but is not reachable through `package.json#exports`; see `inv-deep-imports-fail` below.
+**Assertion**: The packed tarball file list includes every required public entry (`package.json`, `README.md`, `CHANGELOG.md`, `llms.txt`, `examples/README.md`, the eight `dist/src/{index,pi,mcp,bin-wrapper}.{js,d.ts}` files) and excludes `*.test.*`, `*.typecheck.*`, `*.map`, `tsconfig.tsbuildinfo`. The internal `dist/src/bin-wrapper-internal.{js,d.ts}` ships in the tarball (the public `bin-wrapper.js` imports from it at runtime) but is not reachable through `package.json#exports`; see `inv-deep-imports-fail` below.
 
 **Where**: `scripts/smoke-package.mjs:assertPackFileList`.
 
