@@ -93,7 +93,6 @@ async function assertTypesCompile(installDir) {
         type PortableToolBuiltInHost,
         type PortableToolContext,
         type PortableToolErrorDetails,
-        type PortableToolHost,
         type PortableToolHostExtras,
         type PortableToolResult,
         type PortableValidationFailure,
@@ -120,22 +119,9 @@ async function assertTypesCompile(installDir) {
         },
       });
 
-      const customTool = definePortableTool<typeof parameters, "custom-host">({
-        name: "custom_host_tool",
-        title: "Custom Host Tool",
-        description: "Custom host typecheck fixture.",
-        parameters,
-        execute(args, ctx) {
-          const customHost: "custom-host" = ctx.host;
-          return { text: customHost + ":" + args.text };
-        },
-      });
-
       const builtInHost: PortableToolBuiltInHost = "mcp";
       const defaultContext: PortableToolContext = { host: builtInHost };
-      const customHost: PortableToolHost<"custom-host"> = "custom-host";
       void defaultContext;
-      void customHost;
 
       const options: CreateMcpServerOptions = {
         name: "typecheck-server",
@@ -153,11 +139,7 @@ async function assertTypesCompile(installDir) {
       async function run(): Promise<PortableToolResult> {
         return executePortableTool(tool, { text: "hello" }, { host: "test" });
       }
-      async function runCustom(): Promise<PortableToolResult> {
-        return executePortableTool(customTool, { text: "hello" }, { host: "custom-host" });
-      }
       void run;
-      void runCustom;
 
       const error: unknown = new PortableToolExecutionError({
         text: "bad",

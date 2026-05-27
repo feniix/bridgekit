@@ -96,23 +96,6 @@ if (result.isError) {
 }
 ```
 
-## Custom host typing
-
-Default tools accept only built-in hosts: `"pi" | "mcp" | "test"`.
-For a custom adapter, opt in explicitly:
-
-```ts
-const customTool = definePortableTool<typeof params, "custom-host">({
-  // ...
-  execute(args, ctx) {
-    const host: "custom-host" = ctx.host;
-    return { text: host };
-  },
-});
-```
-
-Use `PortableToolHost<"custom-host">` when a value may be either a built-in host or that extension.
-
 ## Mixed source-loaded hosts and compiled MCP bins
 
 Some hosts, such as pi in source-extension packages, may intentionally load TypeScript source while MCP clients launched from npm need compiled JavaScript. In that case:
