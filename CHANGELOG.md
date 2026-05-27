@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.10.0] - Unreleased
 
+### Changed
+
+- `signalFromExtra` (internal helper at `src/adapters/mcp-signal.ts`) removed.
+  The MCP SDK exposes `RequestHandlerExtra<ServerRequest, ServerNotification>`
+  with a guaranteed non-optional `signal: AbortSignal` field; the duck-typing
+  helper existed only because the contract was undocumented. `createMcpServer`'s
+  `tools/call` handler now reads `extra.signal` directly with a typed `extra`
+  parameter. No behavior change; cancellation propagation is unchanged. An
+  adversarial type-level pin in `src/adapters/mcp.typecheck.ts` fails closed
+  if the SDK ever changes `signal`'s type. Resolves
+  [#3](https://github.com/feniix/bridgekit/issues/3).
+
 ### Removed (breaking)
 
 - `PortableToolHost<TExtension extends string>` type alias — replaced by the
