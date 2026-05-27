@@ -4,6 +4,27 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - Unreleased
+
+### Removed (breaking)
+
+- `PortableToolHost<TExtension extends string>` type alias — replaced by the
+  fixed `PortableToolBuiltInHost = "pi" | "mcp" | "test"` union.
+- `<THost extends string>` generic parameter on `PortableTool`,
+  `PortableToolContext`, `definePortableTool`, `executePortableTool`, and
+  `validatePortableToolArgs`. Host is now a fixed literal union; adapters
+  outside `"pi" | "mcp"` should cast at their adapter boundary instead of
+  extending the type union.
+
+  Migration: drop the second generic argument from any of those types.
+  `PortableTool<typeof params, "custom">` becomes `PortableTool<typeof params>`.
+  `PortableToolContext<"custom">` becomes `PortableToolContext` (cast `host`
+  at the consumer if a custom literal is needed).
+
+  No consumer in tree or in the three known downstream consumers
+  (pi-sequential-thinking, pi-exa, pi-code-reasoning) used the generic.
+  Resolves [#5](https://github.com/feniix/bridgekit/issues/5).
+
 ## [0.9.5] - Unreleased
 
 ### Documentation
