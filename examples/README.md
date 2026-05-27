@@ -320,7 +320,7 @@ Best practices for `hostExtras`:
 
 - Keep tool *behavior* host-neutral. `hostExtras` carries *data* the adapter reads on the tool's behalf; do not embed callbacks or runtime logic.
 - Set only the fields the adapter recognises; unrecognised keys are silently ignored, but they add noise to the definition.
-- For custom-host adapters, extend `PortableToolHostExtras` via `declare module "@feniix/bridgekit"` so consumers of your adapter get type safety on the new namespace.
+- If you ship an adapter for a host outside `"pi" | "mcp"`, cast `ctx.host` at the adapter boundary (the host union is fixed since 0.10.0). For type-safe per-host metadata in your adapter's namespace, extend `PortableToolHostExtras` via `declare module "@feniix/bridgekit"` so consumers of your adapter get type safety on the new namespace.
 
 See `docs/rfc-host-extras.md` for the full design rationale (which fields qualify, why a top-level field beats a sidecar map, the closure rule for future additions).
 
