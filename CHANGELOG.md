@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.10.0] - Unreleased
 
+### Added
+
+- New subpath export `@feniix/bridgekit/bin-wrapper` shipping
+  `runBinWrapper({ metaUrl, mcpEntry, buildScript, ... })`. Eliminates
+  the ~25-line "resolve dist path → spawn build if missing → import
+  and run" boilerplate that mixed source-loaded pi + compiled MCP
+  packages have been copy-pasting. Three downstream consumers
+  (pi-sequential-thinking, pi-exa, pi-code-reasoning) carry hand-rolled
+  versions today and can migrate in one-line replacements. Tested
+  against four canonical scenarios (entry present; entry built on
+  demand; build fails non-zero; build exits 0 with file still missing)
+  plus a negative for entry modules missing the required `runServer`
+  export. Resolves
+  [#6](https://github.com/feniix/bridgekit/issues/6).
+
 ### Changed
 
 - `signalFromExtra` (internal helper at `src/adapters/mcp-signal.ts`) removed.

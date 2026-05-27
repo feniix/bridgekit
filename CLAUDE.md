@@ -28,19 +28,20 @@ There is intentionally **no** `release` or `publish` script — `scripts/smoke-p
 
 ```
 src/
-  index.ts            # re-exports core (definePortableTool, executePortableTool, types)
-  pi.ts               # re-exports pi adapter
-  mcp.ts              # re-exports mcp adapter
+  index.ts                  # re-exports core (definePortableTool, executePortableTool, types)
+  pi.ts                     # re-exports pi adapter
+  mcp.ts                    # re-exports mcp adapter
+  bin-wrapper.ts            # re-exports runBinWrapper (thin delegate to bin-wrapper-internal)
+  bin-wrapper-internal.ts   # internal: runBinWrapperWithDeps + dependency-injection seams (not in exports map)
   core/
     define-tool.ts    # PortableTool, PortableToolResult, PortableToolContext, host union types
     execute-tool.ts   # validatePortableToolArgs + executePortableTool
   adapters/
     pi.ts             # registerPiTools + PortableToolExecutionError
     mcp.ts            # createMcpServer + runMcpStdioServer
-    mcp-signal.ts     # signalFromExtra: pulls AbortSignal from MCP request extras
 ```
 
-Each of the three entrypoints (`.`, `./pi`, `./mcp`) maps to its own compiled file under `dist/src/`. **The split is load-bearing:** pi-only consumers must not have to pull the MCP SDK, and vice versa. Do not move adapter code into the root entrypoint and do not add cross-imports between `adapters/pi.ts` and `adapters/mcp.ts`.
+Each of the four entrypoints (`.`, `./pi`, `./mcp`, `./bin-wrapper`) maps to its own compiled file under `dist/src/`. **The split is load-bearing:** pi-only consumers must not have to pull the MCP SDK, and vice versa. Do not move adapter code into the root entrypoint and do not add cross-imports between `adapters/pi.ts` and `adapters/mcp.ts`. `bin-wrapper.ts` is host-neutral packaging glue (no MCP SDK, no pi imports); its internal module ships in the tarball but is not reachable via the exports map (pinned by `inv-deep-imports-fail`).
 
 ### Core contract
 
@@ -82,8 +83,8 @@ For per-host metadata (advisory hints, lifecycle hooks), extend `PortableToolHos
 - Use `isError: true` for expected domain failures. Throw only for unexpected programmer/adapter/runtime errors.
 - Respect `ctx.signal` in long-running tools; emit progress via `ctx.progress?.(...)`.
 - **ESM internal imports use `.js` extensions** even though the source is `.ts` (NodeNext resolution): `from "./define-tool.js"`.
-- Consumers must use only the three public entrypoints — never deep-import from `dist/` or `src/`. The smoke test asserts `ERR_PACKAGE_PATH_NOT_EXPORTED` for `@feniix/bridgekit/dist/...`.
-- For downstream examples/docs that expose MCP stdio through npm `bin` and depend on generated output, prefer a checked-in `bin/` wrapper over pointing directly at `dist/`. The wrapper should resolve the package-local generated server, optionally run the package-local build for workspace/local execution, preserve build failures, and have executable mode verified by `npm pack --dry-run --json`.
+- Consumers must use only the four public entrypoints — never deep-import from `dist/` or `src/`. The smoke test asserts `ERR_PACKAGE_PATH_NOT_EXPORTED` for `@feniix/bridgekit/dist/...`.
+- For downstream examples/docs that expose MCP stdio through npm `bin` and depend on generated output, use the built-in `runBinWrapper` from `@feniix/bridgekit/bin-wrapper` (since 0.10.0). The helper resolves the package-local generated server, runs the package-local build for workspace/local execution when missing, preserves build failures, and distinguishes build-timeout from build-failure in its diagnostic. `mcpEntry` and `buildScript` must be literal strings — sourcing them from CLI args or env vars exposes arbitrary-file import and (on Windows) command injection. Verify the bin script's executable mode via `npm pack --dry-run --json`.
 - Biome (`biome.json`) is the only formatter/linter. Enforced rules of note: `noExplicitAny`, `noNonNullAssertion`, `noUnusedImports`. Two-space indent, 120-col, double quotes, semicolons.
 - `PortableTool.hostExtras` is the canonical place for per-host metadata (0.9+). Tool definitions stay host-neutral; host-specific concerns (pi's `pendingMessage` / `promptSnippet` / `promptGuidelines`, MCP's `annotations`) live in the corresponding `hostExtras.<host>` namespace. Adding host-specific fields directly to `PortableTool`'s top-level shape is wrong — extend `PortableToolHostExtras` instead (via TypeScript module augmentation for custom-host adapters). Each adapter's read path must gate on `!== undefined` so tools without `hostExtras` produce byte-identical wire payloads to pre-0.9 versions; pin with a no-hostExtras key-set assertion alongside any new field.
 
@@ -101,7 +102,7 @@ For per-host metadata (advisory hints, lifecycle hooks), extend `PortableToolHos
 ## Things not to do
 
 - Do not deep-import from `dist/` or `src/` in tests, examples, or docs — use the package entrypoints.
-- Do not collapse the three entrypoints into a single barrel — pi-only consumers must not pull the MCP SDK.
+- Do not collapse the four entrypoints into a single barrel — pi-only consumers must not pull the MCP SDK, and the bin-wrapper's `node:child_process` import must stay out of library-only consumers.
 - Do not add a high-level `registerMcpTools` helper without first proving SDK compatibility; `scripts/smoke-package.mjs` and `src/adapters/mcp.test.ts` both enforce its absence.
 - Do not throw inside `executePortableTool` for validation failures — return `isError: true`. The adapters convert as needed.
 - Do not add `workspace:` or `file:` dependency ranges, or `release`/`publish` scripts to `package.json`. `scripts/smoke-package.mjs` will fail.

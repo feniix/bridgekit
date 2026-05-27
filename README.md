@@ -85,11 +85,13 @@ import {
 } from "@feniix/bridgekit";
 import { registerPiTools } from "@feniix/bridgekit/pi";
 import { createMcpServer, runMcpStdioServer } from "@feniix/bridgekit/mcp";
+import { runBinWrapper } from "@feniix/bridgekit/bin-wrapper";
 ```
 
 - Root entrypoint: host-neutral tool definitions, validation, and execution helpers.
 - `/pi`: pi adapter only.
 - `/mcp`: MCP server adapter only.
+- `/bin-wrapper`: optional helper for npm `bin` scripts that need to build a local compiled MCP entry on first invocation.
 
 Do not deep-import from `dist/` or `src/` in consuming packages.
 
