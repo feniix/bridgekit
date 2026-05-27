@@ -7,7 +7,7 @@ Use this package when you need to define a tool once and expose it through both 
 1. `README.md` — public API, contracts, best practices, packaging notes.
 2. `llms.txt` — compact agent-facing usage rules and anti-patterns.
 3. `examples/README.md` — copyable end-to-end layouts for shared tools, pi extension wiring, MCP stdio server wiring, and per-host metadata via `hostExtras`.
-4. Published declarations such as `dist/src/index.d.ts`, `dist/src/pi.d.ts`, and `dist/src/mcp.d.ts` — canonical installed-package type contracts. In a source checkout, the matching `src/` files contain implementation context.
+4. Published declarations such as `dist/src/index.d.ts`, `dist/src/pi.d.ts`, `dist/src/mcp.d.ts`, and `dist/src/bin-wrapper.d.ts` — canonical installed-package type contracts. In a source checkout, the matching `src/` files contain implementation context.
 
 ## Import map
 
@@ -104,12 +104,24 @@ Some hosts, such as pi in source-extension packages, may intentionally load Type
 
 - Keep the host source entrypoint if that is the package convention, e.g. `pi.extensions: ["./extensions/index.ts"]`.
 - Add a package-local MCP build and point npm `bin` at a checked-in wrapper under `bin/`, not directly at generated `dist/` output.
-- The wrapper should resolve the package-local generated MCP server, run the package-local build when output is missing in workspace/local execution, and preserve non-zero build failures.
+- **Use the built-in `runBinWrapper` helper** (since 0.11.0) instead of a hand-rolled wrapper. It resolves the package-local generated entry, runs the package-local build when output is missing in workspace/local execution, preserves non-zero build failures, recovers when the build emits the entry despite a non-zero exit, and emits a distinct timeout diagnostic when `spawnSync` is killed by `buildTimeoutMs`:
+
+  ```js
+  #!/usr/bin/env node
+  import { runBinWrapper } from "@feniix/bridgekit/bin-wrapper";
+  await runBinWrapper({
+    metaUrl: import.meta.url,
+    mcpEntry: "dist/extensions/mcp-server.js",
+    buildScript: "build:mcp",
+  });
+  ```
+
+  `mcpEntry` and `buildScript` must be literal strings — sourcing them from CLI args or env vars opens arbitrary-file import and Windows command injection. The MCP entry module must export `async function runServer(): Promise<void>`.
 - Narrow the MCP build to the MCP entrypoint and shared host-neutral modules; avoid compiling pi adapter entrypoints into the standalone MCP path.
 - Put runtime imports used by the compiled MCP bin in `dependencies`, not only peers or dev dependencies.
 - Declare BridgeKit's Node engine requirement in the downstream package (`>=22.19.0`).
-- Ensure the checked-in wrapper is executable (`chmod +x` or equivalent) and verify the mode with `npm pack --dry-run --json`.
-- Test wrapper behavior for existing output, missing output, failed builds, and builds that exit successfully without creating the expected file.
+- Ensure the bin script is executable (`chmod +x` or equivalent) and verify the mode with `npm pack --dry-run --json`.
+- If you write your own wrapper instead of using `runBinWrapper`, test the four behavior modes: existing output, missing output that the build creates, failed builds (non-zero exit), and builds that exit successfully without creating the expected file.
 
 ## Anti-patterns
 
