@@ -66,7 +66,7 @@ This package is ESM-only and supports Node.js 22.19.0 or newer. Published module
 - Define a tool once; ship it to pi and MCP without per-host forks.
 - Host-neutral tool files: no pi or MCP SDK imports in the tool definition itself.
 - TypeBox schemas pass through to MCP `inputSchema` directly — no JSON Schema conversion step.
-- Import-passive, `sideEffects: false`, three-entrypoint split (`.`, `./pi`, `./mcp`) so pi-only consumers do not pull the MCP SDK and vice versa.
+- Import-passive, `sideEffects: false`, four-entrypoint split (`.`, `./pi`, `./mcp`, `./bin-wrapper`) so pi-only consumers do not pull the MCP SDK and vice versa.
 - Conformance-tested public surface: a packed-install smoke test enforces the runtime export set, deep-import rejection, and type-level strictness against the installed declarations.
 
 ## API reference
@@ -233,6 +233,41 @@ Portable validation failures and portable `isError: true` results return `CallTo
 
 The two adapters now read in parallel: invalid args and portable `isError` results return `{ isError: true }` from both hosts by default, and the same result-guard helpers (`isValidationFailure`, `isDomainFailure`) narrow them on either side.
 
+### bin-wrapper (since 0.11.0)
+
+The `bin-wrapper` subpath ships a helper for npm `bin` scripts that load a compiled MCP entrypoint and build it on first invocation when the compiled output is missing. Replaces the ~25-line "resolve dist path → spawn build if missing → import and run" boilerplate that downstream consumers with mixed source-loaded pi + compiled MCP packages previously hand-rolled.
+
+```js
+#!/usr/bin/env node
+import { runBinWrapper } from "@feniix/bridgekit/bin-wrapper";
+
+await runBinWrapper({
+  metaUrl: import.meta.url,
+  mcpEntry: "dist/extensions/mcp-server.js",
+  buildScript: "build:mcp",
+});
+```
+
+Options:
+
+- `metaUrl` (required): `import.meta.url` of the bin script. Used to locate the package root (the bin's parent directory).
+- `mcpEntry` (required): path to the compiled MCP entry, relative to the package root (e.g. `"dist/extensions/mcp-server.js"`).
+- `buildScript` (required): npm script to invoke when the entry is missing (e.g. `"build:mcp"`).
+- `buildTimeoutMs` (optional, default `60_000`): timeout for the build subprocess. Distinct "Build timed out…" diagnostic fires when exceeded.
+- `logPrefix` (optional, default `"bridgekit-bin"`): prefix on the "Failed to build…" diagnostic.
+
+The MCP entry module must export `async function runServer(): Promise<void>`. Consumers with a different export name can alias on export.
+
+**Security: `mcpEntry` and `buildScript` must be literal strings in the caller's source.** The helper joins `mcpEntry` onto the resolved package root and dynamically `import()`s it, and it passes `buildScript` to `spawnSync` (with `shell: true` on Windows where `&`, `|`, and `^` are shell metacharacters). Sourcing either from CLI args or environment variables exposes arbitrary-file import and Windows command injection.
+
+Behavior on missing entry:
+
+- Build emits the entry → import and call `runServer()`.
+- Build exits non-zero but the entry exists → recover (import and call `runServer()`).
+- Build exits 0 but the entry is still missing → exit with code 1, generic "Failed to build…" diagnostic.
+- Build exits non-zero with entry missing → exit with the build's status code, generic diagnostic.
+- Build killed by timeout (SIGTERM) → exit 1, distinct timeout diagnostic naming `buildTimeoutMs`.
+
 ## Best practices
 
 Tool definition best practices:
@@ -258,7 +293,7 @@ Package and release checklist:
 - Avoid `workspace:` or `file:` dependency ranges in publishable packages.
 - Avoid dangling `sourceMappingURL` comments: publish maps and useful sources together, or disable source maps for package builds.
 - For MCP stdio bins, ensure the executable entrypoint starts with a Node shebang, has executable mode (`chmod +x` or equivalent), and is included by `npm pack --dry-run --json`.
-- If an npm-launched bin depends on generated output, prefer a checked-in wrapper under `bin/` over pointing `bin` directly at `dist/`; the wrapper should resolve the package-local generated file and may run the package-local build for workspace/local execution.
+- If an npm-launched bin depends on generated output, use `runBinWrapper` from `@feniix/bridgekit/bin-wrapper` (since 0.11.0) — it resolves the package-local generated entry, runs the package-local build when output is missing in workspace/local execution, preserves build failures, and distinguishes timeout from build error in its diagnostic. The bin script becomes a three-line invocation; no hand-rolled wrapper needed.
 - If a package keeps a source-loaded host entrypoint (for example a pi extension source file), use a package-local MCP build behind that wrapper and narrow the build to the MCP entrypoint plus shared host-neutral modules.
 - Declare a compatible Node engine (`>=22.19.0`) in downstream packages that expose BridgeKit-powered MCP bins.
 - Run `npm run check`, `npm run test`, `npm run pack:dry-run`, and `npm run package-smoke` before publishing.
@@ -272,5 +307,5 @@ Read these files in order:
 
 1. `README.md` — public API, contracts, and best practices.
 2. `llms.txt` — compact agent-facing usage rules and anti-patterns.
-3. `examples/README.md` — copyable layouts for shared tools, pi extensions, MCP stdio servers, and per-host metadata via `hostExtras`.
-4. Published declarations such as `dist/src/index.d.ts`, `dist/src/pi.d.ts`, and `dist/src/mcp.d.ts` — canonical installed-package type contracts. In a source checkout, the matching `src/` files contain the same implementation context.
+3. `examples/README.md` — copyable layouts for shared tools, pi extensions, MCP stdio servers, per-host metadata via `hostExtras`, and bin wrappers via `runBinWrapper`.
+4. Published declarations such as `dist/src/index.d.ts`, `dist/src/pi.d.ts`, `dist/src/mcp.d.ts`, and `dist/src/bin-wrapper.d.ts` — canonical installed-package type contracts. In a source checkout, the matching `src/` files contain the same implementation context.
