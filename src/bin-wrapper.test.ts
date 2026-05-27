@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { SpawnSyncReturns } from "node:child_process";
+import type { SpawnSyncOptions, SpawnSyncReturns } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -130,7 +130,14 @@ test("entry missing -> build succeeds -> pass-through", async () => {
   assert.equal(existsSync(fx.entryAbsPath), false);
 
   let spawnCalls = 0;
-  let spawnArgs: { command?: string; args?: readonly string[]; cwd?: unknown; shell?: unknown; timeout?: unknown } = {};
+  let spawnArgs: {
+    command?: string;
+    args?: readonly string[];
+    cwd?: unknown;
+    shell?: unknown;
+    timeout?: unknown;
+    stdio?: SpawnSyncOptions["stdio"];
+  } = {};
 
   try {
     const deps: BinWrapperDeps = {
@@ -142,6 +149,7 @@ test("entry missing -> build succeeds -> pass-through", async () => {
           cwd: options.cwd,
           shell: options.shell,
           timeout: options.timeout,
+          stdio: options.stdio,
         };
         fx.writeEntry(entrySource);
         return fakeSpawnResult(0);
@@ -157,6 +165,41 @@ test("entry missing -> build succeeds -> pass-through", async () => {
     assert.equal(spawnArgs.shell, process.platform === "win32");
     // Pin the default: 60_000ms. Documented in examples/README.md as part of the public contract.
     assert.equal(spawnArgs.timeout, 60_000);
+    // Pin the buildStdio default: `"inherit"`. Existing consumers that adopted
+    // runBinWrapper before 0.13.0 rely on this; do not change without a
+    // breaking-version bump and a migration note.
+    assert.equal(spawnArgs.stdio, "inherit");
+    assert.equal(existsSync(flagFile), true);
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("buildStdio override propagates to spawnSync (MCP-stdio-bin pattern)", async () => {
+  const fx = makeFixture();
+  const flagFile = join(fx.packageRoot, "ran.flag");
+  const entrySource =
+    `import { writeFileSync } from "node:fs";\n` +
+    `export async function runServer() { writeFileSync(${JSON.stringify(flagFile)}, "ok"); }\n`;
+
+  // The canonical MCP-stdio-bin override: child stdout → /dev/null so build
+  // output cannot contaminate the parent's JSON-RPC framing; stderr stays
+  // visible so build diagnostics surface.
+  const mcpStdio: SpawnSyncOptions["stdio"] = ["ignore", "inherit", "inherit"];
+  let observedStdio: SpawnSyncOptions["stdio"] | undefined;
+
+  try {
+    const deps: BinWrapperDeps = {
+      spawnSync: (_command, _args, options) => {
+        observedStdio = options.stdio;
+        fx.writeEntry(entrySource);
+        return fakeSpawnResult(0);
+      },
+      exit: defaultBinWrapperDeps.exit,
+    };
+    await runBinWrapperWithDeps(makeOptions(fx, { buildStdio: mcpStdio }), deps);
+
+    assert.deepEqual(observedStdio, mcpStdio, "buildStdio must reach spawnSync's stdio option unchanged");
     assert.equal(existsSync(flagFile), true);
   } finally {
     fx.cleanup();
