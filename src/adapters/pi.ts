@@ -135,7 +135,11 @@ export function registerPiTools(
       // so tools without `hostExtras.pi` build a registration object whose
       // own-property keys are unchanged from the pre-0.9 shape.
       ...(piExtras?.promptSnippet !== undefined && { promptSnippet: piExtras.promptSnippet }),
-      ...(piExtras?.promptGuidelines !== undefined && { promptGuidelines: piExtras.promptGuidelines }),
+      // Spread into a fresh array at the boundary: bridgekit declares promptGuidelines
+      // as `readonly string[]` (signal: "we don't mutate consumer metadata"), but
+      // pi-coding-agent's registerTool input is `string[]` (mutable). The boundary
+      // copy satisfies both sides without weakening either declared type.
+      ...(piExtras?.promptGuidelines !== undefined && { promptGuidelines: [...piExtras.promptGuidelines] }),
       async execute(_toolCallId, params, signal, onUpdate, _ctx) {
         let result: PortableToolResult;
         try {

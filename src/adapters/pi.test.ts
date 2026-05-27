@@ -595,7 +595,12 @@ test("registerPiTools passes hostExtras.pi.promptSnippet / promptGuidelines thro
   assert.equal(registered.length, 1);
   const registration = registered[0];
   assert.equal(registration?.promptSnippet, "Call this tool when the user asks to echo text.");
-  assert.equal(registration?.promptGuidelines, guidelines, "guidelines forwarded by reference (immutable contract)");
+  // As of 0.9.1, promptGuidelines is spread-copied at the boundary so
+  // pi-coding-agent's mutable `string[]` parameter shape is satisfied without
+  // widening bridgekit's `readonly string[]` declaration. Contents identical,
+  // reference distinct.
+  assert.deepEqual(registration?.promptGuidelines, ["Use sparingly.", "Always validate the input."]);
+  assert.notStrictEqual(registration?.promptGuidelines, guidelines);
 });
 
 test("registerPiTools omits unset pi pass-through fields (byte-identical shape when hostExtras is absent)", () => {
