@@ -130,7 +130,8 @@ test("entry missing -> build succeeds -> pass-through", async () => {
   assert.equal(existsSync(fx.entryAbsPath), false);
 
   let spawnCalls = 0;
-  let spawnArgs: { command?: string; args?: readonly string[]; cwd?: unknown; shell?: unknown } = {};
+  let spawnArgs: { command?: string; args?: readonly string[]; cwd?: unknown; shell?: unknown; timeout?: unknown } =
+    {};
 
   try {
     const deps: BinWrapperDeps = {
@@ -141,6 +142,7 @@ test("entry missing -> build succeeds -> pass-through", async () => {
           args,
           cwd: options.cwd,
           shell: options.shell,
+          timeout: options.timeout,
         };
         fx.writeEntry(entrySource);
         return fakeSpawnResult(0);
@@ -154,8 +156,43 @@ test("entry missing -> build succeeds -> pass-through", async () => {
     assert.deepEqual(spawnArgs.args, ["run", "build:mcp", "--silent"]);
     assert.equal(spawnArgs.cwd, fx.packageRoot);
     assert.equal(spawnArgs.shell, process.platform === "win32");
+    // Pin the default: 60_000ms. Documented in examples/README.md as part of the public contract.
+    assert.equal(spawnArgs.timeout, 60_000);
     assert.equal(existsSync(flagFile), true);
   } finally {
+    fx.cleanup();
+  }
+});
+
+test("custom buildTimeoutMs and logPrefix propagate end-to-end", async () => {
+  const fx = makeFixture();
+  const { captured, restore } = captureConsoleError();
+
+  try {
+    let spawnTimeout: unknown;
+    let thrown: unknown;
+    try {
+      const deps: BinWrapperDeps = {
+        spawnSync: (_command, _args, options) => {
+          spawnTimeout = options.timeout;
+          // Force the build-failed branch so the diagnostic fires with the custom prefix.
+          return fakeSpawnResult(3);
+        },
+        exit: exitStub,
+      };
+      await runBinWrapperWithDeps(makeOptions(fx, { buildTimeoutMs: 1500, logPrefix: "custom-prefix" }), deps);
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.ok(thrown instanceof ExitInvoked, `expected ExitInvoked, got ${thrown}`);
+    assert.equal((thrown as ExitInvoked).code, 3);
+    assert.equal(spawnTimeout, 1500, "buildTimeoutMs must propagate to spawnSync's timeout option");
+    assert.equal(captured.length, 1);
+    assert.match(captured[0] ?? "", /\[custom-prefix\] Failed to build/);
+    assert.doesNotMatch(captured[0] ?? "", /\[bridgekit-bin\]/);
+  } finally {
+    restore();
     fx.cleanup();
   }
 });
