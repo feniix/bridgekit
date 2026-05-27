@@ -4,6 +4,19 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - Unreleased
+
+### Fixed
+
+- `createMcpServer` construction errors now recognize top-level `$ref` /
+  `Type.Cyclic` / `Type.Recursive` schemas as a distinct rejection class with
+  `$ref`-specific guidance (inline the referenced shape or split recursive
+  shapes into multiple non-recursive tools), instead of falling through to
+  the misdirecting "wrap with `Type.Object`" recipe. New stable error code
+  `BRIDGEKIT_MCP_REF_PARAMETERS` for consumer branching. Existing
+  `BRIDGEKIT_MCP_NON_OBJECT_PARAMETERS` and `BRIDGEKIT_MCP_DUPLICATE_TOOL_NAME`
+  codes are unchanged. Resolves [#44](https://github.com/feniix/bridgekit/issues/44).
+
 ## [0.9.2] - 2026-05-26
 
 ### Fixed

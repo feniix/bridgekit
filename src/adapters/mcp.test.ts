@@ -125,6 +125,74 @@ test("createMcpServer throws at construction for Type.Union of objects at the to
   );
 });
 
+// Issue #44: Type.Cyclic produces `{ $defs: {...}, $ref: "Name" }` at the
+// root. Before 0.9.3, this fell through to the generic "wrap with
+// Type.Object" recipe, which is the wrong fix for a recursive schema (the
+// user wants to express recursion, not wrap a primitive). The new branch
+// surfaces $ref-specific guidance (inline or split) and a stable error code
+// `BRIDGEKIT_MCP_REF_PARAMETERS` so consumers can branch on the cause.
+test("createMcpServer rejects Type.Cyclic / top-level $ref schemas with $ref-specific guidance", () => {
+  const Node = Type.Object({ value: Type.String(), children: Type.Array(Type.Ref("Node")) });
+  const recursive = Type.Cyclic({ Node }, "Node");
+  const tool = definePortableTool({
+    name: "recursive_tool",
+    title: "Recursive Tool",
+    description: "Schema that recurses on itself via Type.Cyclic.",
+    parameters: recursive,
+    execute: () => ({ text: "ok" }),
+  });
+
+  assert.throws(
+    () => createMcpServer({ name: "bad-server", version: "0.1.0", tools: [tool] }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /^createMcpServer: tool "recursive_tool"/);
+      assert.match(error.message, /type="\$ref"/);
+      // Recipe must mention either inlining or splitting; NOT the
+      // misdirecting "wrap with Type.Object" recipe from the generic branch.
+      assert.ok(
+        /inline.*Type\.Object|split.*recursive/i.test(error.message),
+        "expected $ref-specific recipe (inline or split)",
+      );
+      // Load-bearing negative: the generic recipe's exact example string
+      // (`Type.Object({ value: Type.String() })`) must NOT appear. Without
+      // this assertion, the test would pass even if $ref shapes fell into
+      // the generic Type.Object wrap recipe branch.
+      assert.ok(
+        !/Type\.Object\(\{ value: Type\.String\(\) \}\)/.test(error.message),
+        "must not emit the generic Type.Object wrap recipe for $ref shapes",
+      );
+      assert.equal((error as Error & { code?: string }).code, "BRIDGEKIT_MCP_REF_PARAMETERS");
+      return true;
+    },
+  );
+});
+
+// Bare Type.Ref("Name") at the top level produces `{ "$ref": "Name" }` with no
+// `$defs` sibling — the same `$ref` detection covers it. Pinned separately
+// from Type.Cyclic so a future refactor that distinguishes the two shapes
+// would not regress the bare case silently.
+test("createMcpServer rejects bare Type.Ref top-level schemas via the same $ref branch", () => {
+  const tool = definePortableTool({
+    name: "bare_ref_tool",
+    title: "Bare Ref Tool",
+    description: "Top-level Type.Ref without surrounding Type.Cyclic.",
+    parameters: Type.Ref("Node"),
+    execute: () => ({ text: "ok" }),
+  });
+
+  assert.throws(
+    () => createMcpServer({ name: "bad-server", version: "0.1.0", tools: [tool] }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /^createMcpServer: tool "bare_ref_tool"/);
+      assert.match(error.message, /type="\$ref"/);
+      assert.equal((error as Error & { code?: string }).code, "BRIDGEKIT_MCP_REF_PARAMETERS");
+      return true;
+    },
+  );
+});
+
 test("createMcpServer throws at construction for empty Type.Intersect", () => {
   const tool = definePortableTool({
     name: "empty_intersect",

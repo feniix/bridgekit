@@ -67,10 +67,23 @@ function isObjectSchema(schema: unknown): boolean {
  * branches and surface the first non-object branch by index — a bare `"allOf"`
  * label is misleading because the rejection is owned by one specific branch,
  * not the composition itself.
+ *
+ * The `$ref` check is first because `Type.Cyclic` produces
+ * `{ $defs: {...}, $ref: "..." }` at the root; the `$ref` is the load-bearing
+ * structural signal regardless of what else is set, and the recipe for that
+ * shape (inline or split) is different from the generic `Type.Object(...)`
+ * wrap recipe.
  */
 function schemaTypeLabel(schema: unknown): string {
   if (typeof schema !== "object" || schema === null) return "unknown";
-  const candidate = schema as { type?: unknown; anyOf?: unknown; oneOf?: unknown; allOf?: unknown };
+  const candidate = schema as {
+    $ref?: unknown;
+    type?: unknown;
+    anyOf?: unknown;
+    oneOf?: unknown;
+    allOf?: unknown;
+  };
+  if (typeof candidate.$ref === "string") return "$ref";
   if (typeof candidate.type === "string") return candidate.type;
   if (Array.isArray(candidate.anyOf)) return "anyOf";
   if (Array.isArray(candidate.oneOf)) return "oneOf";
@@ -110,6 +123,7 @@ function toInputSchema(parameters: TSchema): Tool["inputSchema"] {
  * recipe-shaped and may evolve; the code is part of the public contract).
  */
 const ERROR_CODE_NON_OBJECT_PARAMETERS = "BRIDGEKIT_MCP_NON_OBJECT_PARAMETERS";
+const ERROR_CODE_REF_PARAMETERS = "BRIDGEKIT_MCP_REF_PARAMETERS";
 const ERROR_CODE_DUPLICATE_TOOL_NAME = "BRIDGEKIT_MCP_DUPLICATE_TOOL_NAME";
 
 function throwWithCode(message: string, code: string): never {
@@ -122,6 +136,22 @@ function assertObjectShapedParameters(tools: readonly PortableTool<TSchema>[]): 
   for (const tool of tools) {
     if (!isObjectSchema(tool.parameters)) {
       const typeLabel = schemaTypeLabel(tool.parameters);
+      // Top-level $ref (TypeBox's `Type.Cyclic` lowering, or a bare `Type.Ref`)
+      // gets its own branch and code. The generic "wrap with Type.Object(...)"
+      // recipe is the wrong fix for a recursive schema — the user wants to
+      // express recursion, not wrap a primitive — so a $ref shape needs
+      // $ref-specific guidance (inline or split) before the generic branch
+      // can run.
+      if (typeLabel === "$ref") {
+        throwWithCode(
+          `createMcpServer: tool "${tool.name}" has a top-level $ref schema (type="$ref"). ` +
+            "Top-level $ref / Type.Cyclic schemas are not currently supported by the MCP wire layer " +
+            "because tools/list ships inputSchema by value and the SDK client does not resolve $refs. " +
+            "Inline the referenced schema (wrap the target shape directly with Type.Object(...)) " +
+            "or split recursive shapes into multiple non-recursive tools.",
+          ERROR_CODE_REF_PARAMETERS,
+        );
+      }
       let message =
         `createMcpServer: tool "${tool.name}" has a non-object parameters schema (type="${typeLabel}"). ` +
         "MCP requires Type.Object(...) at the top level; use Type.Object({ value: Type.String() }) " +
