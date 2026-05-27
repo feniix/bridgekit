@@ -168,6 +168,31 @@ test("createMcpServer rejects Type.Cyclic / top-level $ref schemas with $ref-spe
   );
 });
 
+// Bare Type.Ref("Name") at the top level produces `{ "$ref": "Name" }` with no
+// `$defs` sibling — the same `$ref` detection covers it. Pinned separately
+// from Type.Cyclic so a future refactor that distinguishes the two shapes
+// would not regress the bare case silently.
+test("createMcpServer rejects bare Type.Ref top-level schemas via the same $ref branch", () => {
+  const tool = definePortableTool({
+    name: "bare_ref_tool",
+    title: "Bare Ref Tool",
+    description: "Top-level Type.Ref without surrounding Type.Cyclic.",
+    parameters: Type.Ref("Node"),
+    execute: () => ({ text: "ok" }),
+  });
+
+  assert.throws(
+    () => createMcpServer({ name: "bad-server", version: "0.1.0", tools: [tool] }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /^createMcpServer: tool "bare_ref_tool"/);
+      assert.match(error.message, /type="\$ref"/);
+      assert.equal((error as Error & { code?: string }).code, "BRIDGEKIT_MCP_REF_PARAMETERS");
+      return true;
+    },
+  );
+});
+
 test("createMcpServer throws at construction for empty Type.Intersect", () => {
   const tool = definePortableTool({
     name: "empty_intersect",
