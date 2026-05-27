@@ -38,10 +38,8 @@ export interface PortableValidationError {
 
 export type PortableToolBuiltInHost = "pi" | "mcp" | "test";
 
-export type PortableToolHost<TExtension extends string = never> = PortableToolBuiltInHost | TExtension;
-
-export interface PortableToolContext<THost extends string = PortableToolBuiltInHost> {
-  host: THost;
+export interface PortableToolContext {
+  host: PortableToolBuiltInHost;
   signal?: AbortSignal;
   progress?: (update: PortableToolResult) => void;
 }
@@ -147,12 +145,12 @@ export interface PortableToolHostExtras {
   mcp?: McpHostExtras;
 }
 
-export interface PortableTool<TParams extends TSchema = TSchema, THost extends string = PortableToolBuiltInHost> {
+export interface PortableTool<TParams extends TSchema = TSchema> {
   name: string;
   title: string;
   description: string;
   parameters: TParams;
-  execute: (args: Static<TParams>, ctx: PortableToolContext<THost>) => PortableToolResult | Promise<PortableToolResult>;
+  execute: (args: Static<TParams>, ctx: PortableToolContext) => PortableToolResult | Promise<PortableToolResult>;
   /**
    * Optional per-host metadata. Adapters consume the keys they recognise;
    * unknown host namespaces are ignored. Absent → no behavior change.
@@ -165,8 +163,8 @@ export interface PortableTool<TParams extends TSchema = TSchema, THost extends s
   hostExtras?: PortableToolHostExtras;
 }
 
-export function definePortableTool<TParams extends TSchema, THost extends string = PortableToolBuiltInHost>(
-  tool: PortableTool<TParams, THost>,
-): PortableTool<TParams, THost> {
+export function definePortableTool<TParams extends TSchema>(
+  tool: PortableTool<TParams>,
+): PortableTool<TParams> {
   return tool;
 }
