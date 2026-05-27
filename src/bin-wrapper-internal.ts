@@ -48,6 +48,20 @@ export interface BinWrapperOptions {
   buildScript: string;
   buildTimeoutMs?: number;
   logPrefix?: string;
+  /**
+   * stdio mode passed to `spawnSync` when the build script runs. Defaults to
+   * `"inherit"`.
+   *
+   * **MCP stdio server bins must override this.** `process.stdout` IS the
+   * JSON-RPC channel for an MCP stdio server; any output the build subprocess
+   * emits to stdout (npm warnings, postinstall scripts, tsc diagnostics) flows
+   * directly into the parent's stdout via `stdio: "inherit"` and contaminates
+   * JSON-RPC framing. Pass `["ignore", "inherit", "inherit"]` to route the
+   * build's stdout to `/dev/null` while keeping stderr visible.
+   *
+   * @default "inherit"
+   */
+  buildStdio?: SpawnSyncOptions["stdio"];
 }
 
 export interface BinWrapperDeps {
@@ -71,7 +85,7 @@ export async function runBinWrapperWithDeps(options: BinWrapperOptions, deps: Bi
     const timeoutMs = options.buildTimeoutMs ?? DEFAULT_BUILD_TIMEOUT_MS;
     const build = deps.spawnSync("npm", ["run", options.buildScript, "--silent"], {
       cwd: packageRoot,
-      stdio: "inherit",
+      stdio: options.buildStdio ?? "inherit",
       shell: process.platform === "win32",
       timeout: timeoutMs,
     });
