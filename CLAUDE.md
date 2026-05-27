@@ -116,3 +116,4 @@ For per-host metadata (advisory hints, lifecycle hooks), extend `PortableToolHos
 3. `examples/README.md` — copyable layouts for shared tools, pi extension, MCP server, hostExtras.
 4. `dist/src/*.d.ts` (after build) — canonical installed-package type contracts. In a source checkout the matching `src/` files carry the same context.
 5. `docs/extraction.md` / `docs/releasing.md` — historical rationale and future release handoff.
+6. `docs/solutions/` — documented learnings from prior problems (architecture patterns, bug fixes, design decisions), organized by category with YAML frontmatter (`module`, `tags`, `problem_type`). Relevant when implementing or debugging in documented areas.
