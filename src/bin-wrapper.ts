@@ -1,7 +1,19 @@
-import { spawnSync as defaultSpawnSync, type SpawnSyncReturns } from "node:child_process";
+import { spawnSync as defaultSpawnSync, type SpawnSyncOptions, type SpawnSyncReturns } from "node:child_process";
 import { existsSync as defaultExistsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+/**
+ * Narrow purpose-built signature for the {@link BinWrapperOptions._spawnSync}
+ * seam. The helper only invokes one `spawnSync` overload; the seam declares
+ * exactly that overload rather than the full overload set so test fakes do
+ * not need to satisfy unrelated variants.
+ */
+type SpawnSyncSeam = (
+  command: string,
+  args: readonly string[],
+  options: SpawnSyncOptions,
+) => SpawnSyncReturns<Buffer | string>;
 
 /**
  * Options for {@link runBinWrapper}.
@@ -37,7 +49,7 @@ export interface BinWrapperOptions {
    * @internal Test-only injection seam for `spawnSync`. Not part of the public
    * contract; do not rely on it.
    */
-  _spawnSync?: typeof defaultSpawnSync;
+  _spawnSync?: SpawnSyncSeam;
   /**
    * @internal Test-only injection seam for `existsSync`. Not part of the public
    * contract; do not rely on it.
@@ -73,7 +85,7 @@ export interface BinWrapperOptions {
  * ```
  */
 export async function runBinWrapper(options: BinWrapperOptions): Promise<void> {
-  const spawnSync = options._spawnSync ?? defaultSpawnSync;
+  const spawnSync: SpawnSyncSeam = options._spawnSync ?? defaultSpawnSync;
   const existsSync = options._existsSync ?? defaultExistsSync;
   const exit = options._exit ?? ((code: number) => process.exit(code));
 
@@ -81,7 +93,7 @@ export async function runBinWrapper(options: BinWrapperOptions): Promise<void> {
   const entryPath = join(packageRoot, options.mcpEntry);
 
   if (!existsSync(entryPath)) {
-    const build: SpawnSyncReturns<Buffer> = spawnSync("npm", ["run", options.buildScript, "--silent"], {
+    const build = spawnSync("npm", ["run", options.buildScript, "--silent"], {
       cwd: packageRoot,
       stdio: "inherit",
       shell: process.platform === "win32",
