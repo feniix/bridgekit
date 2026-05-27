@@ -6,7 +6,6 @@ export {
   type PortableToolBuiltInHost,
   type PortableToolContext,
   type PortableToolErrorDetails,
-  type PortableToolHost,
   type PortableToolHostExtras,
   type PortableToolResult,
   type PortableValidationError,
