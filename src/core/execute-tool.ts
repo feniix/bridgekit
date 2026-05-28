@@ -144,6 +144,11 @@ type UnionSchemaShape = {
   oneOf?: UnionObjectBranch[];
 };
 
+type ActiveUnionBranch = {
+  index: number;
+  branch: UnionObjectBranch;
+};
+
 function readDiscriminatorValues(propSchema: DiscriminatorPropSchema | undefined): unknown[] {
   // Extract the allowed values from a discriminator-eligible prop schema.
   // Recognizes three shapes:
@@ -238,6 +243,16 @@ function branchDiscriminatorMatches(branch: UnionObjectBranch, value: unknown): 
   return hasDiscriminator;
 }
 
+function findActiveUnionBranch(branches: readonly UnionObjectBranch[], value: unknown): ActiveUnionBranch | undefined {
+  let match: ActiveUnionBranch | undefined;
+  for (const [index, branch] of branches.entries()) {
+    if (!branchDiscriminatorMatches(branch, value)) continue;
+    if (match !== undefined) return undefined;
+    match = { index, branch };
+  }
+  return match;
+}
+
 function isSubsetOf(props: readonly string[], set: ReadonlySet<string>): boolean {
   for (const p of props) if (!set.has(p)) return false;
   return true;
@@ -301,21 +316,12 @@ function suppressSiblingErrorsUnderUnion(
       continue;
     }
     const branchValue = Pointer.Get(value, path);
-    let active: UnionObjectBranch | undefined;
-    let activeIndex = -1;
-    let matchCount = 0;
-    for (let i = 0; i < branches.length; i++) {
-      const branch = getArrayEntry(branches, i);
-      if (branch && branchDiscriminatorMatches(branch, branchValue)) {
-        active = branch;
-        activeIndex = i;
-        matchCount += 1;
-      }
-    }
-    if (matchCount !== 1 || active === undefined) {
+    const activeMatch = findActiveUnionBranch(branches, branchValue);
+    if (!activeMatch) {
       resolutions.set(path, { kind: "no-active" });
       continue;
     }
+    const { branch: active, index: activeIndex } = activeMatch;
     const branchRequired = new Set(active.required ?? []);
     const branchProps = new Set(Object.keys(active.properties ?? {}));
     // Map of property-name -> set of disallowed values held by losing
