@@ -301,21 +301,18 @@ function suppressSiblingErrorsUnderUnion(
       continue;
     }
     const branchValue = Pointer.Get(value, path);
-    let activeIndex: number | undefined;
+    let active: UnionObjectBranch | undefined;
+    let activeIndex = -1;
     let matchCount = 0;
     for (let i = 0; i < branches.length; i++) {
       const branch = getArrayEntry(branches, i);
       if (branch && branchDiscriminatorMatches(branch, branchValue)) {
+        active = branch;
         activeIndex = i;
         matchCount += 1;
       }
     }
-    if (matchCount !== 1 || activeIndex === undefined) {
-      resolutions.set(path, { kind: "no-active" });
-      continue;
-    }
-    const active = getArrayEntry(branches, activeIndex);
-    if (!active) {
+    if (matchCount !== 1 || active === undefined) {
       resolutions.set(path, { kind: "no-active" });
       continue;
     }

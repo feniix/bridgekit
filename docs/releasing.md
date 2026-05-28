@@ -4,7 +4,7 @@ BridgeKit is released to npm via GitHub Actions using npm trusted publishing (OI
 
 ## Workflows
 
-- **`.github/workflows/ci.yml`** — runs on every pull request and on `main` push. Executes `npm run check`, `npm test`, `npm run pack:dry-run`, and `npm run package-smoke`. Required check before merge.
+- **`.github/workflows/ci.yml`** — runs on every pull request and on `main` push. Executes `npm audit --omit=dev --audit-level=high`, `npm run check`, `npm test`, `npm run pack:dry-run`, and `npm run package-smoke`. Required check before merge.
 - **`.github/workflows/release.yml`** — runs only on `workflow_dispatch`. Detects whether `package.json#version` is unpublished, re-runs the full gate, and publishes to npm with `--provenance --access public` unless `dry_run=true`. Skips publish when the version is already on npm.
 
 ## How a release happens
