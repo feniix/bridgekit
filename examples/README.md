@@ -145,7 +145,8 @@ In `package.json`:
 pi behavior:
 
 - Valid portable results become pi tool results.
-- Portable results with `isError: true` reject with `PortableToolExecutionError`; tests should assert a rejected execution plus error `.details`.
+- Invalid arguments and portable results with `isError: true` return `{ content, details, isError: true }` by default; tests should branch on `result.isError` and inspect `details`.
+- The legacy throw mode is still available with `registerPiTools(pi, tools, { errorHandling: "throw" })`, but it is deprecated and should not be used for new code.
 - Progress updates from `ctx.progress?.(...)` map to pi updates.
 
 ---
@@ -209,7 +210,7 @@ In `package.json`:
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@feniix/bridgekit": "^0.2.2",
+    "@feniix/bridgekit": "^0.13.0",
     "typebox": "^1.1.31"
   }
 }
@@ -235,7 +236,7 @@ For mixed source-loaded pi + compiled MCP packages, keep the pi source entrypoin
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@feniix/bridgekit": "^0.2.2",
+    "@feniix/bridgekit": "^0.13.0",
     "typebox": "^1.1.31"
   }
 }
@@ -251,12 +252,14 @@ await runBinWrapper({
   metaUrl: import.meta.url,
   mcpEntry: "dist/extensions/mcp-server.js",
   buildScript: "build:mcp",
+  // MCP stdio bins: keep build stdout off the JSON-RPC channel.
+  buildStdio: ["ignore", "inherit", "inherit"],
 });
 ```
 
-`mcpEntry` and `buildScript` are the two options consumers typically vary. The MCP entry module must export `runServer(): Promise<void>` (the convention used throughout these examples). `buildTimeoutMs` (default `60_000`) and `logPrefix` (default `"bridgekit-bin"`) are available for tuning but rarely needed.
+`mcpEntry` and `buildScript` are the two options consumers typically vary. The MCP entry module must export `runServer(): Promise<void>` (the convention used throughout these examples). `buildStdio`, `buildTimeoutMs` (default `60_000`), and `logPrefix` (default `"bridgekit-bin"`) are available for tuning but rarely needed outside MCP-stdio stdout isolation.
 
-Both `mcpEntry` and `buildScript` must be **literal strings** in your bin source. The helper joins `mcpEntry` onto the resolved package root and dynamically `import()`s it, and it passes `buildScript` to `spawnSync` (with `shell: true` on Windows where `&`, `|`, and `^` are shell metacharacters). Sourcing either from CLI args, environment variables, or other runtime input exposes arbitrary-file import and Windows command injection — the trusted-literal expectation is the threat model.
+Both `mcpEntry` and `buildScript` must be **literal strings** in your bin source. The helper joins `mcpEntry` onto the resolved package root and dynamically `import()`s it, and it passes `buildScript` to `spawnSync` (with `shell: true` on Windows where `&`, `|`, and `^` are shell metacharacters). BridgeKit rejects absolute/traversing entry paths and shell-shaped script names, but sourcing either option from CLI args, environment variables, or other runtime input remains outside the supported threat model.
 
 Commit the wrapper with executable mode (`chmod +x bin/my-tools-mcp.js`) and verify `npm pack --dry-run --json` includes it with executable mode.
 
@@ -398,7 +401,7 @@ For publishable tool packages:
 - Avoid `workspace:` or `file:` ranges in publishable package dependencies.
 - Avoid dangling `sourceMappingURL` comments: either publish maps and useful sources, or disable source maps for package builds.
 - Ensure the npm bin entrypoint starts with a shebang, is executable (`chmod +x` or equivalent), and appears in `npm pack --dry-run --json` with executable mode.
-- When a bin depends on generated output, prefer a checked-in wrapper under `bin/` over pointing directly at `dist/`; test existing output, missing output, failed builds, and successful builds that omit the expected file.
+- When a bin depends on generated output, prefer a checked-in wrapper under `bin/` over pointing directly at `dist/`; for MCP stdio bins set `buildStdio: ["ignore", "inherit", "inherit"]`; test existing output, missing output, failed builds, and successful builds that omit the expected file.
 - If only the MCP bin needs compiled output, narrow its tsconfig to the MCP entrypoint and shared host-neutral modules instead of compiling unrelated host adapters.
 - Add a packed-install smoke test that installs tarballs into a temporary project.
 - For BridgeKit itself, run `npm run check`, `npm run test`, `npm run pack:dry-run`, and `npm run package-smoke` before release.

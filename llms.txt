@@ -26,7 +26,7 @@ import { runBinWrapper } from "@feniix/bridgekit/bin-wrapper"; // optional: buil
 - Root entrypoint: host-neutral tool definitions, validation, and execution helpers.
 - `/pi`: pi adapter only.
 - `/mcp`: MCP server adapter only.
-- `/bin-wrapper`: optional helper for npm `bin` scripts that build a local compiled MCP entry on first invocation. `mcpEntry` and `buildScript` must be literal strings in the caller's source (they're the dynamic-import target and the `spawnSync` arg; sourcing them from env or CLI is an arbitrary-file-import and Windows command-injection vector).
+- `/bin-wrapper`: optional helper for npm `bin` scripts that build a local compiled MCP entry on first invocation. `mcpEntry` and `buildScript` must be literal strings in the caller's source (they're the dynamic-import target and the `spawnSync` arg; bridgekit rejects absolute/traversing entry paths and shell-shaped script names, but sourcing them from env or CLI remains outside the supported threat model).
 
 Do not deep-import from `dist/` or `src/` in consumer code. Reading published declarations for documentation is fine; imports should use the package entrypoints above.
 
@@ -69,6 +69,7 @@ export function createTools() {
 - TypeBox validation runs before the portable handler. If you need custom guidance for missing fields or wrong primitive types, use a permissive schema plus domain validation; otherwise accept BridgeKit's structural validation result.
 - MCP stdio entrypoints should be testable: export a server-options factory and a run function, then start stdio only when executed as the package bin.
 - Keep package runtime Node >=22.19.0 and ESM-only.
+- TypeScript is strict-plus: `strict`, `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes` are enabled.
 
 ## Host behavior
 
@@ -119,7 +120,7 @@ Some hosts, such as pi in source-extension packages, may intentionally load Type
   });
   ```
 
-  `mcpEntry` and `buildScript` must be literal strings — sourcing them from CLI args or env vars opens arbitrary-file import and Windows command injection. The MCP entry module must export `async function runServer(): Promise<void>`. `buildStdio` defaults to `"inherit"`; MCP stdio server bins should override to `["ignore", "inherit", "inherit"]` (since 0.13.0) because `process.stdout` is the JSON-RPC channel and the build subprocess otherwise contaminates framing.
+  `mcpEntry` and `buildScript` must be literal strings — bridgekit rejects absolute/traversing entry paths and shell-shaped script names, but sourcing them from CLI args or env vars remains outside the supported threat model. The MCP entry module must export `async function runServer(): Promise<void>`. `buildStdio` defaults to `"inherit"`; MCP stdio server bins should override to `["ignore", "inherit", "inherit"]` (since 0.13.0) because `process.stdout` is the JSON-RPC channel and the build subprocess otherwise contaminates framing.
 - Narrow the MCP build to the MCP entrypoint and shared host-neutral modules; avoid compiling pi adapter entrypoints into the standalone MCP path.
 - Put runtime imports used by the compiled MCP bin in `dependencies`, not only peers or dev dependencies.
 - Declare BridgeKit's Node engine requirement in the downstream package (`>=22.19.0`).
