@@ -94,6 +94,59 @@ function makeOptions(
   };
 }
 
+test("rejects unsafe mcpEntry values before spawning or importing", async () => {
+  const fx = makeFixture();
+  let spawnCalls = 0;
+
+  try {
+    const deps: BinWrapperDeps = {
+      spawnSync: (() => {
+        spawnCalls += 1;
+        return fakeSpawnResult(0);
+      }) satisfies BinWrapperSpawnSync,
+      exit: exitStub,
+    };
+
+    for (const mcpEntry of [
+      "",
+      "/tmp/server.js",
+      "../server.js",
+      "dist/../server.js",
+      "C:\\temp\\server.js",
+      "dist/server\0.js",
+    ]) {
+      await assert.rejects(runBinWrapperWithDeps(makeOptions(fx, { mcpEntry }), deps), /mcpEntry/);
+    }
+
+    assert.equal(spawnCalls, 0, "unsafe mcpEntry values must fail before running npm");
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("rejects unsafe buildScript values before spawning", async () => {
+  const fx = makeFixture();
+  let spawnCalls = 0;
+
+  try {
+    const deps: BinWrapperDeps = {
+      spawnSync: (() => {
+        spawnCalls += 1;
+        return fakeSpawnResult(0);
+      }) satisfies BinWrapperSpawnSync,
+      exit: exitStub,
+    };
+
+    for (const buildScript of ["", "-build", "build mcp", "build:mcp && rm -rf /", "build/mcp", "build^mcp"]) {
+      await assert.rejects(runBinWrapperWithDeps(makeOptions(fx, { buildScript }), deps), /buildScript/);
+    }
+
+    assert.equal(spawnCalls, 0, "unsafe buildScript values must fail before running npm");
+  } finally {
+    fx.cleanup();
+  }
+});
+
 test("entry exists -> pass-through; spawnSync is not called", async () => {
   const fx = makeFixture();
   const flagFile = join(fx.packageRoot, "ran.flag");
