@@ -301,17 +301,16 @@ function suppressSiblingErrorsUnderUnion(
       continue;
     }
     const branchValue = Pointer.Get(value, path);
-    const matchedIndices: number[] = [];
+    let activeIndex: number | undefined;
+    let matchCount = 0;
     for (let i = 0; i < branches.length; i++) {
       const branch = getArrayEntry(branches, i);
-      if (branch && branchDiscriminatorMatches(branch, branchValue)) matchedIndices.push(i);
+      if (branch && branchDiscriminatorMatches(branch, branchValue)) {
+        activeIndex = i;
+        matchCount += 1;
+      }
     }
-    if (matchedIndices.length !== 1) {
-      resolutions.set(path, { kind: "no-active" });
-      continue;
-    }
-    const activeIndex = matchedIndices[0];
-    if (activeIndex === undefined) {
+    if (matchCount !== 1 || activeIndex === undefined) {
       resolutions.set(path, { kind: "no-active" });
       continue;
     }
