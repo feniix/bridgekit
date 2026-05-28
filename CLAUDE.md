@@ -18,7 +18,7 @@ All scripts are local-only; the package was extracted from a monorepo and `scrip
 - Running a single test: after `npm run build`, invoke directly, e.g. `node --test dist/src/adapters/mcp.test.js` (or pass `--test-name-pattern "..."` to filter by name).
 - `npm run pack:dry-run` — `npm pack --dry-run --json`. The `prepack` hook runs `build` automatically.
 - `npm run package-smoke` — packs a tarball into a temp dir, installs it into a synthetic consumer, and asserts the public surface (`scripts/smoke-package.mjs`). Run before publishing.
-- Pre-publish full gate: `npm run check && npm run test && npm run pack:dry-run && npm run package-smoke`.
+- Pre-publish full gate: `npm run check && npm run test && npm run pack:dry-run && npm run package-smoke && npm audit --omit=dev --audit-level=high`.
 
 There is intentionally **no** `release` or `publish` script — `scripts/smoke-package.mjs` will fail if one is added (see `inv-no-release-publish-scripts` in `docs/packaging-invariants.md`). See `docs/releasing.md` for the release flow.
 
@@ -41,7 +41,7 @@ src/
     mcp.ts            # createMcpServer + runMcpStdioServer
 ```
 
-Each of the four entrypoints (`.`, `./pi`, `./mcp`, `./bin-wrapper`) maps to its own compiled file under `dist/src/`. **The split is load-bearing:** pi-only consumers must not have to pull the MCP SDK, and vice versa. Do not move adapter code into the root entrypoint and do not add cross-imports between `adapters/pi.ts` and `adapters/mcp.ts`. `bin-wrapper.ts` is host-neutral packaging glue (no MCP SDK, no pi imports); its internal module ships in the tarball but is not reachable via the exports map (pinned by `inv-deep-imports-fail`).
+Each of the four entrypoints (`.`, `./pi`, `./mcp`, `./bin-wrapper`) maps to its own compiled file under `dist/src/`. **The split is load-bearing:** pi-only ESM/bundler consumers must not import or bundle the MCP adapter code, and MCP-only consumers must not import pi adapter code. The MCP SDK is still a normal package dependency, so npm installs include it. Do not move adapter code into the root entrypoint and do not add cross-imports between `adapters/pi.ts` and `adapters/mcp.ts`. `bin-wrapper.ts` is host-neutral packaging glue (no MCP SDK, no pi imports); its internal module ships in the tarball but is not reachable via the exports map (pinned by `inv-deep-imports-fail`).
 
 ### Core contract
 
@@ -49,14 +49,14 @@ Each of the four entrypoints (`.`, `./pi`, `./mcp`, `./bin-wrapper`) maps to its
 
 `executePortableTool` validates args via TypeBox `Check`/`Errors`, and on failure **returns** a result with `isError: true` — it does not throw. Adapters decide whether to surface that as a thrown exception or a structured result.
 
-`PortableTool` carries a single generic (`TParams extends TSchema`). The host is a fixed literal union: `PortableToolBuiltInHost = "pi" | "mcp" | "test"`. `PortableToolContext.host` is typed to that union directly, so `@ts-expect-error` assertions in `execute-tool.test.ts` reject any literal outside the union (e.g. `{ host: "custom-adapter" }`). Do not reintroduce a `<THost>` generic — the audit (#5, removed in 0.10.0) confirmed no consumer used it, and the simplification is intentional.
+`PortableTool` carries generics for parameters and the inferred success result (`TParams extends TSchema`, `TResult extends PortableToolResult`). The host is a fixed literal union: `PortableToolBuiltInHost = "pi" | "mcp" | "test"`. `PortableToolContext.host` is typed to that union directly, so `@ts-expect-error` assertions in `execute-tool.test.ts` reject any literal outside the union (e.g. `{ host: "custom-adapter" }`). Do not reintroduce a `<THost>` generic — the audit (#5, removed in 0.10.0) confirmed no consumer used it, and the simplification is intentional.
 
-### Adapter asymmetry (intentional)
+### Adapter error behavior
 
-- **pi adapter** throws `PortableToolExecutionError` when `result.isError` is true, because pi's contract expects native thrown tool failures. Progress maps to `onUpdate({content, details})`. `details` is sourced from `structuredContent` first, then `details`, then `{}`.
+- **pi adapter** defaults to returning `{ content, details, isError }` for validation failures and portable `isError: true` results. The deprecated `errorHandling: "throw"` mode still throws `PortableToolExecutionError` when `result.isError` is true. Progress maps to `onUpdate({content, details})`. `details` is sourced from `structuredContent` first, then `details`, then `{}`.
 - **MCP adapter** returns `{ content, structuredContent, isError: true }` in `CallToolResult` for both invalid args and `result.isError`. Unexpected thrown exceptions are caught and surfaced as `isError: true` with the error message as text.
 
-Both adapters prefer `structuredContent` over `details`; the latter exists only as a fallback for older callers.
+Both adapters prefer `structuredContent` over `details`; the latter exists only as a fallback for older callers. Result guards operate on `PortableToolResult` values at the portable seam, not directly on pi wire objects.
 
 The MCP adapter is built on the SDK's **low-level** `Server` with explicit `ListToolsRequestSchema` / `CallToolRequestSchema` handlers, **not** the high-level `registerTool` helper. This is so TypeBox schemas pass through as MCP `inputSchema` without a JSON Schema conversion step. There is no `registerMcpTools` helper, and two layers (`scripts/smoke-package.mjs` runtime-key check + `src/adapters/mcp.test.ts` surface assertion) enforce its absence. If you think you want to add a high-level wrapper, read the rationale in `README.md` (MCP adapter section) and `docs/extraction.md` first.
 
@@ -84,8 +84,8 @@ For per-host metadata (advisory hints, lifecycle hooks), extend `PortableToolHos
 - Respect `ctx.signal` in long-running tools; emit progress via `ctx.progress?.(...)`.
 - **ESM internal imports use `.js` extensions** even though the source is `.ts` (NodeNext resolution): `from "./define-tool.js"`.
 - Consumers must use only the four public entrypoints — never deep-import from `dist/` or `src/`. The smoke test asserts `ERR_PACKAGE_PATH_NOT_EXPORTED` for `@feniix/bridgekit/dist/...`.
-- For downstream examples/docs that expose MCP stdio through npm `bin` and depend on generated output, use the built-in `runBinWrapper` from `@feniix/bridgekit/bin-wrapper` (since 0.10.0). The helper resolves the package-local generated server, runs the package-local build for workspace/local execution when missing, preserves build failures, and distinguishes build-timeout from build-failure in its diagnostic. `mcpEntry` and `buildScript` must be literal strings — sourcing them from CLI args or env vars exposes arbitrary-file import and (on Windows) command injection. Verify the bin script's executable mode via `npm pack --dry-run --json`.
-- Biome (`biome.json`) is the only formatter/linter. Enforced rules of note: `noExplicitAny`, `noNonNullAssertion`, `noUnusedImports`. Two-space indent, 120-col, double quotes, semicolons.
+- For downstream examples/docs that expose MCP stdio through npm `bin` and depend on generated output, use the built-in `runBinWrapper` from `@feniix/bridgekit/bin-wrapper` (since 0.11.0). The helper resolves the package-local generated server, runs the package-local build for workspace/local execution when missing, preserves build failures, and distinguishes build-timeout from build-failure in its diagnostic. `mcpEntry` and `buildScript` must be literal strings — sourcing them from CLI args or env vars is outside the supported threat model even though bridgekit rejects absolute/traversing entry paths and shell-shaped script names. MCP stdio bins should pass `buildStdio: ["ignore", "inherit", "inherit"]`. Verify the bin script's executable mode via `npm pack --dry-run --json`.
+- Biome (`biome.json`) is the only formatter/linter. Enforced rules of note: `noExplicitAny`, `noNonNullAssertion`, `noUnusedImports`. TypeScript is strict-plus (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`). Two-space indent, 120-col, double quotes, semicolons.
 - `PortableTool.hostExtras` is the canonical place for per-host metadata (0.9+). Tool definitions stay host-neutral; host-specific concerns (pi's `pendingMessage` / `promptSnippet` / `promptGuidelines`, MCP's `annotations`) live in the corresponding `hostExtras.<host>` namespace. Adding host-specific fields directly to `PortableTool`'s top-level shape is wrong — extend `PortableToolHostExtras` instead (via TypeScript module augmentation for custom-host adapters). Each adapter's read path must gate on `!== undefined` so tools without `hostExtras` produce byte-identical wire payloads to pre-0.9 versions; pin with a no-hostExtras key-set assertion alongside any new field.
 
 ## Tests
@@ -102,7 +102,7 @@ For per-host metadata (advisory hints, lifecycle hooks), extend `PortableToolHos
 ## Things not to do
 
 - Do not deep-import from `dist/` or `src/` in tests, examples, or docs — use the package entrypoints.
-- Do not collapse the four entrypoints into a single barrel — pi-only consumers must not pull the MCP SDK, and the bin-wrapper's `node:child_process` import must stay out of library-only consumers.
+- Do not collapse the four entrypoints into a single barrel — pi-only consumers must not import or bundle the MCP adapter, and the bin-wrapper's `node:child_process` import must stay out of library-only consumers.
 - Do not add a high-level `registerMcpTools` helper without first proving SDK compatibility; `scripts/smoke-package.mjs` and `src/adapters/mcp.test.ts` both enforce its absence.
 - Do not throw inside `executePortableTool` for validation failures — return `isError: true`. The adapters convert as needed.
 - Do not add `workspace:` or `file:` dependency ranges, or `release`/`publish` scripts to `package.json`. `scripts/smoke-package.mjs` will fail.

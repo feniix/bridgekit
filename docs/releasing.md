@@ -4,27 +4,29 @@ BridgeKit is released to npm via GitHub Actions using npm trusted publishing (OI
 
 ## Workflows
 
-- **`.github/workflows/ci.yml`** — runs on every pull request and on `main` push. Executes `npm run check`, `npm test`, `npm run pack:dry-run`, and `npm run package-smoke`. Required check before merge.
-- **`.github/workflows/release.yml`** — runs on `main` push and `workflow_dispatch`. Detects a version bump in `package.json`, re-runs the full gate, and publishes to npm with `--provenance --access public`. Skips publish when no version change is detected.
+- **`.github/workflows/ci.yml`** — runs on every pull request and on `main` push. Executes `npm audit --omit=dev --audit-level=high`, `npm run check`, `npm test`, `npm run pack:dry-run`, and `npm run package-smoke`. Required check before merge.
+- **`.github/workflows/release.yml`** — runs only on `workflow_dispatch`. Detects whether `package.json#version` is unpublished, re-runs the full gate, and publishes to npm with `--provenance --access public` unless `dry_run=true`. Skips publish when the version is already on npm.
 
 ## How a release happens
 
 1. On a branch, bump `package.json#version` (e.g. `0.1.0` → `0.1.1`). Commit.
 2. Open a PR. CI runs the gate.
-3. Merge to `main`. `release.yml` detects the version bump, re-runs the gate, then publishes via OIDC. The `npm view` guard fails the run if that version is somehow already on the registry.
-4. Optional dry-run: `workflow_dispatch` with `dry_run=true` runs all checks but skips the publish step.
+3. Merge to `main`. CI runs the gate on the merge commit.
+4. Manually run the **Release** workflow from `main` (`workflow_dispatch`). A workflow guard fails dispatches from any other branch. The workflow checks whether `package.json#version` is unpublished, re-runs the gate, then publishes via OIDC. The `npm view` guard skips the run if that version is already on the registry.
+5. Optional dry-run: run the same workflow with `dry_run=true` to execute checks without publishing.
 
-The `package.json#version` field is the source of truth and the release trigger. After a successful npm publish, the `release_github` job in `release.yml` creates a lightweight `v<version>` tag at the published commit and opens a GitHub Release with auto-generated notes (`gh release create --generate-notes`). Tag creation is server-side via the GitHub API, so the tag shows as Verified in the UI. The job is idempotent — if the release already exists (e.g. created manually for a retroactive backfill), it skips. There is no separate changelog automation in this phase; the auto-generated release notes are the changelog.
+The `package.json#version` field is the source of truth for what version will be published, but it is no longer an automatic publish trigger. After a successful npm publish, the `release_github` job in `release.yml` creates a lightweight `v<version>` tag at the workflow commit and opens a GitHub Release with auto-generated notes (`gh release create --generate-notes`). Tag creation is server-side via the GitHub API, so the tag shows as Verified in the UI. The job is idempotent — if the release already exists (e.g. created manually for a retroactive backfill), it skips. There is no separate changelog automation in this phase; the auto-generated release notes are the changelog.
 
 ### Failure modes to watch for
 
-The version-bump-as-trigger model conflates "field changed" with "intent to release." Reviewers on `main` PRs must catch the following before merging:
+The manual workflow removes the old "version bump on `main` auto-publishes" failure mode, but maintainers still need to check:
 
+- **Wrong ref selected in the manual workflow.** The workflow has a branch guard and fails unless dispatched from `main`; if it fails here, rerun it from `main` after CI is green.
 - **Merge-conflict resolution** that picks a higher version from one side of a conflict without the author intending a release.
-- **Revert PRs** that revert a version bump. After such a revert, HEAD's version is below the latest registry entry; the next legitimate bump may also be below it, and `npm publish` accepts it — leaving `latest` pointing at an older version than what installed consumers have.
+- **Revert PRs** that revert a version bump. After such a revert, HEAD's version can be below the latest registry entry; the release workflow will skip already-published versions, but maintainers should choose the next forward version deliberately.
 - **Automated dependency tools** (Dependabot, Renovate, etc.) that touch `package.json` and incidentally change the version field.
 
-The mitigation is PR review on `main` under branch protection. If this becomes a recurring source of incidents, switch the trigger model to `workflow_dispatch`-only and remove the `push: branches: [main]` trigger from `release.yml`.
+The mitigation is PR review on `main`, green CI, and the manual Release workflow dispatch.
 
 ## One-time maintainer setup
 
@@ -61,7 +63,7 @@ The seed version published this way ships **without** a provenance attestation �
 2. (Recommended) Add **Required reviewers** so a publish needs human approval.
 3. (Recommended) Restrict the environment to the `main` branch under *Deployment branches*.
 
-**Threat-model note.** With this configuration, any merge to `main` that touches `package.json#version` auto-publishes — there is no required second-pair-of-eyes on the publish itself. This is intentional: PR review on `main` under branch protection is the mitigation. The environment gate is treated as optional defence-in-depth, not the primary control. Maintainers who want a stricter posture (e.g., dual control on every release) should switch on **Required reviewers** above and name a reviewer group.
+**Threat-model note.** Publishing now requires an explicit `workflow_dispatch` run, and the `npm-release` environment remains the final publish gate. For dual control on every release, switch on **Required reviewers** and name a reviewer group; otherwise, the manual workflow dispatch plus branch protection is the primary control.
 
 ### Branch protection on `main`
 
@@ -71,6 +73,7 @@ The seed version published this way ships **without** a provenance attestation �
 ## Trusted publishing and provenance
 
 - The workflow uses `permissions: id-token: write` so GitHub mints an OIDC token, which npm exchanges for a short-lived publish credential. No `NPM_TOKEN` is set in the job.
+- Third-party GitHub Actions are pinned by full commit SHA (with the source tag in a YAML comment) to reduce retagging/supply-chain risk.
 - `--provenance` attaches a signed attestation linking the published tarball to the exact commit, workflow, and runner that built it. Visible on the npm package page.
 - Workflows run on Node 24, which bundles an npm CLI with OIDC support. If a future runner image downgrades Node or npm, add `npm install -g npm@latest` to the publish step as a mitigation.
 
@@ -83,6 +86,7 @@ npm run check
 npm test
 npm run pack:dry-run
 npm run package-smoke
+npm audit --omit=dev --audit-level=high
 ```
 
 If any step fails, fix it on the branch — do not bypass the workflow.
@@ -152,7 +156,7 @@ From `1.0.0` onward: semver, with explicit `@deprecated` cycles preceding any re
 Release-blocking bug categories (any of these warrants holding a release):
 
 - A consumer install fails with `ERR_PACKAGE_PATH_NOT_EXPORTED` for one of the documented entrypoints.
-- TypeScript fails to compile against the published declarations under `strict` + `NodeNext`.
+- TypeScript fails to compile against the published declarations under strict-plus (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`) + `NodeNext`.
 - The pi/MCP adapter divergence regresses (validated by `src/adapters/compliance.test.ts`).
 - Any `scripts/smoke-package.mjs` assertion fails on the release-target Node versions.
 

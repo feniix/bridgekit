@@ -145,12 +145,15 @@ export interface PortableToolHostExtras {
   mcp?: McpHostExtras;
 }
 
-export interface PortableTool<TParams extends TSchema = TSchema> {
+export interface PortableTool<
+  TParams extends TSchema = TSchema,
+  TResult extends PortableToolResult = PortableToolResult,
+> {
   name: string;
   title: string;
   description: string;
   parameters: TParams;
-  execute: (args: Static<TParams>, ctx: PortableToolContext) => PortableToolResult | Promise<PortableToolResult>;
+  execute: (args: Static<TParams>, ctx: PortableToolContext) => TResult | Promise<TResult>;
   /**
    * Optional per-host metadata. Adapters consume the keys they recognise;
    * unknown host namespaces are ignored. Absent → no behavior change.
@@ -163,6 +166,8 @@ export interface PortableTool<TParams extends TSchema = TSchema> {
   hostExtras?: PortableToolHostExtras;
 }
 
-export function definePortableTool<TParams extends TSchema>(tool: PortableTool<TParams>): PortableTool<TParams> {
+export function definePortableTool<TParams extends TSchema, TResult extends PortableToolResult>(
+  tool: PortableTool<TParams, TResult>,
+): PortableTool<TParams, TResult> {
   return tool;
 }

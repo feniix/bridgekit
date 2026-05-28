@@ -6,7 +6,7 @@
 
 import { type SpawnSyncOptions, type SpawnSyncReturns, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Narrow purpose-built signature. The helper only invokes one spawnSync
@@ -71,6 +71,34 @@ export interface BinWrapperDeps {
 
 const DEFAULT_BUILD_TIMEOUT_MS = 60_000;
 const DEFAULT_LOG_PREFIX = "bridgekit-bin";
+const SAFE_BUILD_SCRIPT_NAME = /^[A-Za-z0-9:_@.-]+$/;
+
+function validateMcpEntry(mcpEntry: string): void {
+  if (mcpEntry.length === 0) {
+    throw new Error("[bridgekit/bin-wrapper] mcpEntry must be a non-empty package-relative path.");
+  }
+  if (mcpEntry.includes("\0")) {
+    throw new Error("[bridgekit/bin-wrapper] mcpEntry must not contain NUL bytes.");
+  }
+  if (isAbsolute(mcpEntry) || /^[A-Za-z]:[\\/]/.test(mcpEntry)) {
+    throw new Error("[bridgekit/bin-wrapper] mcpEntry must be relative to the package root, not absolute.");
+  }
+  if (mcpEntry.split(/[\\/]+/).some((segment) => segment === "..")) {
+    throw new Error("[bridgekit/bin-wrapper] mcpEntry must not contain '..' path segments.");
+  }
+}
+
+function validateBuildScript(buildScript: string): void {
+  if (buildScript.length === 0) {
+    throw new Error("[bridgekit/bin-wrapper] buildScript must be a non-empty npm script name.");
+  }
+  if (buildScript.startsWith("-") || !SAFE_BUILD_SCRIPT_NAME.test(buildScript)) {
+    throw new Error(
+      "[bridgekit/bin-wrapper] buildScript must be a literal npm script name containing only letters, " +
+        "numbers, ':', '_', '@', '.', or '-' (and must not start with '-').",
+    );
+  }
+}
 
 export const defaultBinWrapperDeps: BinWrapperDeps = {
   spawnSync,
@@ -78,6 +106,9 @@ export const defaultBinWrapperDeps: BinWrapperDeps = {
 };
 
 export async function runBinWrapperWithDeps(options: BinWrapperOptions, deps: BinWrapperDeps): Promise<void> {
+  validateMcpEntry(options.mcpEntry);
+  validateBuildScript(options.buildScript);
+
   const packageRoot = resolve(dirname(fileURLToPath(options.metaUrl)), "..");
   const entryPath = join(packageRoot, options.mcpEntry);
 

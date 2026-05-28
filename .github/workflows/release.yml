@@ -7,13 +7,6 @@ permissions:
   contents: read
 
 on:
-  workflow_run:
-    workflows:
-      - CI
-    types:
-      - completed
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       dry_run:
@@ -23,20 +16,24 @@ on:
         type: boolean
 
 concurrency:
-  group: release-${{ github.event.workflow_run.head_branch || github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  ci_failed:
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'success'
+  guard_ref:
     runs-on: ubuntu-latest
     steps:
-      - name: Explain skip
+      - name: Require main branch
+        shell: bash
         run: |
-          echo "::notice::Release skipped because CI concluded with '${{ github.event.workflow_run.conclusion }}'."
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Release must be dispatched from main; got $GITHUB_REF."
+            exit 1
+          fi
 
   detect:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    needs: guard_ref
     runs-on: ubuntu-latest
     outputs:
       should_publish: ${{ steps.detect.outputs.should_publish }}
@@ -44,9 +41,7 @@ jobs:
       reason: ${{ steps.detect.outputs.reason }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Detect unpublished version
         id: detect
@@ -96,20 +91,23 @@ jobs:
 
   checks:
     needs: detect
-    if: needs.detect.outputs.should_publish == 'true' && github.event_name == 'workflow_dispatch'
+    if: needs.detect.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 24
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Lint and typecheck
         run: npm run check
@@ -140,7 +138,7 @@ jobs:
       always() &&
       needs.detect.outputs.should_publish == 'true' &&
       github.event.inputs.dry_run != 'true' &&
-      (github.event_name == 'workflow_run' || needs.checks.result == 'success')
+      needs.checks.result == 'success'
     runs-on: ubuntu-latest
     environment: npm-release
     permissions:
@@ -148,12 +146,10 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org/
@@ -172,7 +168,7 @@ jobs:
       always() &&
       needs.detect.outputs.should_publish == 'true' &&
       github.event.inputs.dry_run == 'true' &&
-      (github.event_name == 'workflow_dispatch' && needs.checks.result == 'success')
+      needs.checks.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Explain skip
@@ -197,7 +193,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: v${{ needs.detect.outputs.version }}
-          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then

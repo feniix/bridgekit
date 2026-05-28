@@ -103,9 +103,9 @@ test("executePortableTool returns validation errors without calling the tool", a
   const errors = getValidationErrors(result);
   assert.ok(Array.isArray(errors));
   assert.equal(errors.length, 1);
-  assert.equal(errors[0].field, "text");
-  assert.equal(typeof errors[0].message, "string");
-  assert.ok(errors[0].message.length > 0);
+  assert.equal(errors.at(0)?.field, "text");
+  assert.equal(typeof (errors.at(0)?.message ?? ""), "string");
+  assert.ok((errors.at(0)?.message.length ?? 0) > 0);
 });
 
 test("validatePortableToolArgs: missing top-level required property", async () => {
@@ -125,7 +125,7 @@ test("validatePortableToolArgs: missing top-level required property", async () =
     errors.map((e) => e.field),
     ["file_path"],
   );
-  assert.match(errors[0].message, /required property file_path/);
+  assert.match(errors.at(0)?.message ?? "", /required property file_path/);
 });
 
 test("validatePortableToolArgs: wrong type on top-level property", async () => {
@@ -142,7 +142,7 @@ test("validatePortableToolArgs: wrong type on top-level property", async () => {
   assert.equal(result.isError, true);
   const errors = getValidationErrors(result);
   assert.equal(errors.length, 1);
-  assert.equal(errors[0].field, "count");
+  assert.equal(errors.at(0)?.field, "count");
 });
 
 test("validatePortableToolArgs: wrong type on nested property", async () => {
@@ -159,7 +159,7 @@ test("validatePortableToolArgs: wrong type on nested property", async () => {
   assert.equal(result.isError, true);
   const errors = getValidationErrors(result);
   assert.equal(errors.length, 1);
-  assert.equal(errors[0].field, "name");
+  assert.equal(errors.at(0)?.field, "name");
 });
 
 test("validatePortableToolArgs: nested required property missing surfaces the missing prop name", async () => {
@@ -182,7 +182,7 @@ test("validatePortableToolArgs: nested required property missing surfaces the mi
     errors.map((e) => e.field),
     ["name"],
   );
-  assert.match(errors[0].message, /required property name/);
+  assert.match(errors.at(0)?.message ?? "", /required property name/);
 });
 
 test("validatePortableToolArgs: out-of-range integer", async () => {
@@ -199,7 +199,7 @@ test("validatePortableToolArgs: out-of-range integer", async () => {
   assert.equal(result.isError, true);
   const errors = getValidationErrors(result);
   assert.equal(errors.length, 1);
-  assert.equal(errors[0].field, "count");
+  assert.equal(errors.at(0)?.field, "count");
 });
 
 test("validatePortableToolArgs: union / discriminator mismatch dedupes by (field, message)", async () => {
@@ -252,8 +252,8 @@ test("validatePortableToolArgs: union of objects collapses sibling required erro
   assert.equal(result.isError, true);
   const errors = getValidationErrors(result);
   assert.equal(errors.length, 1);
-  assert.equal(errors[0].field, "(root)");
-  assert.match(errors[0].message, /anyOf/);
+  assert.equal(errors.at(0)?.field, "(root)");
+  assert.match(errors.at(0)?.message ?? "", /anyOf/);
 });
 
 test("validatePortableToolArgs: discriminated union surfaces only the active branch's missing required prop", async () => {
@@ -274,8 +274,8 @@ test("validatePortableToolArgs: discriminated union surfaces only the active bra
   assert.equal(result.isError, true);
   const errors = getValidationErrors(result);
   assert.equal(errors.length, 1);
-  assert.equal(errors[0].field, "name");
-  assert.match(errors[0].message, /required property name/);
+  assert.equal(errors.at(0)?.field, "name");
+  assert.match(errors.at(0)?.message ?? "", /required property name/);
 });
 
 test("validatePortableToolArgs: discriminated union with invalid discriminator falls back to suppress-all", async () => {
@@ -326,8 +326,8 @@ test("validatePortableToolArgs: nested discriminated union surfaces active branc
   assert.equal(result.isError, true);
   const errors = getValidationErrors(result);
   assert.equal(errors.length, 1);
-  assert.equal(errors[0].field, "name");
-  assert.match(errors[0].message, /required property name/);
+  assert.equal(errors.at(0)?.field, "name");
+  assert.match(errors.at(0)?.message ?? "", /required property name/);
 });
 
 test("validatePortableToolArgs: enum-discriminator resolves the active branch", async () => {
@@ -349,7 +349,7 @@ test("validatePortableToolArgs: enum-discriminator resolves the active branch", 
   assert.equal(result.isError, true);
   const errors = getValidationErrors(result);
   assert.equal(errors.length, 1);
-  assert.equal(errors[0].field, "name");
+  assert.equal(errors.at(0)?.field, "name");
 });
 
 test("validatePortableToolArgs: Union-of-Literals discriminator (anyOf-of-const) resolves the active branch", async () => {
@@ -374,7 +374,7 @@ test("validatePortableToolArgs: Union-of-Literals discriminator (anyOf-of-const)
   assert.equal(result.isError, true);
   const errors = getValidationErrors(result);
   assert.equal(errors.length, 1);
-  assert.equal(errors[0].field, "name");
+  assert.equal(errors.at(0)?.field, "name");
 });
 
 test("validatePortableToolArgs: array of discriminated unions resolves per element", async () => {
@@ -394,7 +394,7 @@ test("validatePortableToolArgs: array of discriminated unions resolves per eleme
   assert.equal(result.isError, true);
   const errors = getValidationErrors(result);
   assert.equal(errors.length, 1);
-  assert.equal(errors[0].field, "name");
+  assert.equal(errors.at(0)?.field, "name");
 });
 
 test("validatePortableToolArgs: discriminator key on Object.prototype does not falsely match", async () => {
@@ -466,8 +466,8 @@ test("validatePortableToolArgs: slash in property name survives intact for wrong
   assert.equal(result.isError, true);
   const errors = getValidationErrors(result);
   assert.equal(errors.length, 1);
-  assert.equal(errors[0].field, "a/b");
-  assert.match(errors[0].message, /must be string/);
+  assert.equal(errors.at(0)?.field, "a/b");
+  assert.match(errors.at(0)?.message ?? "", /must be string/);
 });
 
 test("validatePortableToolArgs: slash in property name inside Type.Intersect resolves via allOf descent", async () => {
@@ -604,8 +604,8 @@ test("validatePortableToolArgs: non-object args produce field=(root), not empty 
   assert.equal(result.isError, true);
   const errors = getValidationErrors(result);
   assert.equal(errors.length, 1);
-  assert.equal(errors[0].field, "(root)");
-  assert.match(errors[0].message, /must be object/);
+  assert.equal(errors.at(0)?.field, "(root)");
+  assert.match(errors.at(0)?.message ?? "", /must be object/);
   // The text formatter prefixes the (root) sentinel without producing a
   // double-colon. Match structurally to stay resilient to TypeBox locale
   // changes that might rephrase "must be object".
@@ -698,7 +698,7 @@ test("validatePortableToolArgs: additionalProperties=false surfaces the offendin
     errors.map((e) => e.field),
     ["extra"],
   );
-  assert.match(errors[0].message, /must not have additional property extra/);
+  assert.match(errors.at(0)?.message ?? "", /must not have additional property extra/);
 });
 
 test("validatePortableToolArgs: empty-string property name falls back to (root) sentinel", async () => {

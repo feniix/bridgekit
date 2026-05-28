@@ -1,4 +1,10 @@
-import type { PortableToolErrorDetails, PortableToolResult } from "@feniix/bridgekit";
+import {
+  definePortableTool,
+  executePortableTool,
+  type PortableToolErrorDetails,
+  type PortableToolResult,
+} from "@feniix/bridgekit";
+import { Type } from "typebox";
 
 /**
  * Compile-only assertions for the `TStructured` generic on `PortableToolResult`
@@ -16,6 +22,30 @@ void wrongValueType;
 
 const loose: PortableToolResult = { text: "hi", structuredContent: { anything: 1, somethingElse: "ok" } };
 void loose;
+
+const inferredResultTool = definePortableTool({
+  name: "inferred_result",
+  title: "Inferred Result",
+  description: "Typecheck fixture for inferred structuredContent.",
+  parameters: Type.Object({ text: Type.String() }),
+  execute(args) {
+    return { text: args.text, structuredContent: { output: args.text, count: args.text.length } };
+  },
+});
+
+async function preservesInferredStructuredContent(): Promise<void> {
+  const result = await executePortableTool(inferredResultTool, { text: "hi" }, { host: "test" });
+  if (result.isError !== true) {
+    const output: string = result.structuredContent.output;
+    const count: number = result.structuredContent.count;
+    void output;
+    void count;
+    // @ts-expect-error unknown keys are not present on the inferred success structuredContent.
+    const missing = result.structuredContent.missing;
+    void missing;
+  }
+}
+void preservesInferredStructuredContent;
 
 function narrowsErrorDetails(details: PortableToolErrorDetails) {
   if (details.kind === "validation") {

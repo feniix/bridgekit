@@ -236,7 +236,7 @@ test("registered pi tool (default return mode): invalid args return isError=true
   assert.equal(details.kind, "validation");
   assert.equal(details.tool, "echo_test");
   assert.ok(Array.isArray(details.validationErrors));
-  assert.equal(details.validationErrors[0].field, "text");
+  assert.equal(details.validationErrors.at(0)?.field, "text");
 });
 
 // --- hostExtras.pi.pendingMessage (issue #28, RFC §3 Gap B) ---
@@ -754,7 +754,7 @@ test("registered pi tool (opt-in throw mode): invalid args throw without calling
       if (error.details.kind !== "validation") return false;
       assert.equal(error.details.tool, "echo_test");
       assert.ok(Array.isArray(error.details.validationErrors));
-      assert.equal(error.details.validationErrors[0].field, "text");
+      assert.equal(error.details.validationErrors.at(0)?.field, "text");
       return true;
     },
   );

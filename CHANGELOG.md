@@ -4,6 +4,39 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-05-28
+
+### Added
+
+- `PortableTool` now carries an inferred success-result generic in addition to
+  its TypeBox parameter generic. `definePortableTool` and `executePortableTool`
+  preserve handler `structuredContent` types for direct/programmatic callers,
+  while validation failures remain `isError: true` results that narrow with
+  `isValidationFailure`.
+- `runBinWrapper` now validates its string inputs before spawning or importing:
+  `mcpEntry` rejects absolute paths, `..` path segments, and NUL bytes;
+  `buildScript` rejects option-shaped or shell-shaped script names.
+- CI and release checks now run `npm audit --omit=dev --audit-level=high`, and
+  Dependabot is configured for npm and GitHub Actions updates.
+
+### Changed
+
+- TypeScript is now strict-plus: `noUncheckedIndexedAccess` and
+  `exactOptionalPropertyTypes` are enabled in addition to `strict`. The packed
+  consumer smoke test compiles installed declarations with the same flags.
+- The Release workflow is manual-only (`workflow_dispatch`) with a `main`
+  branch guard; publishing no longer happens automatically after CI on `main`.
+  Third-party GitHub Actions are pinned by full commit SHA.
+- Documentation now reflects the current pi default error-return behavior, the
+  install-time MCP SDK dependency footprint, pre-1.0 stability/support
+  expectations, and MCP stdio-safe `buildStdio` examples.
+
+### Fixed
+
+- `isValidationFailure` now verifies every `validationErrors[]` entry has a
+  string `field` and `message` before narrowing to `PortableValidationFailure`.
+- `package-lock.json` root metadata now matches `package.json#version`.
+
 ## [0.13.0] - 2026-05-27
 
 ### Added

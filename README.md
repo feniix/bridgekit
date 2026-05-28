@@ -61,12 +61,18 @@ npm install @feniix/bridgekit typebox
 
 This package is ESM-only and supports Node.js 22.19.0 or newer. Published modules are import-passive and marked as side-effect free; tools are registered or servers are started only when the exported adapter functions are called.
 
+## Stability and support
+
+BridgeKit is pre-1.0. Patch releases are intended to be compatible within the current minor, but `0.x.0` minor bumps may contain source-level breaking changes while the API is settling. Production consumers that need maximum stability should pin an exact version or a patch-only range and read `CHANGELOG.md` before bumping.
+
+Issue triage is best-effort, with priority on packaging regressions, install failures, and SDK-compatibility breaks.
+
 ## Why
 
 - Define a tool once; ship it to pi and MCP without per-host forks.
 - Host-neutral tool files: no pi or MCP SDK imports in the tool definition itself.
 - TypeBox schemas pass through to MCP `inputSchema` directly — no JSON Schema conversion step.
-- Import-passive, `sideEffects: false`, four-entrypoint split (`.`, `./pi`, `./mcp`, `./bin-wrapper`) so pi-only consumers do not pull the MCP SDK and vice versa.
+- Import-passive, `sideEffects: false`, four-entrypoint split (`.`, `./pi`, `./mcp`, `./bin-wrapper`) so ESM/bundler consumers that use only core or pi entrypoints do not import or bundle the MCP adapter code. The MCP SDK is still a normal package dependency today, so all npm installs include its transitive dependencies.
 - Conformance-tested public surface: a packed-install smoke test enforces the runtime export set, deep-import rejection, and type-level strictness against the installed declarations.
 
 ## API reference
@@ -95,6 +101,8 @@ import { runBinWrapper } from "@feniix/bridgekit/bin-wrapper";
 
 Do not deep-import from `dist/` or `src/` in consuming packages.
 
+`definePortableTool` infers both the TypeBox-backed argument type and the handler's success result shape. `executePortableTool` preserves that inferred success result for direct/programmatic callers, while validation failures are returned as `isError: true` results that can be narrowed with `isValidationFailure`.
+
 ### pi adapter
 
 ```ts
@@ -106,7 +114,7 @@ export default function extension(pi: Parameters<typeof registerPiTools>[0]) {
 }
 ```
 
-By default (`errorHandling: "return"`, as of 0.7) the pi adapter mirrors the MCP adapter: portable validation failures and portable `isError: true` results surface as `{ content, details, isError: true }` so consumers can branch on `result.isError` and narrow with `isValidationFailure` / `isDomainFailure`. Unexpected handler exceptions are caught and surfaced as `{ content: [{type:"text", text: message}], details: {}, isError: true }`, matching MCP. Success-path results include `isError: false` explicitly so consumers can use the same strict-equality checks across both adapters. `details` is populated from `structuredContent` first, then from `details`, then `{}`. Progress updates from `ctx.progress?.(...)` map to pi tool updates.
+By default (`errorHandling: "return"`, as of 0.7) the pi adapter mirrors MCP's error-as-data posture: portable validation failures and portable `isError: true` results surface as `{ content, details, isError: true }` so consumers can branch on `result.isError`. The pi wire object exposes machine-readable data on `details` (sourced from `structuredContent` first, then `details`, then `{}`); use the result guards on `PortableToolResult` values at the portable seam, not directly on the pi wire object. Unexpected handler exceptions are caught and surfaced as `{ content: [{type:"text", text: message}], details: {}, isError: true }`, matching MCP. Success-path results include `isError: false` explicitly so consumers can use the same strict-equality checks across both adapters. Progress updates from `ctx.progress?.(...)` map to pi tool updates.
 
 The pre-0.7 behavior — throw `PortableToolExecutionError` on `isError` — is still available for one deprecation cycle:
 
@@ -130,12 +138,12 @@ try {
 // After (0.7+)
 const result = await piTool.execute(...);
 if (result.isError) {
-  if (isValidationFailure(result)) {
+  if (result.details.kind === "validation" && Array.isArray(result.details.validationErrors)) {
     // validationErrors is Array<{ field: string; message: string }>.
-    for (const { field, message } of result.structuredContent.validationErrors) {
+    for (const { field, message } of result.details.validationErrors) {
       // ...
     }
-  } else if (isDomainFailure(result)) { /* handler-level error */ }
+  } else { /* handler-level error; details is whatever the handler returned */ }
 }
 ```
 
@@ -150,16 +158,18 @@ For **discriminated unions** (`Type.Union([Type.Object({tag: Literal("a"), …})
 For nested discriminated unions, `field` is the leaf segment of the JSON pointer (`"name"` for `/event/name`), not the full path. Consumers needing full path context for ambiguous prop names should track the active union branch out-of-band.
 
 The two modes expose the failure discriminator on different fields. In the
-new default `"return"` mode, prefer the result guards over inspecting a
-`kind` field directly — handler-emitted failures do not carry a synthesized
-`kind`. In the deprecated `"throw"` mode, the discriminator lives on
-`(err as PortableToolExecutionError).details.kind` (`"validation"` or
-`"domain"`). The guards operate on a `PortableToolResult`; they are not
-designed to be called on the pi adapter's wire object.
+new default `"return"` mode, validation failures surface on the pi wire
+object as `result.details.kind === "validation"`; handler-emitted failures
+do not carry a synthesized `kind`. In the deprecated `"throw"` mode, the
+discriminator lives on `(err as PortableToolExecutionError).details.kind`
+(`"validation"` or `"domain"`). The guards operate on a `PortableToolResult`;
+they are not designed to be called on the pi adapter's wire object.
 
 #### Per-host metadata via `hostExtras`
 
 `PortableTool.hostExtras` is an optional namespace for host-specific fields that should travel with the tool definition rather than a parallel sidecar map. The pi adapter reads `hostExtras.pi`; the MCP adapter reads `hostExtras.mcp`; each adapter ignores keys it does not recognise. Tools that omit `hostExtras` see no behavior change.
+
+Custom host adapters can reuse the core execution helpers, but the built-in `ctx.host` union is intentionally closed (`"pi" | "mcp" | "test"`). Custom adapters should cast at their boundary and carry custom dispatch state on adapter-owned fields; use module augmentation of `PortableToolHostExtras` for type-safe host-specific metadata.
 
 ```ts
 import { Type } from "typebox";
@@ -231,7 +241,7 @@ Tool `parameters` must resolve to a JSON-Schema object at the top level. `Type.O
 
 Portable validation failures and portable `isError: true` results return `CallToolResult` with `isError: true`. `structuredContent` is preserved; `details` is used only as a fallback when `structuredContent` is absent. Exporting a server-options factory keeps MCP entrypoints import-passive and easy to test without starting stdio.
 
-The two adapters now read in parallel: invalid args and portable `isError` results return `{ isError: true }` from both hosts by default, and the same result-guard helpers (`isValidationFailure`, `isDomainFailure`) narrow them on either side.
+The two adapters now read in parallel: invalid args and portable `isError` results return `{ isError: true }` from both hosts by default. The result-guard helpers (`isValidationFailure`, `isDomainFailure`) narrow `PortableToolResult` values at the portable seam; adapter wire values expose the same data through host-specific fields (`structuredContent` for MCP, `details` for pi).
 
 ### bin-wrapper (since 0.11.0)
 
@@ -245,21 +255,23 @@ await runBinWrapper({
   metaUrl: import.meta.url,
   mcpEntry: "dist/extensions/mcp-server.js",
   buildScript: "build:mcp",
+  // MCP stdio bins: keep build stdout off the JSON-RPC channel.
+  buildStdio: ["ignore", "inherit", "inherit"],
 });
 ```
 
 Options:
 
 - `metaUrl` (required): `import.meta.url` of the bin script. Used to locate the package root (the bin's parent directory).
-- `mcpEntry` (required): path to the compiled MCP entry, relative to the package root (e.g. `"dist/extensions/mcp-server.js"`).
-- `buildScript` (required): npm script to invoke when the entry is missing (e.g. `"build:mcp"`).
+- `mcpEntry` (required): path to the compiled MCP entry, relative to the package root (e.g. `"dist/extensions/mcp-server.js"`). Absolute paths, `..` path segments, and NUL bytes are rejected.
+- `buildScript` (required): npm script to invoke when the entry is missing (e.g. `"build:mcp"`). Names must be literal script identifiers containing only letters, numbers, `:`, `_`, `@`, `.`, or `-`, and must not start with `-`.
 - `buildTimeoutMs` (optional, default `60_000`): timeout for the build subprocess. Distinct "Build timed out…" diagnostic fires when exceeded.
 - `logPrefix` (optional, default `"bridgekit-bin"`): prefix on the "Failed to build…" diagnostic.
 - `buildStdio` (optional, default `"inherit"`): `stdio` mode passed to `spawnSync` when the build script runs. **MCP stdio server bins should pass `["ignore", "inherit", "inherit"]`** so the build subprocess's stdout cannot contaminate the parent's JSON-RPC framing channel (`process.stdout`). stderr stays inherited so build diagnostics remain visible.
 
 The MCP entry module must export `async function runServer(): Promise<void>`. Consumers with a different export name can alias on export.
 
-**Security: `mcpEntry` and `buildScript` must be literal strings in the caller's source.** The helper joins `mcpEntry` onto the resolved package root and dynamically `import()`s it, and it passes `buildScript` to `spawnSync` (with `shell: true` on Windows where `&`, `|`, and `^` are shell metacharacters). Sourcing either from CLI args or environment variables exposes arbitrary-file import and Windows command injection.
+**Security: `mcpEntry` and `buildScript` must be literal strings in the caller's source.** The helper joins `mcpEntry` onto the resolved package root and dynamically `import()`s it, and it passes `buildScript` to `spawnSync` (with `shell: true` on Windows where `&`, `|`, and `^` are shell metacharacters). BridgeKit rejects absolute/traversing entry paths and shell-shaped script names, but sourcing either option from CLI args or environment variables is still outside the supported threat model.
 
 Behavior on missing entry:
 
@@ -297,8 +309,8 @@ Package and release checklist:
 - If an npm-launched bin depends on generated output, use `runBinWrapper` from `@feniix/bridgekit/bin-wrapper` (since 0.11.0) — it resolves the package-local generated entry, runs the package-local build when output is missing in workspace/local execution, preserves build failures, and distinguishes timeout from build error in its diagnostic. The bin script becomes a three-line invocation; no hand-rolled wrapper needed.
 - If a package keeps a source-loaded host entrypoint (for example a pi extension source file), use a package-local MCP build behind that wrapper and narrow the build to the MCP entrypoint plus shared host-neutral modules.
 - Declare a compatible Node engine (`>=22.19.0`) in downstream packages that expose BridgeKit-powered MCP bins.
-- Run `npm run check`, `npm run test`, `npm run pack:dry-run`, and `npm run package-smoke` before publishing.
-- Treat `docs/releasing.md` as the future release handoff; this repository is not configured for automated publish yet.
+- Run `npm run check`, `npm test`, `npm run pack:dry-run`, `npm run package-smoke`, and `npm audit --omit=dev --audit-level=high` before publishing.
+- Treat `docs/releasing.md` as the release handoff; publishing is manual via the Release workflow and npm trusted publishing.
 
 See `examples/README.md` for complete copyable examples.
 
