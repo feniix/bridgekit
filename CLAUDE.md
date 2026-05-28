@@ -18,7 +18,7 @@ All scripts are local-only; the package was extracted from a monorepo and `scrip
 - Running a single test: after `npm run build`, invoke directly, e.g. `node --test dist/src/adapters/mcp.test.js` (or pass `--test-name-pattern "..."` to filter by name).
 - `npm run pack:dry-run` — `npm pack --dry-run --json`. The `prepack` hook runs `build` automatically.
 - `npm run package-smoke` — packs a tarball into a temp dir, installs it into a synthetic consumer, and asserts the public surface (`scripts/smoke-package.mjs`). Run before publishing.
-- Pre-publish full gate: `npm run check && npm run test && npm run pack:dry-run && npm run package-smoke`.
+- Pre-publish full gate: `npm run check && npm run test && npm run pack:dry-run && npm run package-smoke && npm audit --omit=dev --audit-level=high`.
 
 There is intentionally **no** `release` or `publish` script — `scripts/smoke-package.mjs` will fail if one is added (see `inv-no-release-publish-scripts` in `docs/packaging-invariants.md`). See `docs/releasing.md` for the release flow.
 
@@ -51,12 +51,12 @@ Each of the four entrypoints (`.`, `./pi`, `./mcp`, `./bin-wrapper`) maps to its
 
 `PortableTool` carries generics for parameters and the inferred success result (`TParams extends TSchema`, `TResult extends PortableToolResult`). The host is a fixed literal union: `PortableToolBuiltInHost = "pi" | "mcp" | "test"`. `PortableToolContext.host` is typed to that union directly, so `@ts-expect-error` assertions in `execute-tool.test.ts` reject any literal outside the union (e.g. `{ host: "custom-adapter" }`). Do not reintroduce a `<THost>` generic — the audit (#5, removed in 0.10.0) confirmed no consumer used it, and the simplification is intentional.
 
-### Adapter asymmetry (intentional)
+### Adapter error behavior
 
-- **pi adapter** throws `PortableToolExecutionError` when `result.isError` is true, because pi's contract expects native thrown tool failures. Progress maps to `onUpdate({content, details})`. `details` is sourced from `structuredContent` first, then `details`, then `{}`.
+- **pi adapter** defaults to returning `{ content, details, isError }` for validation failures and portable `isError: true` results. The deprecated `errorHandling: "throw"` mode still throws `PortableToolExecutionError` when `result.isError` is true. Progress maps to `onUpdate({content, details})`. `details` is sourced from `structuredContent` first, then `details`, then `{}`.
 - **MCP adapter** returns `{ content, structuredContent, isError: true }` in `CallToolResult` for both invalid args and `result.isError`. Unexpected thrown exceptions are caught and surfaced as `isError: true` with the error message as text.
 
-Both adapters prefer `structuredContent` over `details`; the latter exists only as a fallback for older callers.
+Both adapters prefer `structuredContent` over `details`; the latter exists only as a fallback for older callers. Result guards operate on `PortableToolResult` values at the portable seam, not directly on pi wire objects.
 
 The MCP adapter is built on the SDK's **low-level** `Server` with explicit `ListToolsRequestSchema` / `CallToolRequestSchema` handlers, **not** the high-level `registerTool` helper. This is so TypeBox schemas pass through as MCP `inputSchema` without a JSON Schema conversion step. There is no `registerMcpTools` helper, and two layers (`scripts/smoke-package.mjs` runtime-key check + `src/adapters/mcp.test.ts` surface assertion) enforce its absence. If you think you want to add a high-level wrapper, read the rationale in `README.md` (MCP adapter section) and `docs/extraction.md` first.
 

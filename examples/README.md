@@ -210,7 +210,7 @@ In `package.json`:
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@feniix/bridgekit": "^0.13.0",
+    "@feniix/bridgekit": "^0.14.0",
     "typebox": "^1.1.31"
   }
 }
@@ -236,7 +236,7 @@ For mixed source-loaded pi + compiled MCP packages, keep the pi source entrypoin
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@feniix/bridgekit": "^0.13.0",
+    "@feniix/bridgekit": "^0.14.0",
     "typebox": "^1.1.31"
   }
 }
@@ -404,5 +404,5 @@ For publishable tool packages:
 - When a bin depends on generated output, prefer a checked-in wrapper under `bin/` over pointing directly at `dist/`; for MCP stdio bins set `buildStdio: ["ignore", "inherit", "inherit"]`; test existing output, missing output, failed builds, and successful builds that omit the expected file.
 - If only the MCP bin needs compiled output, narrow its tsconfig to the MCP entrypoint and shared host-neutral modules instead of compiling unrelated host adapters.
 - Add a packed-install smoke test that installs tarballs into a temporary project.
-- For BridgeKit itself, run `npm run check`, `npm run test`, `npm run pack:dry-run`, and `npm run package-smoke` before release.
+- For BridgeKit itself, run `npm run check`, `npm run test`, `npm run pack:dry-run`, `npm run package-smoke`, and `npm audit --omit=dev --audit-level=high` before release.
 - Keep imports side-effect free; registration and server startup should happen only in explicit entrypoints.
