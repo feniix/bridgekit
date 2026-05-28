@@ -49,14 +49,22 @@ export type PortableDomainFailure = PortableToolResult & { isError: true };
  *   }
  * }
  */
+function isPortableValidationError(error: unknown): error is PortableValidationError {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { field?: unknown; message?: unknown };
+  return typeof candidate.field === "string" && typeof candidate.message === "string";
+}
+
 export function isValidationFailure(result: PortableToolResult): result is PortableValidationFailure {
   if (result.isError !== true) return false;
   const structured = result.structuredContent;
   if (!structured || typeof structured !== "object") return false;
+  const candidate = structured as { kind?: unknown; tool?: unknown; validationErrors?: unknown };
   return (
-    (structured as { kind?: unknown }).kind === "validation" &&
-    typeof (structured as { tool?: unknown }).tool === "string" &&
-    Array.isArray((structured as { validationErrors?: unknown }).validationErrors)
+    candidate.kind === "validation" &&
+    typeof candidate.tool === "string" &&
+    Array.isArray(candidate.validationErrors) &&
+    candidate.validationErrors.every(isPortableValidationError)
   );
 }
 

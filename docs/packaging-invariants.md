@@ -143,12 +143,12 @@ The last two pin that the internal module backing `runBinWrapper` is unreachable
 
 ## inv-types-strict-compile
 
-**Assertion**: A NodeNext TypeScript fixture against the installed declarations compiles strict-clean.
+**Assertion**: A NodeNext TypeScript fixture against the installed declarations compiles strict-clean, including `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`.
 
 **Where**: `scripts/smoke-package.mjs:assertTypesCompile`.
 
 **Failure mode**: A change to a generic or a re-export breaks downstream `.d.ts` consumption. Pure runtime tests can't catch this — the fixture must compile against the *installed* declarations to expose moduleResolution-level issues.
 
-**Motivation**: The published `.d.ts` files are the canonical type contract. Anything that source-builds cleanly but breaks on consumption is a packaging bug, not a logic bug.
+**Motivation**: The published `.d.ts` files are the canonical type contract. Anything that source-builds cleanly but breaks on consumption is a packaging bug, not a logic bug. The strict-plus flags mirror this repo's `tsconfig.json` so installed declarations remain usable by consumers with stronger-than-default strictness.
 
 **Removable?** No.

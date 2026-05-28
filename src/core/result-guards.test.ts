@@ -35,7 +35,7 @@ test("isValidationFailure narrows results produced by executePortableTool on Typ
     const errors: PortableValidationError[] = result.structuredContent.validationErrors;
     assert.equal(tool, "validation_guard_test");
     assert.ok(Array.isArray(errors));
-    assert.equal(errors[0].field, "text");
+    assert.equal(errors.at(0)?.field, "text");
   }
   // Validation failures are not domain failures.
   assert.equal(isDomainFailure(result), false);
@@ -54,6 +54,21 @@ test("isValidationFailure returns false for handler-emitted isError results that
     isError: true,
   };
   assert.equal(isValidationFailure(result), false);
+});
+
+test("isValidationFailure rejects malformed validationErrors entries", () => {
+  const result: PortableToolResult = {
+    text: "bad validation-shaped payload",
+    structuredContent: {
+      kind: "validation",
+      tool: "handler_tool",
+      validationErrors: [{ field: "text" }],
+    },
+    isError: true,
+  };
+
+  assert.equal(isValidationFailure(result), false);
+  assert.equal(isDomainFailure(result), true);
 });
 
 test("isDomainFailure narrows handler-emitted isError results", () => {

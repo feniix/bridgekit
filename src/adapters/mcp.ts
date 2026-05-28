@@ -237,7 +237,7 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
     { name: options.name, version: options.version },
     {
       capabilities: { tools: { listChanged: false } },
-      instructions: options.instructions,
+      ...(options.instructions !== undefined && { instructions: options.instructions }),
     },
   );
 

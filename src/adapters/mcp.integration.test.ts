@@ -197,7 +197,7 @@ test("MCP tool call with invalid args is rejected without invoking the portable 
     const errors = structuredContent(result).validationErrors as Array<{ field: string; message: string }>;
     assert.equal(structuredContent(result).tool, "echo_guarded");
     assert.ok(Array.isArray(errors));
-    assert.equal(errors[0].field, "text");
+    assert.equal(errors.at(0)?.field, "text");
     // Note: the exact wording of result.text is owned by the core test
     // (executePortableTool returns validation errors without calling the tool).
   });

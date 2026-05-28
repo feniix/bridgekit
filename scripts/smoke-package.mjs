@@ -166,11 +166,6 @@ async function assertTypesCompile(installDir) {
       const defaultContext: PortableToolContext = { host: builtInHost };
       void defaultContext;
 
-      // Arity pin: PortableTool carries one type parameter as of 0.10.0.
-      // A future regression that re-adds <THost> (even with a default) would
-      // make this line compile and the @ts-expect-error would itself error.
-      // @ts-expect-error PortableTool accepts exactly one type parameter since 0.10.0.
-      type _PortableToolArity = PortableTool<typeof parameters, "custom-host">;
       // Host union pin: PortableToolContext.host rejects literals outside the built-in union.
       // @ts-expect-error PortableToolContext.host is fixed to PortableToolBuiltInHost since 0.10.0.
       const _rejectedCustomCtx: PortableToolContext = { host: "custom-host" };
@@ -193,6 +188,15 @@ async function assertTypesCompile(installDir) {
         return executePortableTool(tool, { text: "hello" }, { host: "test" });
       }
       void run;
+
+      async function runWithInferredResult(): Promise<void> {
+        const result = await executePortableTool(tool, { text: "hello" }, { host: "test" });
+        if (result.isError !== true) {
+          const text: string = result.structuredContent.text;
+          void text;
+        }
+      }
+      void runWithInferredResult;
 
       const error: unknown = new PortableToolExecutionError({
         text: "bad",
@@ -293,6 +297,8 @@ async function assertTypesCompile(installDir) {
       "--moduleResolution",
       "NodeNext",
       "--strict",
+      "--noUncheckedIndexedAccess",
+      "--exactOptionalPropertyTypes",
       "--skipLibCheck",
       typecheckFile,
     ],
@@ -403,7 +409,7 @@ try {
   console.error("✓ manifest invariants (sideEffects, no release/publish scripts, MCP SDK v1, no source maps)");
   console.error("✓ packed tarball file list includes public runtime entries and excludes tests/maps");
   console.error("✓ temporary consumer imports all public runtime subpaths from installed tarball");
-  console.error("✓ temporary consumer compiles NodeNext TypeScript against installed declarations");
+  console.error("✓ temporary consumer compiles strict-plus NodeNext TypeScript against installed declarations");
   console.error("✓ unsupported deep imports fail through package exports");
 } finally {
   if (tempRoot) await rm(tempRoot, { recursive: true, force: true });

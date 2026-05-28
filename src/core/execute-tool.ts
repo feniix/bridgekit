@@ -1,9 +1,17 @@
-import type { TSchema } from "typebox";
+import type { Static, TSchema } from "typebox";
 import type { TLocalizedValidationError } from "typebox/error";
 import { Check, Errors, Pointer } from "typebox/value";
 import type { PortableTool, PortableToolContext, PortableToolResult, PortableValidationError } from "./define-tool.js";
+import type { PortableValidationFailure } from "./result-guards.js";
 
 const ROOT_FIELD = "(root)";
+
+type PortableToolSuccess<TResult extends PortableToolResult> = TResult & {
+  details?: Record<string, unknown>;
+  isError?: boolean;
+} & (TResult extends { structuredContent?: infer TStructured }
+    ? { structuredContent?: TStructured }
+    : { structuredContent?: Record<string, unknown> });
 
 function fieldFromPath(instancePath: string): string {
   return instancePath.split("/").filter(Boolean).at(-1) ?? ROOT_FIELD;
@@ -177,15 +185,17 @@ function resolveSchemaAtPath(schema: TSchema, instancePath: string): unknown {
     if (!current || typeof current !== "object") return undefined;
     const obj = current as { properties?: Record<string, unknown>; items?: unknown };
     if (obj.properties && typeof obj.properties === "object" && segment in obj.properties) {
-      current = obj.properties[segment];
-      if (current === undefined) return undefined;
+      const next = obj.properties[segment];
+      if (next === undefined) return undefined;
+      current = next;
       continue;
     }
     if (obj.items !== undefined && /^\d+$/.test(segment)) {
       if (Array.isArray(obj.items)) {
         const idx = Number(segment);
-        if (idx >= obj.items.length) return undefined;
-        current = obj.items[idx];
+        const next = getArrayEntry(obj.items, idx);
+        if (next === undefined) return undefined;
+        current = next;
       } else {
         current = obj.items;
       }
@@ -231,6 +241,10 @@ function branchDiscriminatorMatches(branch: UnionObjectBranch, value: unknown): 
 function isSubsetOf(props: readonly string[], set: ReadonlySet<string>): boolean {
   for (const p of props) if (!set.has(p)) return false;
   return true;
+}
+
+function getArrayEntry<T>(entries: readonly T[], index: number): T | undefined {
+  return index >= 0 && index < entries.length ? entries[index] : undefined;
 }
 
 function suppressSiblingErrorsUnderUnion(
@@ -289,14 +303,23 @@ function suppressSiblingErrorsUnderUnion(
     const branchValue = Pointer.Get(value, path);
     const matchedIndices: number[] = [];
     for (let i = 0; i < branches.length; i++) {
-      if (branchDiscriminatorMatches(branches[i], branchValue)) matchedIndices.push(i);
+      const branch = getArrayEntry(branches, i);
+      if (branch && branchDiscriminatorMatches(branch, branchValue)) matchedIndices.push(i);
     }
     if (matchedIndices.length !== 1) {
       resolutions.set(path, { kind: "no-active" });
       continue;
     }
     const activeIndex = matchedIndices[0];
-    const active = branches[activeIndex];
+    if (activeIndex === undefined) {
+      resolutions.set(path, { kind: "no-active" });
+      continue;
+    }
+    const active = getArrayEntry(branches, activeIndex);
+    if (!active) {
+      resolutions.set(path, { kind: "no-active" });
+      continue;
+    }
     const branchRequired = new Set(active.required ?? []);
     const branchProps = new Set(Object.keys(active.properties ?? {}));
     // Map of property-name -> set of disallowed values held by losing
@@ -307,7 +330,9 @@ function suppressSiblingErrorsUnderUnion(
     const losingDiscriminators = new Map<string, Set<unknown>>();
     for (let i = 0; i < branches.length; i++) {
       if (i === activeIndex) continue;
-      for (const [key, propSchema] of Object.entries(branches[i].properties ?? {})) {
+      const branch = getArrayEntry(branches, i);
+      if (!branch) continue;
+      for (const [key, propSchema] of Object.entries(branch.properties ?? {})) {
         const values = readDiscriminatorValues(propSchema);
         if (values.length === 0) continue;
         let existing = losingDiscriminators.get(key);
@@ -429,12 +454,12 @@ function expandTypeBoxError(schema: TSchema, error: TLocalizedValidationError): 
   return [{ field: fieldFromError(schema, error), message: error.message }];
 }
 
-export function validatePortableToolArgs(
-  tool: PortableTool<TSchema>,
+export function validatePortableToolArgs<TParams extends TSchema>(
+  tool: PortableTool<TParams>,
   args: unknown,
-): { ok: true } | { ok: false; errors: PortableValidationError[] } {
+): { ok: true; args: Static<TParams> } | { ok: false; errors: PortableValidationError[] } {
   if (Check(tool.parameters, args)) {
-    return { ok: true };
+    return { ok: true, args };
   }
 
   // TypeBox can emit multiple errors per offending field (e.g. union/anyOf
@@ -460,11 +485,11 @@ export function validatePortableToolArgs(
   return { ok: false, errors };
 }
 
-export async function executePortableTool(
-  tool: PortableTool<TSchema>,
+export async function executePortableTool<TParams extends TSchema, TResult extends PortableToolResult>(
+  tool: PortableTool<TParams, TResult>,
   args: unknown,
   ctx: PortableToolContext,
-): Promise<PortableToolResult> {
+): Promise<PortableToolSuccess<TResult> | PortableValidationFailure> {
   const validation = validatePortableToolArgs(tool, args);
   if (!validation.ok) {
     return {
@@ -480,5 +505,5 @@ export async function executePortableTool(
     };
   }
 
-  return tool.execute(args as never, ctx);
+  return (await tool.execute(validation.args, ctx)) as PortableToolSuccess<TResult>;
 }

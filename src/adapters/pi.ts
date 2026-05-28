@@ -170,7 +170,7 @@ export function registerPiTools(
           }
           result = await executePortableTool(tool, params, {
             host: "pi",
-            signal,
+            ...(signal !== undefined && { signal }),
             progress(update) {
               onUpdate?.({
                 content: [{ type: "text", text: update.text } satisfies PiContent],
