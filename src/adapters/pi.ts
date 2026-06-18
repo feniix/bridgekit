@@ -39,6 +39,12 @@ type PiToolDefinition = {
   // PortableTool.hostExtras.pi — stays `readonly string[]` because the
   // consumer's metadata is immutable from bridgekit's perspective.
   promptGuidelines?: string[];
+  // Optional TUI renderers passed through from hostExtras.pi. Bridgekit is
+  // host-neutral: these are typed as `any` and forwarded verbatim.
+  // biome-ignore lint/suspicious/noExplicitAny: host-neutral pass-through
+  renderCall?: (args: any, theme: any, context: any) => any;
+  // biome-ignore lint/suspicious/noExplicitAny: host-neutral pass-through
+  renderResult?: (result: any, options: any, theme: any, context: any) => any;
 };
 
 export type PiToolRegistration = {
@@ -148,6 +154,9 @@ export function registerPiTools(
       // pi-coding-agent's registerTool input is `string[]` (mutable). The boundary
       // copy satisfies both sides without weakening either declared type.
       ...(piExtras?.promptGuidelines !== undefined && { promptGuidelines: [...piExtras.promptGuidelines] }),
+      // TUI renderers forwarded verbatim from hostExtras.pi.
+      ...(piExtras?.renderCall !== undefined && { renderCall: piExtras.renderCall }),
+      ...(piExtras?.renderResult !== undefined && { renderResult: piExtras.renderResult }),
       async execute(_toolCallId, params, signal, onUpdate, _ctx) {
         let result: PortableToolResult;
         try {

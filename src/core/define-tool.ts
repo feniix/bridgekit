@@ -87,6 +87,23 @@ export interface PiHostExtras {
    * once attached to a tool definition.
    */
   promptGuidelines?: readonly string[];
+
+  /**
+   * Optional TUI renderer for the tool call line (before execution).
+   * Receives `(args, theme, context)` and returns a pi-tui Component.
+   * BridgeKit passes this through verbatim — no validation or wrapping.
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: host-neutral pass-through, pi-tui types are not imported to keep bridgekit host-neutral
+  renderCall?: (args: any, theme: any, context: any) => any;
+
+  /**
+   * Optional TUI renderer for the tool result (after execution).
+   * Receives `(result, options, theme, context)` and returns a pi-tui Component.
+   * `options.expanded` is toggled by the user via Ctrl+O in pi's TUI.
+   * BridgeKit passes this through verbatim — no validation or wrapping.
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: host-neutral pass-through, pi-tui types are not imported to keep bridgekit host-neutral
+  renderResult?: (result: any, options: any, theme: any, context: any) => any;
 }
 
 /**
