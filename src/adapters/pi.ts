@@ -1,5 +1,11 @@
 import type { TSchema } from "typebox";
-import type { PortableTool, PortableToolErrorDetails, PortableToolResult } from "../core/define-tool.js";
+import type {
+  PiToolCallRenderer,
+  PiToolResultRenderer,
+  PortableTool,
+  PortableToolErrorDetails,
+  PortableToolResult,
+} from "../core/define-tool.js";
 import { executePortableTool } from "../core/execute-tool.js";
 import { isValidationFailure } from "../core/result-guards.js";
 
@@ -39,12 +45,11 @@ type PiToolDefinition = {
   // PortableTool.hostExtras.pi — stays `readonly string[]` because the
   // consumer's metadata is immutable from bridgekit's perspective.
   promptGuidelines?: string[];
-  // Optional TUI renderers passed through from hostExtras.pi. Bridgekit is
-  // host-neutral: these are typed as `any` and forwarded verbatim.
-  // biome-ignore lint/suspicious/noExplicitAny: host-neutral pass-through
-  renderCall?: (args: any, theme: any, context: any) => any;
-  // biome-ignore lint/suspicious/noExplicitAny: host-neutral pass-through
-  renderResult?: (result: any, options: any, theme: any, context: any) => any;
+  // Optional TUI renderers forwarded verbatim from hostExtras.pi. BridgeKit
+  // keeps their public signatures in core so adapter/internal drift cannot
+  // silently change the pass-through contract.
+  renderCall?: PiToolCallRenderer;
+  renderResult?: PiToolResultRenderer;
 };
 
 export type PiToolRegistration = {

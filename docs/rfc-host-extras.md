@@ -37,7 +37,7 @@ The consumer evidence comes from three pi-side wrapper patterns in `feniix/pi-ex
 
 **Evidence.** `pi-exa` maintains a `PI_TOOL_METADATA: Record<ExaToolName, PiToolMetadata>` constant in its extensions tree and a custom `registerExaPiTools` loop that reads it on each iteration to spread `promptSnippet` and `promptGuidelines` into `pi.registerTool`. pi's `ToolDefinition` accepts these as first-class fields; bridgekit's `registerPiTools` does not pass them through because `PortableTool` has no place to put them. Result: pi-exa bypasses `registerPiTools` entirely.
 
-**Note on `renderShell`.** pi's `ToolDefinition` also accepts `renderShell: "default" | "self"` for tools that need to opt out of pi's default content rendering. No known bridgekit consumer currently sets it, so it is **excluded from the 0.9.0 shape** (adding it later is non-breaking since members are optional). The 0.9.0 implementation PR may include it if a consumer surfaces a real need during the migration.
+**Note on `renderShell` / renderers.** pi's `ToolDefinition` also accepts presentation fields. `renderShell: "default" | "self"` remains excluded until a consumer surfaces a real need. `renderCall` / `renderResult` were added later because pi TUI consumers needed per-tool collapsed/expanded renderers and pi already treats those as first-class registration fields.
 
 **Assignment.** **In scope** for `hostExtras`.
 
@@ -73,6 +73,14 @@ The consumer evidence comes from three pi-side wrapper patterns in `feniix/pi-ex
 
 **Justification.** This is pi *presentation* policy: how to render a result inside pi's terminal UI, where to spill bytes, what the operator's `--seq-think-max-bytes` flag means in practice. None of it generalizes to MCP (a structured-content protocol with no display constraints), and absorbing it would couple the portable core to `@earendil-works/pi-coding-agent` — a dependency bridgekit was explicitly extracted to avoid. The consumer's `formatToolOutput` is the right place for this; it stays.
 
+### Gap E — pi TUI renderers (`renderCall`, `renderResult`)
+
+**Evidence.** pi's TUI can render a custom collapsed call line and expandable result view per tool. Downstream TUI-heavy consumers otherwise need a custom pi registration loop solely to attach those renderer functions to `pi.registerTool`.
+
+**Assignment.** **In scope** for `hostExtras`.
+
+**Justification.** These are host-owned presentation hooks that pi already accepts on its registration shape. BridgeKit does not import pi-tui types, validate the renderer return value, or invoke the callbacks; it forwards the functions by identity at registration time. That keeps the portable tool handler host-neutral while avoiding another parallel sidecar map. The public types are intentionally opaque aliases so typed consumer renderers remain assignable under `strictFunctionTypes`.
+
 ### Summary table
 
 | Gap | What | Adapter timing | Assigned to | Rationale |
@@ -80,7 +88,8 @@ The consumer evidence comes from three pi-side wrapper patterns in `feniix/pi-ex
 | A | Prompt metadata (`promptSnippet`, `promptGuidelines`) | Registration-time pass-through | **In scope** | Descriptive per-tool data with direct MCP counterpart (`annotations`). |
 | B | Pre-`execute` `pendingMessage` | Call-time, before validation | **In scope** | Real lifecycle gap; generalizes as a string per tool, no policy choice for the core. |
 | C | `splitParams` for pi-only knobs | — | **Out of scope** | Runtime argument shaping; static metadata cannot express operator-supplied knobs. |
-| D | `formatToolOutput` truncation | — | **Out of scope** | pi presentation policy that doesn't generalize to MCP. |
+| D | `formatToolOutput` truncation | — | **Out of scope** | pi presentation policy tied to local limits and tempfile spillover. |
+| E | TUI renderers (`renderCall`, `renderResult`) | Registration-time pass-through | **In scope** | Host-owned presentation callbacks forwarded by identity; no core invocation or pi-tui import. |
 
 ---
 
@@ -122,6 +131,9 @@ import type { TSchema } from "typebox";
  * }
  * ```
  */
+export type PiToolCallRenderer = (args: any, theme: any, context: any) => any;
+export type PiToolResultRenderer = (result: any, options: any, theme: any, context: any) => any;
+
 export interface PortableToolHostExtras {
   pi?: {
     /**
@@ -146,6 +158,19 @@ export interface PortableToolHostExtras {
      * `registerTool({ promptGuidelines })`. Each entry is one bullet.
      */
     promptGuidelines?: readonly string[];
+
+    /**
+     * Optional pi TUI renderer for the tool call line, forwarded by identity
+     * to `pi.registerTool({ renderCall })`.
+     */
+    renderCall?: PiToolCallRenderer;
+
+    /**
+     * Optional pi TUI renderer for the tool result. `options.expanded` tracks
+     * pi's collapsed/expanded toggle, and the callback is forwarded by
+     * identity to `pi.registerTool({ renderResult })`.
+     */
+    renderResult?: PiToolResultRenderer;
 
     // `renderShell` deferred until a consumer surfaces a real need. See §1.
   };
@@ -307,12 +332,12 @@ The line-count guardrail still applies: net additions across `pi-exa` + bridgeki
 
 The following are **not** within `hostExtras`'s scope. They are listed here as boundaries so a future RFC reader doesn't relitigate them under the `hostExtras` heading.
 
-- **Generic middleware / interceptors.** Closed [#11](https://github.com/feniix/bridgekit/issues/11). `hostExtras` carries *data*, not *callbacks*. Adapters consume the data on the tool's behalf; consumers do not inject behavior into the core's execution path through this field.
-- **Per-tool retry / cache / auth policies.** Closed [#11](https://github.com/feniix/bridgekit/issues/11). Same boundary as middleware: these are behaviors, not data.
+- **Generic middleware / interceptors.** Closed [#11](https://github.com/feniix/bridgekit/issues/11). `hostExtras` carries host metadata and host-owned presentation callbacks, not core execution middleware. Adapters may pass through fields the host already owns, but consumers do not inject behavior into BridgeKit's validation/execution path through this field.
+- **Per-tool retry / cache / auth policies.** Closed [#11](https://github.com/feniix/bridgekit/issues/11). Same boundary as middleware: these alter BridgeKit execution behavior rather than host presentation/registration.
 - **Output truncation as a bridgekit concern.** Consumer policy (Gap D). pi-specific; doesn't generalize to MCP; couples the core to `@earendil-works/pi-coding-agent`.
-- **Telemetry hooks (`onToolCall`, `onToolError`).** Closed [#16](https://github.com/feniix/bridgekit/issues/16). `hostExtras` is not a back-door for adding callbacks.
+- **Telemetry hooks (`onToolCall`, `onToolError`).** Closed [#16](https://github.com/feniix/bridgekit/issues/16). `hostExtras` is not a back-door for BridgeKit-invoked lifecycle callbacks; pi TUI renderers are admissible only because BridgeKit forwards them to the pi host by identity and never calls them itself.
 - **Tool catalog metadata (`version`, `tags`, `deprecated`, `examples`).** Closed [#15](https://github.com/feniix/bridgekit/issues/15). Catalog metadata describes a tool *across* hosts; if it ever lands, it goes on `PortableTool` directly, not under `hostExtras`. Different decision, different RFC, if at all.
-- **Plugin system / dispatch helpers.** Never opened, deliberately. `hostExtras` is opaque data per known host. It is not an extension point for arbitrary host plugins discovered at runtime; bridgekit knows the host names it supports and adapters consume them.
+- **Plugin system / dispatch helpers.** Never opened, deliberately. `hostExtras` is opaque per known host. It is not an extension point for arbitrary host plugins discovered at runtime; bridgekit knows the host names it supports and adapters consume them.
 - **MCP `outputSchema`.** Mentioned in #28's problem statement but punted to a separate RFC (see [§4](#4-cross-host-symmetry-and-the-mcp-namespace)).
 
 The first three are direct anti-recommendations from the closed-issue audit; the next three keep this RFC focused on the actual gap rather than absorbing adjacent features; the seventh (MCP `outputSchema`) is deferred to a separate RFC (see [§4](#4-cross-host-symmetry-and-the-mcp-namespace)).
@@ -325,7 +350,7 @@ To keep this extension channel from becoming a back door for the boundaries §6 
 
 1. **Co-location test.** Is the data inherently per-tool, such that a parallel sidecar map would provably drift out of sync with the tool list? If it could live equally well outside the tool definition, it does not need `hostExtras`.
 2. **Static-metadata test.** Is the field a declaration-time value, or does it depend on operator/runtime configuration? Runtime-dependent fields fail (this is the Gap C rule).
-3. **Adapter-local action test.** When the adapter reads the field, does it perform host-local I/O (an `onUpdate` call, a `registerTool` field, an MCP annotation) — or does it trigger consumer-supplied behavior (a callback, a middleware step)? Consumer-supplied behavior is closed (#11/#16); adapter-local actions are admissible. `pendingMessage` (Gap B) sits exactly at this line and qualifies because the action is a single host-local `onUpdate` with consumer-supplied **data**, not a consumer-supplied **callback**.
+3. **Adapter-local action test.** When the adapter reads the field, does it perform host-local I/O or host registration (`onUpdate`, `registerTool` fields, MCP annotations, or renderer pass-through) — or does BridgeKit itself invoke consumer-supplied behavior as middleware? BridgeKit-invoked behavior is closed (#11/#16); adapter-local actions and host-owned pass-through fields are admissible. `pendingMessage` (Gap B) qualifies because the action is a single host-local `onUpdate` with consumer-supplied **data**. `renderCall` / `renderResult` (Gap E) qualify because BridgeKit only forwards the callbacks to pi; it never calls them.
 
 A field that passes all three gates is admissible. A field that fails any gate is rejected without further debate — re-litigating the closed boundaries belongs in a separate RFC against #11/#15/#16, not in a `hostExtras` PR.
 
@@ -353,7 +378,7 @@ The honest case for bundling is upgrade cost: a consumer moving from 0.8.x to 0.
 
 ## 8. Implementation sketch (light)
 
-This is intentionally not a complete patch — just enough to make the RFC implementable. The change to `registerPiTools` is purely additive, but the implementation PR also needs a **type-level widening** of the internal `PiToolDefinition` interface in `src/adapters/pi.ts`. Today that interface has exactly five fields (`name`, `label`, `description`, `parameters`, `execute`); the spread of `promptSnippet` / `promptGuidelines` won't compile in strict mode until the interface accepts them. The implementer should verify the field types against whatever the actual pi host SDK (`@earendil-works/pi-coding-agent` or successor) exposes for these fields — the RFC's shapes are derived from consumer-code usage, not from a published pi SDK type the bridgekit project depends on.
+This is intentionally not a complete patch — just enough to make the RFC implementable. The change to `registerPiTools` is purely additive, but the implementation PR also needs a **type-level widening** of the internal `PiToolDefinition` interface in `src/adapters/pi.ts`. Today that interface has exactly five fields (`name`, `label`, `description`, `parameters`, `execute`); the spread of `promptSnippet`, `promptGuidelines`, `renderCall`, and `renderResult` won't compile in strict mode until the interface accepts them. The implementer should verify the field types against whatever the actual pi host SDK (`@earendil-works/pi-coding-agent` or successor) exposes for these fields — the RFC's shapes are derived from consumer-code usage, not from a published pi SDK type the bridgekit project depends on.
 
 ```ts
 // src/adapters/pi.ts (sketch, simplified)
@@ -368,7 +393,9 @@ type PiToolDefinition = {
   execute: (...) => Promise<PiToolResult>;
   // New, all optional:
   promptSnippet?: string;
-  promptGuidelines?: readonly string[];
+  promptGuidelines?: string[];
+  renderCall?: PiToolCallRenderer;
+  renderResult?: PiToolResultRenderer;
 };
 
 export function registerPiTools(
@@ -391,7 +418,9 @@ export function registerPiTools(
       // tools without `hostExtras.pi` build a registration object that is
       // byte-identical to today's shape — zero-cost when absent.
       ...(piExtras?.promptSnippet !== undefined && { promptSnippet: piExtras.promptSnippet }),
-      ...(piExtras?.promptGuidelines !== undefined && { promptGuidelines: piExtras.promptGuidelines }),
+      ...(piExtras?.promptGuidelines !== undefined && { promptGuidelines: [...piExtras.promptGuidelines] }),
+      ...(piExtras?.renderCall !== undefined && { renderCall: piExtras.renderCall }),
+      ...(piExtras?.renderResult !== undefined && { renderResult: piExtras.renderResult }),
 
       async execute(_toolCallId, params, signal, onUpdate, _ctx) {
         // Lifecycle hook: fire the pre-execute update exactly once,
@@ -429,11 +458,11 @@ Lifecycle-relevant assertions for the implementation PR. **Tests marked [GATING]
 3. **[GATING] `pendingMessage` fires before validation.** Given a tool with `hostExtras.pi.pendingMessage` and a schema that rejects the supplied args, `onUpdate` is called once with the pending message **before** the validation-failure result is returned. Order-asserting test.
 4. **[GATING] `pendingMessage` is at-most-once.** Two sub-cases: (a) no second invocation from `executePortableTool`'s own progress wiring when `onUpdate` IS provided; (b) silent no-op (no throw, no side effect) when `onUpdate` is `undefined`.
 5. **`pendingMessage` × `errorHandling: "throw"`.** Given a tool with `pendingMessage` set, validation that would fail, and `errorHandling: "throw"`: the `onUpdate` fires once, then `PortableToolExecutionError` is thrown. The pending message reaches the channel before the throw — `onUpdate` is not silently swallowed by the catch.
-6. **[GATING] `promptSnippet` / `promptGuidelines` pass-through.** Given a tool with each field set, the call to `pi.registerTool` carries the same value verbatim.
+6. **[GATING] pi registration pass-through.** Given a tool with `promptSnippet`, `promptGuidelines`, `renderCall`, and `renderResult` set, the call to `pi.registerTool` carries the expected metadata. `renderCall` / `renderResult` are asserted with `strictEqual` so identity pass-through is pinned; `promptGuidelines` is content-equal but boundary-copied into a fresh mutable array.
 7. **MCP annotations.** Given a tool with `hostExtras.mcp.annotations.readOnlyHint = true`, the `Tool` returned by `tools/list` carries the annotation. **Lands when 0.9.x adapter consumption ships** (see §4 gate). A failing/skipped placeholder test should exist in 0.9.0 documenting the expected wire shape, so the 0.9.x patch has a target.
 8. **Unknown-host keys ignored.** Given a tool with `hostExtras["custom-host"]` populated via module augmentation, neither the pi nor MCP adapter looks at it (no throw, no log, no spread into the host registration).
 9. **[GATING] Module augmentation smoke-fixture.** Add a typecheck fixture inside `scripts/smoke-package.mjs`'s `assertTypesCompile` block that declares `interface PortableToolHostExtras { "custom-runtime"?: { something: string } }` against the installed declarations and assigns `hostExtras: { "custom-runtime": { something: "x" } }` on a tool. The fixture must compile cleanly. Locks the augmentation path against future declaration changes that would break it silently.
-10. **`smoke-package.mjs` runtime keys.** The `assertRuntimeExports` allow-list does not change. `PortableToolHostExtras` is exported as `interface` only (zero runtime footprint), so `Object.keys(core)` is unchanged.
+10. **`smoke-package.mjs` runtime keys.** The `assertRuntimeExports` allow-list does not change. `PortableToolHostExtras` and renderer aliases are type-only exports (zero runtime footprint), so `Object.keys(core)` is unchanged.
 
 ---
 

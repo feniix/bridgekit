@@ -566,12 +566,23 @@ test("registered pi tool with hostExtras.pi.pendingMessage no-ops when onUpdate 
   assert.equal(result.isError, false);
 });
 
-test("registerPiTools passes hostExtras.pi.promptSnippet / promptGuidelines through to pi.registerTool (Test E)", () => {
+test("registerPiTools passes hostExtras.pi registration metadata through to pi.registerTool (Test E)", () => {
   const guidelines = ["Use sparingly.", "Always validate the input."] as const;
+  const renderCall = (args: { text: string }, theme: { accent: string }, context: { toolCallId: string }) => ({
+    args,
+    theme,
+    context,
+  });
+  const renderResult = (
+    result: { content: Array<{ type: "text"; text: string }> },
+    options: { expanded: boolean },
+    theme: { accent: string },
+    context: { toolCallId: string },
+  ) => ({ result, options, theme, context });
   const richTool = definePortableTool({
     name: "rich_tool",
     title: "Rich Tool",
-    description: "Tool with prompt metadata.",
+    description: "Tool with prompt metadata and TUI renderers.",
     parameters: echoParams,
     execute(args) {
       return { text: args.text };
@@ -580,6 +591,8 @@ test("registerPiTools passes hostExtras.pi.promptSnippet / promptGuidelines thro
       pi: {
         promptSnippet: "Call this tool when the user asks to echo text.",
         promptGuidelines: guidelines,
+        renderCall,
+        renderResult,
       },
     },
   });
@@ -601,6 +614,8 @@ test("registerPiTools passes hostExtras.pi.promptSnippet / promptGuidelines thro
   // reference distinct.
   assert.deepEqual(registration?.promptGuidelines, ["Use sparingly.", "Always validate the input."]);
   assert.notStrictEqual(registration?.promptGuidelines, guidelines);
+  assert.strictEqual(registration?.renderCall, renderCall);
+  assert.strictEqual(registration?.renderResult, renderResult);
 });
 
 // Issue #47: boundary spread-copy ensures pi.registerTool receives a fresh
@@ -661,8 +676,9 @@ test("registerPiTools omits unset pi pass-through fields (byte-identical shape w
 });
 
 test("registerPiTools omits unset pass-through fields when only some hostExtras.pi keys are set", () => {
-  // Mixed case: only promptSnippet is set. promptGuidelines must not appear
-  // as an `undefined` key on the registration object.
+  // Mixed case: only promptSnippet is set. promptGuidelines and the TUI
+  // renderer fields must not appear as `undefined` keys on the registration
+  // object.
   const partialTool = definePortableTool({
     name: "partial",
     title: "Partial",
