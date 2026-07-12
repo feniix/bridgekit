@@ -16,7 +16,12 @@
 // Excluded from `npm test` (`*.typecheck.ts` glob) and from the published
 // tarball (`package.json#files`).
 
-import { definePortableTool, type PortableToolHostExtras } from "@feniix/bridgekit";
+import {
+  definePortableTool,
+  type PiToolCallRenderer,
+  type PiToolResultRenderer,
+  type PortableToolHostExtras,
+} from "@feniix/bridgekit";
 import { Type } from "typebox";
 
 // Module augmentation: declare a custom host namespace alongside the built-in
@@ -29,6 +34,22 @@ declare module "@feniix/bridgekit" {
 }
 
 const params = Type.Object({ text: Type.String() });
+
+const renderCall: PiToolCallRenderer = (
+  args: { text: string },
+  theme: { accent: string },
+  context: { id: string },
+) => ({
+  args,
+  theme,
+  context,
+});
+const renderResult: PiToolResultRenderer = (
+  result: { content: Array<{ type: "text"; text: string }> },
+  options: { expanded: boolean },
+  theme: { accent: string },
+  context: { id: string },
+) => ({ result, options, theme, context });
 
 // Native pi extras — every documented field exercised at the call site so a
 // rename or removal surfaces here.
@@ -45,6 +66,8 @@ const piTool = definePortableTool({
       pendingMessage: "Processing...",
       promptSnippet: "Use this tool to echo text.",
       promptGuidelines: ["Prefer concise text.", "Do not exceed 100 chars."] as const,
+      renderCall,
+      renderResult,
     },
   },
 });
@@ -91,7 +114,7 @@ const customTool = definePortableTool({
 // type graph without needing a runtime export. The interface has no runtime
 // footprint, so consumers can only verify its shape at compile time.
 const extras: PortableToolHostExtras = {
-  pi: { pendingMessage: "x" },
+  pi: { pendingMessage: "x", renderCall, renderResult },
   mcp: { annotations: { readOnlyHint: true } },
   "custom-runtime": { something: "y" },
 };

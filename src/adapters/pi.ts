@@ -1,5 +1,11 @@
 import type { TSchema } from "typebox";
-import type { PortableTool, PortableToolErrorDetails, PortableToolResult } from "../core/define-tool.js";
+import type {
+  PiToolCallRenderer,
+  PiToolResultRenderer,
+  PortableTool,
+  PortableToolErrorDetails,
+  PortableToolResult,
+} from "../core/define-tool.js";
 import { executePortableTool } from "../core/execute-tool.js";
 import { isValidationFailure } from "../core/result-guards.js";
 
@@ -39,6 +45,11 @@ type PiToolDefinition = {
   // PortableTool.hostExtras.pi — stays `readonly string[]` because the
   // consumer's metadata is immutable from bridgekit's perspective.
   promptGuidelines?: string[];
+  // Optional TUI renderers forwarded verbatim from hostExtras.pi. BridgeKit
+  // keeps their public signatures in core so adapter/internal drift cannot
+  // silently change the pass-through contract.
+  renderCall?: PiToolCallRenderer;
+  renderResult?: PiToolResultRenderer;
 };
 
 export type PiToolRegistration = {
@@ -148,6 +159,9 @@ export function registerPiTools(
       // pi-coding-agent's registerTool input is `string[]` (mutable). The boundary
       // copy satisfies both sides without weakening either declared type.
       ...(piExtras?.promptGuidelines !== undefined && { promptGuidelines: [...piExtras.promptGuidelines] }),
+      // TUI renderers forwarded verbatim from hostExtras.pi.
+      ...(piExtras?.renderCall !== undefined && { renderCall: piExtras.renderCall }),
+      ...(piExtras?.renderResult !== undefined && { renderResult: piExtras.renderResult }),
       async execute(_toolCallId, params, signal, onUpdate, _ctx) {
         let result: PortableToolResult;
         try {

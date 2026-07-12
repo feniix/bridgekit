@@ -45,6 +45,23 @@ export interface PortableToolContext {
 }
 
 /**
+ * Optional TUI renderer for the tool call line (before execution).
+ * Receives `(args, theme, context)` and returns a pi-tui Component.
+ * BridgeKit passes this through verbatim — no validation or wrapping.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: host-neutral pass-through; importing pi-tui types would couple core to pi, while `unknown` params would reject typed consumer renderers under strictFunctionTypes
+export type PiToolCallRenderer = (args: any, theme: any, context: any) => any;
+
+/**
+ * Optional TUI renderer for the tool result (after execution).
+ * Receives `(result, options, theme, context)` and returns a pi-tui Component.
+ * `options.expanded` is toggled by the user via Ctrl+O in pi's TUI.
+ * BridgeKit passes this through verbatim — no validation or wrapping.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: host-neutral pass-through; importing pi-tui types would couple core to pi, while `unknown` params would reject typed consumer renderers under strictFunctionTypes
+export type PiToolResultRenderer = (result: any, options: any, theme: any, context: any) => any;
+
+/**
  * Pi-specific entries on `PortableTool.hostExtras`. Read only by the pi
  * adapter; the MCP adapter ignores this namespace.
  *
@@ -87,6 +104,10 @@ export interface PiHostExtras {
    * once attached to a tool definition.
    */
   promptGuidelines?: readonly string[];
+
+  renderCall?: PiToolCallRenderer;
+
+  renderResult?: PiToolResultRenderer;
 }
 
 /**

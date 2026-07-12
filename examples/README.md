@@ -275,11 +275,17 @@ MCP behavior:
 
 ## 4. Per-host metadata via `hostExtras`
 
-When a tool needs host-specific metadata — pi's `pendingMessage` for a "Processing..." signal, MCP's annotations as advisory hints to clients — the canonical place is `PortableTool.hostExtras`. Each host has its own namespace; adapters read the keys they recognise and ignore the rest. Tools that omit `hostExtras` see no behavior change.
+When a tool needs host-specific metadata — pi's `pendingMessage` for a "Processing..." signal, pi TUI renderers for custom collapsed/expanded display, or MCP's annotations as advisory hints to clients — the canonical place is `PortableTool.hostExtras`. Each host has its own namespace; adapters read the keys they recognise and ignore the rest. Tools that omit `hostExtras` see no behavior change.
 
 ```ts
 import { Type } from "typebox";
-import { definePortableTool } from "@feniix/bridgekit";
+import { definePortableTool, type PiToolCallRenderer, type PiToolResultRenderer } from "@feniix/bridgekit";
+
+const renderSummariseCall: PiToolCallRenderer = (args) => ({ type: "text", text: `summarise ${args.text}` });
+const renderSummariseResult: PiToolResultRenderer = (result, options) => ({
+  type: "text",
+  text: options.expanded ? result.content?.[0]?.text : "summary ready",
+});
 
 export const summariseTool = definePortableTool({
   name: "summarise",
@@ -296,6 +302,9 @@ export const summariseTool = definePortableTool({
       pendingMessage: "Summarising...",
       promptSnippet: "Use this tool when the user asks for a short summary.",
       promptGuidelines: ["Prefer < 80 chars.", "Strip markdown."],
+      // Opaque pi TUI callbacks. BridgeKit forwards these by identity.
+      renderCall: renderSummariseCall,
+      renderResult: renderSummariseResult,
     },
     mcp: {
       // Advisory hints clients may surface. Do not affect validation or
@@ -308,7 +317,7 @@ export const summariseTool = definePortableTool({
 
 Best practices for `hostExtras`:
 
-- Keep tool *behavior* host-neutral. `hostExtras` carries *data* the adapter reads on the tool's behalf; do not embed callbacks or runtime logic.
+- Keep portable tool *behavior* host-neutral. `hostExtras` carries host presentation metadata; pi renderers should stay presentation-only and are forwarded verbatim, not invoked by BridgeKit.
 - Set only the fields the adapter recognises; unrecognised keys are silently ignored, but they add noise to the definition.
 - If you ship an adapter for a host outside `"pi" | "mcp"`, cast `ctx.host` at the adapter boundary (the host union is fixed since 0.10.0). For type-safe per-host metadata in your adapter's namespace, extend `PortableToolHostExtras` via `declare module "@feniix/bridgekit"` so consumers of your adapter get type safety on the new namespace.
 

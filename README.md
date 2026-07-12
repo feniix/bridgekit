@@ -83,6 +83,8 @@ import {
   executePortableTool,
   isDomainFailure,
   isValidationFailure,
+  type PiToolCallRenderer,
+  type PiToolResultRenderer,
   type PortableTool,
   type PortableToolBuiltInHost,
   type PortableToolContext,
@@ -167,13 +169,19 @@ they are not designed to be called on the pi adapter's wire object.
 
 #### Per-host metadata via `hostExtras`
 
-`PortableTool.hostExtras` is an optional namespace for host-specific fields that should travel with the tool definition rather than a parallel sidecar map. The pi adapter reads `hostExtras.pi`; the MCP adapter reads `hostExtras.mcp`; each adapter ignores keys it does not recognise. Tools that omit `hostExtras` see no behavior change.
+`PortableTool.hostExtras` is an optional namespace for host-specific fields that should travel with the tool definition rather than a parallel sidecar map. The pi adapter reads `hostExtras.pi`; the MCP adapter reads `hostExtras.mcp`; each adapter ignores keys it does not recognise. Tools that omit `hostExtras` see no behavior change. Pi TUI renderers use the exported `PiToolCallRenderer` / `PiToolResultRenderer` aliases; they are opaque pass-through callbacks, so bridgekit does not import pi-tui types or validate their return values.
 
 Custom host adapters can reuse the core execution helpers, but the built-in `ctx.host` union is intentionally closed (`"pi" | "mcp" | "test"`). Custom adapters should cast at their boundary and carry custom dispatch state on adapter-owned fields; use module augmentation of `PortableToolHostExtras` for type-safe host-specific metadata.
 
 ```ts
 import { Type } from "typebox";
-import { definePortableTool } from "@feniix/bridgekit";
+import { definePortableTool, type PiToolCallRenderer, type PiToolResultRenderer } from "@feniix/bridgekit";
+
+const renderSummaryCall: PiToolCallRenderer = (args) => ({ type: "text", text: `summarise ${args.text}` });
+const renderSummaryResult: PiToolResultRenderer = (result, options) => ({
+  type: "text",
+  text: options.expanded ? result.content?.[0]?.text : "summary ready",
+});
 
 export const generateSummaryTool = definePortableTool({
   name: "generate_summary",
@@ -190,6 +198,9 @@ export const generateSummaryTool = definePortableTool({
       pendingMessage: "Summarising...",
       promptSnippet: "Use this tool when the user asks for a short summary.",
       promptGuidelines: ["Prefer < 80 chars.", "Strip markdown."],
+      // Optional pi TUI renderers, forwarded by identity to pi.registerTool.
+      renderCall: renderSummaryCall,
+      renderResult: renderSummaryResult,
     },
     mcp: {
       annotations: { readOnlyHint: true },
@@ -197,6 +208,8 @@ export const generateSummaryTool = definePortableTool({
   },
 });
 ```
+
+`renderCall` is invoked by pi before execution to render the call line. `renderResult` is invoked by pi after execution to render the result; its `options.expanded` flag tracks the user's Ctrl+O collapsed/expanded toggle. BridgeKit forwards both functions by identity to `pi.registerTool`.
 
 See `docs/rfc-host-extras.md` for the design rationale (which fields are in scope, why a top-level field beats a sidecar map, the closure rule for future additions). `PortableToolHostExtras` is module-augmentable for custom host adapters; declare your namespace via `declare module "@feniix/bridgekit"`.
 

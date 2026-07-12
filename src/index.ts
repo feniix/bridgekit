@@ -2,6 +2,8 @@ export {
   definePortableTool,
   type McpHostExtras,
   type PiHostExtras,
+  type PiToolCallRenderer,
+  type PiToolResultRenderer,
   type PortableTool,
   type PortableToolBuiltInHost,
   type PortableToolContext,
