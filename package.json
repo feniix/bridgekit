@@ -23,7 +23,7 @@
   "bugs": {
     "url": "https://github.com/feniix/bridgekit/issues"
   },
-  "homepage": "https://github.com/feniix/bridgekit#readme",
+  "homepage": "https://feniix-hq.net/projects/bridgekit/",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
