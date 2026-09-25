@@ -2,6 +2,8 @@
 
 BridgeKit provides reusable TypeBox-backed tool definitions and adapters for exposing one tool implementation through pi, MCP, and other hosts.
 
+More about why this exists and where it is useful: [feniix-hq.net/projects/bridgekit](https://feniix-hq.net/projects/bridgekit/).
+
 ## Quickstart
 
 ```ts
