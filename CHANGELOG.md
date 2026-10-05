@@ -4,6 +4,16 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Optional object-shaped `PortableTool.outputSchema`. Successful calls must return
+  matching `structuredContent`; missing or invalid output throws a tool-attributed
+  `TypeError`. Argument and domain failures are exempt from success schemas.
+- Pi registrations forward `outputSchema`, and Pi results preserve
+  `structuredContent` alongside the existing renderer-facing `details`.
+
 ## [0.14.0] - 2026-05-28
 
 ### Added

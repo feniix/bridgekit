@@ -174,6 +174,8 @@ export interface PortableTool<
   title: string;
   description: string;
   parameters: TParams;
+  /** Object-shaped TypeBox schema for successful structuredContent. Error results are exempt. */
+  outputSchema?: TSchema;
   execute: (args: Static<TParams>, ctx: PortableToolContext) => TResult | Promise<TResult>;
   /**
    * Optional per-host metadata. Adapters consume the keys they recognise;

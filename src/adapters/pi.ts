@@ -7,6 +7,7 @@ import type {
   PortableToolResult,
 } from "../core/define-tool.js";
 import { executePortableTool } from "../core/execute-tool.js";
+import { assertPortableOutputSchema } from "../core/output-schema.js";
 import { isValidationFailure } from "../core/result-guards.js";
 
 type PiContent = { type: "text"; text: string };
@@ -15,6 +16,7 @@ type PiToolUpdate = { content: PiContent[]; details: Record<string, unknown> };
 type PiToolResult = {
   content: PiContent[];
   details: Record<string, unknown>;
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
 };
 
@@ -23,6 +25,7 @@ type PiToolDefinition = {
   label: string;
   description: string;
   parameters: TSchema;
+  outputSchema?: TSchema;
   execute(
     toolCallId: string,
     params: unknown,
@@ -144,12 +147,14 @@ export function registerPiTools(
     );
   }
   for (const tool of tools) {
+    assertPortableOutputSchema(tool);
     const piExtras = tool.hostExtras?.pi;
     pi.registerTool({
       name: tool.name,
       label: tool.title,
       description: tool.description,
       parameters: tool.parameters,
+      ...(tool.outputSchema !== undefined && { outputSchema: tool.outputSchema }),
       // Pass-through pi-side metadata. Each field is gated on `!== undefined`
       // so tools without `hostExtras.pi` build a registration object whose
       // own-property keys are unchanged from the pre-0.9 shape.
@@ -211,6 +216,7 @@ export function registerPiTools(
         return {
           content: [{ type: "text", text: result.text } satisfies PiContent],
           details: toPiDetails(result),
+          ...(result.structuredContent !== undefined && { structuredContent: result.structuredContent }),
           isError: result.isError === true,
         };
       },

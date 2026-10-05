@@ -106,6 +106,7 @@ test("registered pi tool delegates execution and maps progress updates", async (
   assert.deepEqual(result, {
     content: [{ type: "text", text: "HELLO" }],
     details: { input: "hello", output: "HELLO" },
+    structuredContent: { input: "hello", output: "HELLO" },
     isError: false,
   });
 });
