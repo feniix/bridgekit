@@ -2,9 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { definePortableTool, type PortableTool } from "@feniix/bridgekit";
 import { type CreateMcpServerOptions, createMcpServer } from "@feniix/bridgekit/mcp";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { type TSchema, Type } from "typebox";
 
 const echoParams = Type.Object({
@@ -130,12 +128,7 @@ test("MCP output schemas preserve error data and turn handler contract violation
     });
     await withConnectedPair([tool], async (client) => {
       await client.listTools();
-      // Exercise the wire seam: SDK v1 callTool validates even isError data
-      // against its cached success schema. Generic requests preserve that data.
-      const returned = await client.request(
-        { method: "tools/call", params: { name: tool.name, arguments: {} } },
-        CallToolResultSchema,
-      );
+      const returned = await client.callTool({ name: tool.name, arguments: {} });
       assert.equal(returned.isError, true);
       if (result.isError) {
         assert.deepEqual(returned.structuredContent, { reason: "offline" });
@@ -292,7 +285,7 @@ test("MCP server propagates an AbortSignal to ctx.signal", async () => {
 
   await withConnectedPair([signalTool], async (client) => {
     const controller = new AbortController();
-    await client.callTool({ name: "signal_observe", arguments: {} }, undefined, { signal: controller.signal });
+    await client.callTool({ name: "signal_observe", arguments: {} }, { signal: controller.signal });
     assert.ok(observedSignal instanceof AbortSignal);
     assert.equal(observedSignal.aborted, false);
   });
@@ -331,7 +324,7 @@ test("MCP server aborts ctx.signal when the client cancels mid-call", async () =
   await withConnectedPair([longRunningTool], async (client) => {
     const controller = new AbortController();
     const callPromise = client
-      .callTool({ name: "long_running", arguments: {} }, undefined, { signal: controller.signal })
+      .callTool({ name: "long_running", arguments: {} }, { signal: controller.signal })
       .catch((error) => error);
     await toolStarted;
     assert.ok(capturedSignal instanceof AbortSignal);

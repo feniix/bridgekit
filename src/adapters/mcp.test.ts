@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { definePortableTool, type PortableToolHostExtras } from "@feniix/bridgekit";
 import * as mcp from "@feniix/bridgekit/mcp";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { type TObject, Type } from "typebox";
 
 // Pull from the namespace import so `surface.registerMcpTools === undefined`

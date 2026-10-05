@@ -1,15 +1,9 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  type CallToolResult,
-  ListToolsRequestSchema,
-  type Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+import { type CallToolResult, Server, type Tool } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import type { TSchema } from "typebox";
 import type { PortableTool, PortableToolResult } from "../core/define-tool.js";
 import { executePortableTool } from "../core/execute-tool.js";
-import { assertPortableOutputSchema } from "../core/output-schema.js";
+import { assertPortableOutputSchema, isObjectSchema } from "../core/output-schema.js";
 
 export interface CreateMcpServerOptions {
   name: string;
@@ -39,31 +33,6 @@ function toMcpResult(result: PortableToolResult): CallToolResult {
     structuredContent: result.structuredContent ?? result.details,
     isError: result.isError ?? false,
   };
-}
-
-/**
- * Returns true if `schema` resolves to a JSON-Schema object at the top level —
- * either `{"type": "object", ...}` directly, or an `allOf` composition whose
- * branches are all object schemas (as produced by `Type.Intersect`).
- *
- * The check walks the canonical JSON-Schema shape rather than poking at
- * TypeBox `Kind` symbols, mirroring how `executePortableTool` traverses
- * schemas. The MCP wire contract is "top-level object," so that's the
- * predicate, regardless of which TypeBox combinator built the schema.
- */
-function isObjectSchema(schema: unknown): boolean {
-  if (typeof schema !== "object" || schema === null) return false;
-  const candidate = schema as { $ref?: unknown; type?: unknown; allOf?: unknown };
-  // $ref takes structural precedence: a hybrid {type: "object", $ref: "..."}
-  // is not an inlined object schema — it's a reference, and
-  // assertObjectShapedParameters owns the rejection recipe. Return false so
-  // the $ref branch runs.
-  if (typeof candidate.$ref === "string") return false;
-  if (candidate.type === "object") return true;
-  if (Array.isArray(candidate.allOf) && candidate.allOf.length > 0) {
-    return candidate.allOf.every((entry) => isObjectSchema(entry));
-  }
-  return false;
 }
 
 /**
@@ -233,9 +202,9 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
     },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcpTools }));
+  server.setRequestHandler("tools/list", async () => ({ tools: mcpTools }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+  server.setRequestHandler("tools/call", async (request, ctx) => {
     const tool = byName.get(request.params.name);
     if (!tool) {
       return {
@@ -247,9 +216,12 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
     try {
       const result = await executePortableTool(tool, request.params.arguments ?? {}, {
         host: "mcp",
-        signal: extra.signal,
+        signal: ctx.mcpReq.signal,
       });
-      return toMcpResult(result);
+      return server.projectCallToolResult(
+        toMcpResult(result),
+        tool.outputSchema !== undefined ? toInputSchema(tool.outputSchema) : undefined,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -263,6 +235,8 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
 }
 
 export async function runMcpStdioServer(options: CreateMcpServerOptions): Promise<void> {
+  // Validate eagerly; pin this server to the era selected by the opening
+  // discovery/initialize exchange. Startup resolves without waiting for EOF.
   const server = createMcpServer(options);
-  await server.connect(new StdioServerTransport());
+  serveStdio(() => server);
 }

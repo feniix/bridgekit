@@ -16,6 +16,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - MCP listings forward object-shaped output schemas, including intersections;
   invalid output schemas are rejected at server construction.
 
+### Changed (breaking)
+
+- MCP runtime now uses `@modelcontextprotocol/server` SDK v2. `createMcpServer`
+  returns a v2 `Server`; consumers using its low-level API must migrate method
+  registration/context types and must not mix v1 and v2 SDK instances.
+- `runMcpStdioServer` now serves both legacy MCP clients and modern protocol
+  `2026-07-28` via `serveStdio`. Its `Promise<void>` startup signature is unchanged.
+  This change requires a pre-1.0 minor release, not a patch.
+
 ## [0.14.0] - 2026-05-28
 
 ### Added

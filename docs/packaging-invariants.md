@@ -40,19 +40,26 @@ This catalog originally backed two scripts: `verify-bridgekit-dist.mjs` (manifes
 
 ## inv-mcp-sdk-major
 
-**Assertion**: `@modelcontextprotocol/sdk` is range-pinned to `^1.x` in `dependencies`.
+**Assertion**: `@modelcontextprotocol/server` is range-pinned to `^2.x` in `dependencies`;
+the v1 SDK and v2 client are test-only dependencies, not runtime dependencies.
 
 **Where**: `scripts/smoke-package.mjs:assertManifestInvariants`.
 
-**Failure mode**: A version bump to v2.x ships. The MCP adapter is built on the SDK's low-level `Server` with explicit `ListToolsRequestSchema` / `CallToolRequestSchema` handlers — v2 may change those request schemas, the `Tool` type shape, or the `extra` cancellation surface. The adapter would compile but misbehave at runtime against v2.
+**Failure mode**: An unreviewed SDK major bump changes the public low-level `Server`,
+method-keyed handlers, result projection, or `ctx.mcpReq.signal` contract. Accidentally
+adding the legacy SDK/client to runtime dependencies also increases consumer install footprint.
 
-**Motivation**: v2 migration is a separate decision documented in `docs/releasing.md#mcp-sdk-stance`. Catching this at the manifest level (rather than waiting for the runtime to break) keeps PR review focused.
+**Motivation**: The deliberate SDK v2 migration for #117 is documented in
+`docs/releasing.md#mcp-sdk-stance` and `docs/mcp-v2-migration.md`. Keep future
+baseline changes explicit and preserve low-level TypeBox passthrough.
 
-**Related v1 quirks to revisit on v2 bump**:
+**Retained schema compatibility**:
 
-- `tools/list` synthesizes `type: "object"` on schemas whose top-level lowering is `allOf` (e.g., `Type.Intersect`-rooted tools). See `toInputSchema`'s JSDoc in `src/adapters/mcp.ts` for the canonical record. The synthesis exists because the MCP SDK v1 client Zod-validates `inputSchema.type === "object"`; if SDK v2 relaxes or moves that check, this synthesis can be removed.
+- `tools/list` synthesizes `type: "object"` on `allOf`-rooted object intersections
+  for input and output schemas. This retains compatibility with legacy clients;
+  the SDK v2 input schema type also requires an object root.
 
-**Removable?** Only when an explicit v2 migration ratifies the SDK bump.
+**Removable?** Only when a future migration ratifies another baseline.
 
 ---
 
@@ -152,3 +159,18 @@ The last two pin that the internal module backing `runBinWrapper` is unreachable
 **Motivation**: The published `.d.ts` files are the canonical type contract. Anything that source-builds cleanly but breaks on consumption is a packaging bug, not a logic bug. The strict-plus flags mirror this repo's `tsconfig.json` so installed declarations remain usable by consumers with stronger-than-default strictness.
 
 **Removable?** No.
+
+---
+
+## inv-packed-mcp-protocol
+
+**Assertion**: A spawned server from the installed tarball serves both legacy and
+modern-pinned `2026-07-28` SDK clients, lists its object output schema, and returns
+matching structured data.
+
+**Where**: `scripts/smoke-package.mjs:assertPackedMcpProtocol`.
+
+**Failure mode**: Source tests pass but the shipped artifact has missing dependencies,
+broken stdio wiring, or legacy-only serving.
+
+**Removable?** No while dual-era stdio is the public contract.

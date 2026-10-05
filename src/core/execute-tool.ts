@@ -513,7 +513,7 @@ export async function executePortableTool<TParams extends TSchema, TResult exten
   if (
     tool.outputSchema !== undefined &&
     result.isError !== true &&
-    !Check(tool.outputSchema, result.structuredContent)
+    (result.structuredContent === undefined || !Check(tool.outputSchema, result.structuredContent))
   ) {
     // A handler violating its declared success contract is a programmer error,
     // not an argument failure. Keep inferred success/error result types intact.
