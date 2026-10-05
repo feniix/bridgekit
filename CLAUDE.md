@@ -49,6 +49,12 @@ Each of the four entrypoints (`.`, `./pi`, `./mcp`, `./bin-wrapper`) maps to its
 
 `executePortableTool` validates args via TypeBox `Check`/`Errors`, and on failure **returns** a result with `isError: true` — it does not throw. Adapters decide whether to surface that as a thrown exception or a structured result.
 
+Optional `PortableTool.outputSchema` describes successful object-shaped structured
+output. Execution requires matching `structuredContent`; missing/invalid success
+data throws a tool-attributed `TypeError`. Argument/domain failures are exempt.
+Both adapters forward the schema. Pi preserves `structuredContent` directly as
+well as renderer-facing `details`; unset optional fields remain omitted.
+
 `PortableTool` carries generics for parameters and the inferred success result (`TParams extends TSchema`, `TResult extends PortableToolResult`). The host is a fixed literal union: `PortableToolBuiltInHost = "pi" | "mcp" | "test"`. `PortableToolContext.host` is typed to that union directly, so `@ts-expect-error` assertions in `execute-tool.test.ts` reject any literal outside the union (e.g. `{ host: "custom-adapter" }`). Do not reintroduce a `<THost>` generic — the audit (#5, removed in 0.10.0) confirmed no consumer used it, and the simplification is intentional.
 
 ### Adapter error behavior
@@ -58,7 +64,13 @@ Each of the four entrypoints (`.`, `./pi`, `./mcp`, `./bin-wrapper`) maps to its
 
 Both adapters prefer `structuredContent` over `details`; the latter exists only as a fallback for older callers. Result guards operate on `PortableToolResult` values at the portable seam, not directly on pi wire objects.
 
-The MCP adapter is built on the SDK's **low-level** `Server` with explicit `ListToolsRequestSchema` / `CallToolRequestSchema` handlers, **not** the high-level `registerTool` helper. This is so TypeBox schemas pass through as MCP `inputSchema` without a JSON Schema conversion step. There is no `registerMcpTools` helper, and two layers (`scripts/smoke-package.mjs` runtime-key check + `src/adapters/mcp.test.ts` surface assertion) enforce its absence. If you think you want to add a high-level wrapper, read the rationale in `README.md` (MCP adapter section) and `docs/extraction.md` first.
+The MCP adapter uses SDK v2's **low-level** `Server` from `@modelcontextprotocol/server`,
+with `"tools/list"` / `"tools/call"` method-string handlers and `ctx.mcpReq.signal`.
+TypeBox schemas pass through as JSON Schema; no high-level `registerMcpTools`
+helper is exported. Low-level results use `projectCallToolResult`. The existing
+stdio runner serves modern `2026-07-28` and legacy clients through `serveStdio`;
+direct `Server.connect` remains legacy-only. Read `docs/mcp-v2-migration.md`
+before changing serving/lifecycle or migrating SDK-consuming callers.
 
 ### Custom-host adapters
 
