@@ -1,25 +1,15 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import {
   CallToolRequestSchema,
   type CallToolResult,
   ListToolsRequestSchema,
-  type ServerNotification,
-  type ServerRequest,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { TSchema } from "typebox";
 import type { PortableTool, PortableToolResult } from "../core/define-tool.js";
 import { executePortableTool } from "../core/execute-tool.js";
-
-// The MCP SDK ships `RequestHandlerExtra<ServerRequest, ServerNotification>`
-// with a non-optional `signal: AbortSignal`. We pull it from `shared/protocol`
-// (the source of truth) rather than the `server/index` re-export. An
-// adversarial type-level pin in `mcp.typecheck.ts` fails closed if the SDK
-// ever reshapes `signal` — that's the regression anchor that lets us read
-// `extra.signal` directly here without a runtime guard.
-type CallToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
+import { assertPortableOutputSchema } from "../core/output-schema.js";
 
 export interface CreateMcpServerOptions {
   name: string;
@@ -203,6 +193,7 @@ function assertUniqueToolNames(tools: readonly PortableTool<TSchema>[]): void {
 }
 
 export function createMcpServer(options: CreateMcpServerOptions): Server {
+  for (const tool of options.tools) assertPortableOutputSchema(tool);
   assertObjectShapedParameters(options.tools);
   assertUniqueToolNames(options.tools);
   // Build the dispatch map and the listing payload at construction so
@@ -230,6 +221,7 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
       title: tool.title,
       description: tool.description,
       inputSchema: toInputSchema(tool.parameters),
+      ...(tool.outputSchema !== undefined && { outputSchema: toInputSchema(tool.outputSchema) }),
       ...(hasAnnotations ? { annotations: { ...annotations } } : {}),
     };
   });
@@ -243,7 +235,7 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcpTools }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra: CallToolExtra) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const tool = byName.get(request.params.name);
     if (!tool) {
       return {

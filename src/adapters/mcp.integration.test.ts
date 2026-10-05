@@ -4,6 +4,7 @@ import { definePortableTool, type PortableTool } from "@feniix/bridgekit";
 import { type CreateMcpServerOptions, createMcpServer } from "@feniix/bridgekit/mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { type TSchema, Type } from "typebox";
 
 const echoParams = Type.Object({
@@ -93,6 +94,71 @@ const throwingStringTool = definePortableTool({
   execute() {
     throw "string boom from portable tool";
   },
+});
+
+test("MCP lists outputSchema and returns validated structured output", async () => {
+  const outputSchema = Type.Object({ count: Type.Number() });
+  const tool = definePortableTool({
+    name: "output",
+    title: "Output",
+    description: "Declared structured output",
+    parameters: emptyParams,
+    outputSchema,
+    execute: () => ({ text: "one", structuredContent: { count: 1 } }),
+  });
+  await withConnectedPair([tool], async (client) => {
+    const list = await client.listTools();
+    assert.deepEqual(list.tools[0]?.outputSchema, outputSchema);
+    const result = await client.callTool({ name: tool.name, arguments: {} });
+    assert.deepEqual(result.structuredContent, { count: 1 });
+  });
+});
+
+test("MCP output schemas preserve error data and turn handler contract violations into failures", async () => {
+  for (const result of [
+    { text: "offline", structuredContent: { reason: "offline" }, isError: true },
+    { text: "wrong", structuredContent: { count: "one" } },
+    { text: "missing" },
+  ]) {
+    const tool = definePortableTool({
+      name: "output_error",
+      title: "Output error",
+      description: "Output contract failures",
+      parameters: emptyParams,
+      outputSchema: Type.Object({ count: Type.Number() }),
+      execute: () => result,
+    });
+    await withConnectedPair([tool], async (client) => {
+      await client.listTools();
+      // Exercise the wire seam: SDK v1 callTool validates even isError data
+      // against its cached success schema. Generic requests preserve that data.
+      const returned = await client.request(
+        { method: "tools/call", params: { name: tool.name, arguments: {} } },
+        CallToolResultSchema,
+      );
+      assert.equal(returned.isError, true);
+      if (result.isError) {
+        assert.deepEqual(returned.structuredContent, { reason: "offline" });
+      } else {
+        assert.match(textFromContent(returned.content), /Invalid structured output for output_error/);
+      }
+    });
+  }
+});
+
+test("MCP rejects non-object output schemas before connecting", () => {
+  const tool = definePortableTool({
+    name: "non_object_output",
+    title: "Non-object output",
+    description: "Invalid output schema",
+    parameters: emptyParams,
+    outputSchema: Type.String(),
+    execute: () => ({ text: "unused" }),
+  });
+  assert.throws(
+    () => createMcpServer({ name: "invalid", version: "0.0.0", tools: [tool] }),
+    /non_object_output.*object/,
+  );
 });
 
 test("MCP server lists tools with TypeBox schemas passed through unchanged", async () => {

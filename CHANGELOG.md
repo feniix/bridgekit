@@ -13,6 +13,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `TypeError`. Argument and domain failures are exempt from success schemas.
 - Pi registrations forward `outputSchema`, and Pi results preserve
   `structuredContent` alongside the existing renderer-facing `details`.
+- MCP listings forward object-shaped output schemas, including intersections;
+  invalid output schemas are rejected at server construction.
 
 ## [0.14.0] - 2026-05-28
 
