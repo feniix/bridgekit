@@ -73,22 +73,22 @@ function schemaTypeLabel(schema: unknown): string {
 }
 
 /**
- * Render `parameters` as MCP `inputSchema`. The MCP SDK Zod-validates that the
- * top-level schema has `type: "object"` on the client side of `tools/list`, so
+ * Render a validated object schema as MCP `inputSchema` or `outputSchema`.
+ * MCP clients require the top-level schema to have `type: "object"`, so
  * `Type.Intersect` (which TypeBox renders as `{ allOf: [...] }` with no top-
  * level `type`) needs `type: "object"` synthesized before transmission. This
  * is a no-op for `Type.Object` schemas, which already carry the field.
  *
- * The casts here are sound because `assertObjectShapedParameters` runs first
- * and rejects any schema whose top-level lowering isn't `type:"object"` or
- * `allOf` of objects — both shapes round-trip as MCP `Tool["inputSchema"]`.
+ * The casts here are sound because `assertObjectShapedParameters` or
+ * `assertPortableOutputSchema` runs first and rejects schemas whose top-level
+ * lowering isn't `type:"object"` or `allOf` of objects.
  */
-function toInputSchema(parameters: TSchema): Tool["inputSchema"] {
-  const candidate = parameters as unknown as { type?: unknown };
+function toMcpObjectSchema(schema: TSchema): Tool["inputSchema"] {
+  const candidate = schema as unknown as { type?: unknown };
   if (candidate.type === "object") {
-    return parameters as unknown as Tool["inputSchema"];
+    return schema as unknown as Tool["inputSchema"];
   }
-  return { type: "object", ...(parameters as Record<string, unknown>) } as unknown as Tool["inputSchema"];
+  return { type: "object", ...(schema as Record<string, unknown>) } as unknown as Tool["inputSchema"];
 }
 
 /**
@@ -189,8 +189,8 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
       name: tool.name,
       title: tool.title,
       description: tool.description,
-      inputSchema: toInputSchema(tool.parameters),
-      ...(tool.outputSchema !== undefined && { outputSchema: toInputSchema(tool.outputSchema) }),
+      inputSchema: toMcpObjectSchema(tool.parameters),
+      ...(tool.outputSchema !== undefined && { outputSchema: toMcpObjectSchema(tool.outputSchema) }),
       ...(hasAnnotations ? { annotations: { ...annotations } } : {}),
     };
   });
@@ -220,7 +220,7 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
       });
       return server.projectCallToolResult(
         toMcpResult(result),
-        tool.outputSchema !== undefined ? toInputSchema(tool.outputSchema) : undefined,
+        tool.outputSchema !== undefined ? toMcpObjectSchema(tool.outputSchema) : undefined,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
