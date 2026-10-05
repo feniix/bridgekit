@@ -14,6 +14,10 @@ test("portable execution validates successful structured output without widening
   });
   const result = await executePortableTool(tool, {}, { host: "test" });
   assert.deepEqual(result, { text: "one", structuredContent: { count: 1 } });
+  if (result.isError !== true) {
+    const count: number = result.structuredContent.count;
+    assert.equal(count, 1);
+  }
 });
 
 test("portable output schemas must be inlined object schemas or intersections of objects", async () => {
@@ -65,4 +69,32 @@ test("invalid or missing successful structured output throws instead of being ad
       message: /Invalid structured output for invalid_output/,
     });
   }
+});
+
+test("an optional object output schema still requires successful structuredContent", async () => {
+  const tool = definePortableTool({
+    name: "optional_output",
+    title: "Optional output",
+    description: "Must supply structured output even if the schema accepts undefined.",
+    parameters: Type.Object({}),
+    outputSchema: Type.Optional(Type.Object({})),
+    execute: () => ({ text: "missing" }),
+  });
+  await assert.rejects(
+    executePortableTool(tool, {}, { host: "test" }),
+    /Invalid structured output for optional_output/,
+  );
+});
+
+test("object intersections can describe portable output", async () => {
+  const tool = definePortableTool({
+    name: "intersect_output",
+    title: "Intersect output",
+    description: "Composed object output",
+    parameters: Type.Object({}),
+    outputSchema: Type.Intersect([Type.Object({ name: Type.String() }), Type.Object({ count: Type.Number() })]),
+    execute: () => ({ text: "one", structuredContent: { name: "one", count: 1 } }),
+  });
+  const result = await executePortableTool(tool, {}, { host: "test" });
+  assert.deepEqual(result.structuredContent, { name: "one", count: 1 });
 });

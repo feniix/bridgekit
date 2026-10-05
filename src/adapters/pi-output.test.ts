@@ -24,3 +24,32 @@ test("Pi forwards outputSchema and structuredContent while retaining details", a
   assert.deepEqual(result.structuredContent, { count: 1 });
   assert.deepEqual(result.details, { count: 1 });
 });
+
+test("Pi preserves domain error data outside success schemas and surfaces invalid output as failure", async () => {
+  for (const output of [
+    { text: "offline", structuredContent: { reason: "offline" }, isError: true },
+    { text: "wrong", structuredContent: { count: "one" } },
+  ]) {
+    const registered: Array<Parameters<PiToolRegistration["registerTool"]>[0]> = [];
+    registerPiTools({ registerTool: (tool) => registered.push(tool) }, [
+      definePortableTool({
+        name: "pi_output_error",
+        title: "Pi error",
+        description: "Output error",
+        parameters: Type.Object({}),
+        outputSchema: Type.Object({ count: Type.Number() }),
+        execute: () => output,
+      }),
+    ]);
+    const tool = registered[0];
+    assert.ok(tool);
+    const result = await tool.execute("id", {});
+    assert.equal(result.isError, true);
+    if (output.isError) {
+      assert.deepEqual(result.structuredContent, { reason: "offline" });
+      assert.deepEqual(result.details, { reason: "offline" });
+    } else {
+      assert.match(result.content[0]?.text ?? "", /Invalid structured output for pi_output_error/);
+    }
+  }
+});
