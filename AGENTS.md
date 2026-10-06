@@ -58,6 +58,8 @@ well as renderer-facing `details`; unset optional fields remain omitted.
 preserving inferred handler unions. Explicit schema-typed tool annotations use
 `PortableTool<TParams, TResult, TOutput>`; two-generic annotations erase the schema.
 Domain failures require the literal `isError: true` discriminator.
+Explicit legacy `definePortableTool<TParams, TResult>` calls also erase schema
+inference. Prefer inferred calls for compile-time checking; runtime checks remain.
 
 `PortableTool` carries generics for parameters and the inferred success result (`TParams extends TSchema`, `TResult extends PortableToolResult`). The host is a fixed literal union: `PortableToolBuiltInHost = "pi" | "mcp" | "test"`. `PortableToolContext.host` is typed to that union directly, so `@ts-expect-error` assertions in `execute-tool.test.ts` reject any literal outside the union (e.g. `{ host: "custom-adapter" }`). Do not reintroduce a `<THost>` generic — the audit (#5, removed in 0.10.0) confirmed no consumer used it, and the simplification is intentional.
 

@@ -62,6 +62,9 @@ Domain failures use the literal `isError: true` discriminator. Explicit annotati
 can use `PortableTool<TParams, TResult, TOutput>`; existing two-generic annotations
 erase schema specificity. Runtime validation remains necessary for JavaScript,
 untyped data, and refinements not represented by TypeScript (e.g. numeric bounds).
+Explicit legacy `definePortableTool<TParams, TResult>(...)` calls are another
+intentional schema-erasure boundary, even with a concrete schema. Prefer inferred
+calls for compile-time checking; explicit calls still receive runtime validation.
 Metadata decoration and already-annotated/schema-erased tool inputs remain
 supported. Listings retain schema references while execution reads the tool:
 both `parameters` and `outputSchema` are immutable after registration, including

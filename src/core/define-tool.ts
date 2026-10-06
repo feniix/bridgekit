@@ -242,8 +242,9 @@ export function definePortableTool<
     execute: TExecute;
   },
 ): PortableTool<TParams, Awaited<ReturnType<TExecute>>, TOutput>;
-// Only schema-erased annotations use this compatibility path. NoInfer keeps
-// concrete inline schemas from widening to TSchema to escape result checking.
+// Schema-erased annotations and explicit legacy <TParams, TResult> calls use
+// this compatibility path. In inferred calls, NoInfer prevents concrete inline
+// schemas from widening to TSchema to escape result checking.
 export function definePortableTool<
   TParams extends TSchema,
   TResult extends PortableToolResult,

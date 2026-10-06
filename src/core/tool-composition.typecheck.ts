@@ -16,6 +16,13 @@ const annotated: PortableTool<typeof parameters, { text: string }> = {
 };
 definePortableTool(annotated);
 definePortableTool<typeof parameters, { text: string }>(annotated);
+// Explicit legacy function generics intentionally erase schema specificity too;
+// runtime validation is the remaining guard, even for a concrete inline schema.
+definePortableTool<typeof parameters, PortableToolResult>({
+  ...metadata,
+  outputSchema: Type.Object({ text: Type.String() }),
+  execute: () => ({ text: "bad", structuredContent: { text: 42 } }),
+});
 
 function withTitle<P extends TSchema, R extends PortableToolResult>(tool: PortableTool<P, R>) {
   return definePortableTool({ ...tool, title: "Decorated" });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { definePortableTool, executePortableTool } from "@feniix/bridgekit";
+import { definePortableTool, executePortableTool, type PortableToolResult } from "@feniix/bridgekit";
 import { fromAny } from "@total-typescript/shoehorn";
 import { Type } from "typebox";
 
@@ -103,4 +103,20 @@ test("object intersections can describe portable output", async () => {
   });
   const result = await executePortableTool(tool, {}, { host: "test" });
   assert.deepEqual(result.structuredContent, { name: "one", count: 1 });
+});
+
+test("explicit legacy function generics erase schema typing but retain runtime output validation", async () => {
+  const parameters = Type.Object({});
+  const tool = definePortableTool<typeof parameters, PortableToolResult>({
+    name: "erased_output",
+    title: "Erased output",
+    description: "Legacy explicit generics opt out of schema inference.",
+    parameters,
+    outputSchema: Type.Object({ count: Type.Number() }),
+    execute: () => ({ text: "wrong", structuredContent: { count: "one" } }),
+  });
+  await assert.rejects(executePortableTool(tool, {}, { host: "test" }), {
+    name: "TypeError",
+    message: /Invalid structured output for erased_output/,
+  });
 });
