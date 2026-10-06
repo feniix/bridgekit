@@ -105,7 +105,7 @@ nvm use 22.19   # or your version manager equivalent
 pnpm run check && pnpm test && pnpm run pack:dry-run && pnpm run package-smoke
 ```
 
-`release.yml`'s `checks` job stays on Node 24 only — the publish artifact is single and the matrix coverage on PRs and `main` push has already established that the floor passes.
+`release.yml`'s `checks` job runs the same `22.19`/`24` matrix as CI, so the release gate itself proves pi's engines floor (`>=22.19.0`) before publishing. The `publish` job stays on Node 24 only: npm trusted publishing requires npm `>=11.5.1`, and Node 22.19 bundles npm 10.9.x.
 
 ## Promotion criteria
 
