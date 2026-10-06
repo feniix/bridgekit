@@ -45,6 +45,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   two-generic inputs while still checking concrete schema-bearing handlers.
   Packed declarations pin both valid and invalid replacement handlers.
 
+## [0.15.0] - 2026-07-12
+
+### Added
+
+- `PiHostExtras` accepts `renderCall` and `renderResult`, pi's per-tool TUI
+  renderers for the call line and for the collapsed/expanded result view.
+  `registerPiTools` forwards both to `pi.registerTool` by identity; the core
+  never invokes them and does not import `pi-tui`. Contributed by
+  [@akaGelo](https://github.com/akaGelo) in
+  [#72](https://github.com/feniix/bridgekit/pull/72).
+
+### Changed
+
+- `docs/rfc-host-extras.md` records the renderers as Gap E, in scope as a
+  registration-time pass-through.
+
 ## [0.14.0] - 2026-05-28
 
 ### Added
