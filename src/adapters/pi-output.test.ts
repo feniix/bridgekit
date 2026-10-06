@@ -25,6 +25,28 @@ test("Pi forwards outputSchema and structuredContent while retaining details", a
   assert.deepEqual(result.details, { count: 1 });
 });
 
+test("Pi validates every output schema before registering any tools", () => {
+  const registered: Array<Parameters<PiToolRegistration["registerTool"]>[0]> = [];
+  const makeTool = (name: string, outputSchema: ReturnType<typeof Type.Object> | ReturnType<typeof Type.String>) =>
+    definePortableTool({
+      name,
+      title: name,
+      description: name,
+      parameters: Type.Object({}),
+      outputSchema,
+      execute: () => ({ text: "ok", structuredContent: {} }),
+    });
+  assert.throws(
+    () =>
+      registerPiTools({ registerTool: (tool) => registered.push(tool) }, [
+        makeTool("valid", Type.Object({})),
+        makeTool("invalid", Type.String()),
+      ]),
+    /Invalid outputSchema for invalid/,
+  );
+  assert.deepEqual(registered, []);
+});
+
 test("Pi preserves domain error data outside success schemas and surfaces invalid output as failure", async () => {
   for (const output of [
     { text: "offline", structuredContent: { reason: "offline" }, isError: true },

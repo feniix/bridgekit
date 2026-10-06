@@ -134,6 +134,7 @@ export function registerPiTools(
   tools: readonly PortableTool<TSchema>[],
   options: RegisterPiToolsOptions = {},
 ): void {
+  for (const tool of tools) assertPortableOutputSchema(tool);
   const errorHandling = options.errorHandling ?? "return";
   if (errorHandling === "throw" && !throwModeDeprecationWarned) {
     throwModeDeprecationWarned = true;
@@ -147,7 +148,6 @@ export function registerPiTools(
     );
   }
   for (const tool of tools) {
-    assertPortableOutputSchema(tool);
     const piExtras = tool.hostExtras?.pi;
     pi.registerTool({
       name: tool.name,
