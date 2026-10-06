@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- Raised the Node.js floor to `>=22.23.0` (the latest 22.x LTS), from
+  `>=22.19.0`. CI's minimum-version leg now runs 22.23 alongside 24.
+
+### Changed
+
+- `@types/node` follows the floor's major (22.x), so APIs added after Node 22 fail
+  to typecheck; Dependabot no longer proposes semver-major `@types/node` bumps.
+
 ## [0.16.0] - 2026-10-06
 
 ### Added

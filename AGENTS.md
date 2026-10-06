@@ -4,7 +4,7 @@ This file provides guidance to coding agents working in this repository.
 
 ## What this package is
 
-`@feniix/bridgekit` lets a tool author write **one** host-neutral, TypeBox-typed tool and expose it through multiple hosts (currently pi and MCP). The runtime is ESM-only and targets Node `>=22.19.0`. There is no bundler — `tsc` emits directly to `dist/`, and the published artefact is the compiled JS plus `.d.ts` files.
+`@feniix/bridgekit` lets a tool author write **one** host-neutral, TypeBox-typed tool and expose it through multiple hosts (currently pi and MCP). The runtime is ESM-only and targets Node `>=22.23.0`. There is no bundler — `tsc` emits directly to `dist/`, and the published artefact is the compiled JS plus `.d.ts` files.
 
 ## Commands
 

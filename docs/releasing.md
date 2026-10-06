@@ -68,7 +68,7 @@ The seed version published this way ships **without** a provenance attestation �
 ### Branch protection on `main`
 
 1. Repo → *Settings → Branches → Branch protection rules → Add rule* for `main`.
-2. Require pull request reviews and require **both** matrix legs of the CI check to pass before merging — `CI / check (22.19)` and `CI / check (24)`. (The matrix creates one status check per Node version; both must be listed individually under "Require status checks to pass before merging".)
+2. Require pull request reviews and require **both** matrix legs of the CI check to pass before merging — `CI / check (22.23)` and `CI / check (24)`. (The matrix creates one status check per Node version; both must be listed individually under "Require status checks to pass before merging".)
 
 ## Trusted publishing and provenance
 
@@ -93,10 +93,10 @@ If any step fails, fix it on the branch — do not bypass the workflow.
 
 ### Node version coverage
 
-CI runs the gate against a Node matrix covering the declared `engines.node` floor (`22.19`) and the current target (`24`). This catches code that inadvertently uses Node 23+/24-only APIs and would break consumers on Node 22 LTS. Reproduce the floor locally with:
+CI runs the gate against a Node matrix covering the declared `engines.node` floor (`22.23`, the latest 22.x LTS) and the current target (`24`). This catches code that inadvertently uses Node 23+/24-only APIs and would break consumers on Node 22 LTS. Reproduce the floor locally with:
 
 ```sh
-nvm use 22.19   # or your version manager equivalent
+nvm use 22.23   # or your version manager equivalent
 npm run check && npm test && npm run pack:dry-run && npm run package-smoke
 ```
 
