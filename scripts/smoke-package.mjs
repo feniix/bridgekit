@@ -13,7 +13,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 function executable(command) {
-  return process.platform === "win32" && command === "npm" ? "npm.cmd" : command;
+  return process.platform === "win32" && command === "pnpm" ? "pnpm.cmd" : command;
 }
 
 async function run(command, args, options = {}) {
@@ -39,7 +39,7 @@ function parsePackOutput(stdout, packDir) {
   const parsed = JSON.parse(stdout);
   const entry = Array.isArray(parsed) ? parsed[0] : parsed;
   const filename = entry.filename ?? entry.name;
-  assert.ok(filename, "npm pack JSON output must include filename");
+  assert.ok(filename, "pnpm pack JSON output must include filename");
   return { entry, tarballPath: resolve(packDir, basename(filename)) };
 }
 
@@ -348,6 +348,18 @@ async function assertManifestInvariants() {
     "package.json must not define a publish script (releases go through Actions)",
   );
 
+  // inv-pnpm-package-manager: pnpm-lock.yaml is the only lockfile, and the pinned
+  // packageManager keeps local, CI, and Corepack/action-setup installs on one pnpm.
+  assert.match(
+    packageJson.packageManager ?? "",
+    /^pnpm@\d+\.\d+\.\d+$/,
+    "package.json#packageManager must pin an exact pnpm version",
+  );
+  assert.ok(existsSync(join(repoRoot, "pnpm-lock.yaml")), "pnpm-lock.yaml must be committed");
+  for (const lockfile of ["package-lock.json", "npm-shrinkwrap.json", "yarn.lock"]) {
+    assert.equal(existsSync(join(repoRoot, lockfile)), false, `${lockfile} must not exist alongside pnpm-lock.yaml`);
+  }
+
   // inv-mcp-sdk-major: low-level SDK v2 Server is part of the public contract.
   const mcpRange = packageJson.dependencies?.["@modelcontextprotocol/server"];
   assert.match(mcpRange ?? "", /^\^?2\./, "@modelcontextprotocol/server must remain pinned to v2.x");
@@ -451,6 +463,17 @@ async function assertPackedMcpProtocol(installDir) {
   );
 }
 
+async function installedVersion(name) {
+  const manifestPath = join(repoRoot, "node_modules", ...name.split("/"), "package.json");
+  assert.ok(
+    existsSync(manifestPath),
+    `${name} must be installed at the repo root (run pnpm install --frozen-lockfile)`,
+  );
+  const { version } = await readJson(manifestPath);
+  assert.ok(version, `${name} installed manifest must declare a version`);
+  return version;
+}
+
 let tempRoot;
 try {
   tempRoot = await mkdtemp(join(tmpdir(), "bridgekit-package-smoke-"));
@@ -461,26 +484,26 @@ try {
 
   await assertManifestInvariants();
 
-  const pack = await run("npm", ["pack", "--pack-destination", packDir, "--json"]);
+  const pack = await run("pnpm", ["pack", "--pack-destination", packDir, "--json"]);
   const { entry, tarballPath } = parsePackOutput(pack.stdout, packDir);
   assert.ok(existsSync(tarballPath), `expected BridgeKit tarball to exist: ${tarballPath}`);
   assertPackFileList(entry);
 
-  const packageLock = await readJson(join(repoRoot, "package-lock.json"));
-  const typeboxVersion = packageLock.packages?.["node_modules/typebox"]?.version ?? "1.1.38";
-  const clientVersion = packageLock.packages["node_modules/@modelcontextprotocol/client"]?.version;
-  assert.ok(clientVersion, "package lock must include the MCP v2 client version for smoke-test consumers");
-  await writeFile(
-    join(installDir, "package.json"),
-    JSON.stringify({ private: true, type: "module", dependencies: { typebox: typeboxVersion } }, null, 2),
-  );
+  // Pin consumer dependencies to the versions the frozen lockfile installed at the repo root.
+  const typeboxVersion = await installedVersion("typebox");
+  const serverVersion = await installedVersion("@modelcontextprotocol/server");
+  const clientVersion = await installedVersion("@modelcontextprotocol/client");
+  await writeFile(join(installDir, "package.json"), JSON.stringify({ private: true, type: "module" }, null, 2));
+  // pnpm's isolated layout only exposes declared dependencies, so the consumer
+  // declares every package it imports directly (including the SDK `Server` type).
   await run(
-    "npm",
+    "pnpm",
     [
-      "install",
+      "add",
       "--ignore-scripts",
       tarballPath,
       `typebox@${typeboxVersion}`,
+      `@modelcontextprotocol/server@${serverVersion}`,
       `@modelcontextprotocol/client@${clientVersion}`,
     ],
     { cwd: installDir },
@@ -491,7 +514,9 @@ try {
   await assertUnsupportedDeepImportFails(installDir);
   await assertPackedMcpProtocol(installDir);
 
-  console.error("✓ manifest invariants (sideEffects, no release/publish scripts, MCP SDK v2 server, no source maps)");
+  console.error(
+    "✓ manifest invariants (sideEffects, no release/publish scripts, pinned pnpm, MCP SDK v2 server, no source maps)",
+  );
   console.error("✓ packed tarball file list includes public runtime entries and excludes tests/maps");
   console.error("✓ temporary consumer imports all public runtime subpaths from installed tarball");
   console.error("✓ temporary consumer compiles strict-plus NodeNext TypeScript against installed declarations");

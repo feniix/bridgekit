@@ -38,6 +38,20 @@ This catalog originally backed two scripts: `verify-bridgekit-dist.mjs` (manifes
 
 ---
 
+## inv-pnpm-package-manager
+
+**Assertion**: `package.json#packageManager` pins an exact `pnpm@x.y.z`, `pnpm-lock.yaml` exists, and no `package-lock.json`, `npm-shrinkwrap.json`, or `yarn.lock` exists.
+
+**Where**: `scripts/smoke-package.mjs:assertManifestInvariants`.
+
+**Failure mode**: Someone runs `npm install` and commits a `package-lock.json`, or drops the `packageManager` pin. Local, CI, and release installs then resolve from different lockfiles or pnpm versions, and `pnpm install --frozen-lockfile` stops being the reproducible source of truth.
+
+**Motivation**: BridgeKit moved from npm to pnpm (#118). One lockfile and one pinned pnpm version keep installs reproducible from a clean checkout. The smoke consumer is also a pnpm install pinned to the repo's installed `typebox` and `@modelcontextprotocol/{server,client}` versions; pnpm's isolated layout means it must declare every package it imports directly.
+
+**Removable?** No while pnpm is the package manager.
+
+---
+
 ## inv-mcp-sdk-major
 
 **Assertion**: `@modelcontextprotocol/server` is range-pinned to `^2.x` in `dependencies`;

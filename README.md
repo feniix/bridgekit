@@ -344,7 +344,7 @@ Options:
 
 - `metaUrl` (required): `import.meta.url` of the bin script. Used to locate the package root (the bin's parent directory).
 - `mcpEntry` (required): path to the compiled MCP entry, relative to the package root (e.g. `"dist/extensions/mcp-server.js"`). Absolute paths, `..` path segments, and NUL bytes are rejected.
-- `buildScript` (required): npm script to invoke when the entry is missing (e.g. `"build:mcp"`). Names must be literal script identifiers containing only letters, numbers, `:`, `_`, `@`, `.`, or `-`, and must not start with `-`.
+- `buildScript` (required): npm script to invoke when the entry is missing (e.g. `"build:mcp"`). The wrapper runs it with `npm run <buildScript> --silent` regardless of which package manager installed your package. Names must be literal script identifiers containing only letters, numbers, `:`, `_`, `@`, `.`, or `-`, and must not start with `-`.
 - `buildTimeoutMs` (optional, default `60_000`): timeout for the build subprocess. Distinct "Build timed out…" diagnostic fires when exceeded.
 - `logPrefix` (optional, default `"bridgekit-bin"`): prefix on the "Failed to build…" diagnostic.
 - `buildStdio` (optional, default `"inherit"`): `stdio` mode passed to `spawnSync` when the build script runs. **MCP stdio server bins should pass `["ignore", "inherit", "inherit"]`** so the build subprocess's stdout cannot contaminate the parent's JSON-RPC framing channel (`process.stdout`). stderr stays inherited so build diagnostics remain visible.
@@ -389,7 +389,7 @@ Package and release checklist:
 - If an npm-launched bin depends on generated output, use `runBinWrapper` from `@feniix/bridgekit/bin-wrapper` (since 0.11.0) — it resolves the package-local generated entry, runs the package-local build when output is missing in workspace/local execution, preserves build failures, and distinguishes timeout from build error in its diagnostic. The bin script becomes a three-line invocation; no hand-rolled wrapper needed.
 - If a package keeps a source-loaded host entrypoint (for example a pi extension source file), use a package-local MCP build behind that wrapper and narrow the build to the MCP entrypoint plus shared host-neutral modules.
 - Declare a compatible Node engine (`>=22.19.0`) in downstream packages that expose BridgeKit-powered MCP bins.
-- Run `npm run check`, `npm test`, `npm run pack:dry-run`, `npm run package-smoke`, and `npm audit --omit=dev --audit-level=high` before publishing.
+- BridgeKit itself is developed with pnpm (pinned via `packageManager`): run `pnpm run check`, `pnpm test`, `pnpm run pack:dry-run`, `pnpm run package-smoke`, and `pnpm audit --prod --audit-level high` before publishing.
 - Treat `docs/releasing.md` as the release handoff; publishing is manual via the Release workflow and npm trusted publishing.
 
 See `examples/README.md` for complete copyable examples.

@@ -26,7 +26,7 @@ async function collectTestFiles(dir) {
 const testFiles = (await collectTestFiles(distSrc)).sort();
 
 if (testFiles.length === 0) {
-  throw new Error("No built test files found under dist/src. Run npm run build first.");
+  throw new Error("No built test files found under dist/src. Run pnpm run build first.");
 }
 
 const child = spawn(process.execPath, ["--test", ...testFiles], {
