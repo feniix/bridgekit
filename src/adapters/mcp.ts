@@ -119,7 +119,7 @@ function assertUniqueToolNames(tools: readonly PortableTool<TSchema>[]): void {
 }
 
 export function createMcpServer(options: CreateMcpServerOptions): Server {
-  for (const tool of options.tools) assertPortableOutputSchema(tool, "createMcpServer");
+  for (const tool of options.tools) assertPortableOutputSchema(tool, "createMcpServer", "BRIDGEKIT_MCP");
   assertObjectShapedParameters(options.tools);
   assertUniqueToolNames(options.tools);
   // Build the dispatch map and the listing payload at construction so

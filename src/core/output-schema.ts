@@ -40,7 +40,7 @@ export function throwWithCode(message: string, code: string, ErrorType: ErrorCon
   throw error;
 }
 
-export function assertPortableOutputSchema(tool: PortableTool, context?: "createMcpServer"): void {
+export function assertPortableOutputSchema(tool: PortableTool, context?: string, codePrefix = "BRIDGEKIT"): void {
   if (tool.outputSchema !== undefined && !isObjectSchema(tool.outputSchema)) {
     const label = schemaTypeLabel(tool.outputSchema);
     let recipe = "Use an inlined object schema or an intersection of object schemas.";
@@ -49,10 +49,9 @@ export function assertPortableOutputSchema(tool: PortableTool, context?: "create
     } else if (label.includes("anyOf") || label.includes("oneOf")) {
       recipe += " Top-level unions are unsupported; flatten branches into one object or expose separate tools.";
     }
-    const prefix = context === "createMcpServer" ? "BRIDGEKIT_MCP" : "BRIDGEKIT";
     throwWithCode(
       `${context ? `${context}: ` : ""}Invalid outputSchema for ${tool.name} (type="${label}"): ${recipe}`,
-      `${prefix}_${label.includes("$ref") ? "REF" : "NON_OBJECT"}_OUTPUT_SCHEMA`,
+      `${codePrefix}_${label.includes("$ref") ? "REF" : "NON_OBJECT"}_OUTPUT_SCHEMA`,
       TypeError,
     );
   }
