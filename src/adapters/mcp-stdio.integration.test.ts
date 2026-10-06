@@ -144,3 +144,25 @@ test("stdio runner exits cleanly when stdin closes", { timeout: 15000 }, async (
     if (child.exitCode === null && child.signalCode === null) child.kill();
   }
 });
+
+test("stdio opening JSON-RPC validation errors are diagnosed on stderr, never stdout", { timeout: 15000 }, async () => {
+  const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe"] });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8").on("data", (data: string) => {
+    stdout += data;
+  });
+  child.stderr.setEncoding("utf8").on("data", (data: string) => {
+    stderr += data;
+  });
+  try {
+    const closed = once(child, "close");
+    child.stdin.end(`${JSON.stringify({ jsonrpc: "invalid", id: 1, method: "tools/list" })}\n`);
+    await closed;
+    assert.equal(stdout, "");
+    assert.match(stderr, /\[bridgekit-mcp\]/);
+    assert.match(stderr, /jsonrpc/);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+  }
+});

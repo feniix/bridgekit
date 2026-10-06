@@ -9,6 +9,13 @@ than introducing another public runner or entrypoint. The runner still returns
 The SDK closes stdio on EOF; tools must respect their cancellation signal and
 must not leave unrelated processes/timers running.
 
+Each discovery probe/connection gets a fresh server, so discarded modern probes
+cannot contaminate legacy fallback handlers. Opening/transport errors reported
+by the SDK are diagnosed on stderr with a `[bridgekit-mcp]` prefix, never stdout.
+The SDK exposes no readiness promise: runner resolution means wiring completed,
+not that an asynchronous transport start or negotiation succeeded. A close handle
+is intentionally not exposed by the existing `Promise<void>` API.
+
 `createMcpServer` validates and constructs a passive SDK v2 `Server`. Connecting
 it directly with a `StdioServerTransport` still serves only the legacy era.
 Use the public runner to enable modern revision `2026-07-28`.

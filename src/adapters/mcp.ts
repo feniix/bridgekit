@@ -238,5 +238,7 @@ export async function runMcpStdioServer(options: CreateMcpServerOptions): Promis
   // Validate eagerly, but each discarded probe/connection must own its server:
   // a modern probe installs era-specific handlers before it can be discarded.
   createMcpServer(options);
-  serveStdio(() => createMcpServer(options));
+  serveStdio(() => createMcpServer(options), {
+    onerror: (error) => process.stderr.write(`[bridgekit-mcp] ${error.message}\n`),
+  });
 }
