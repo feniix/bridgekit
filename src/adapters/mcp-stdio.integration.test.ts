@@ -30,10 +30,12 @@ test("discarded modern discover probe can fall back to legacy on the same stdio 
     return reply.result;
   };
   try {
-    const discovery = await request("server/discover", {
-      _meta: { [PROTOCOL_VERSION_META_KEY]: "2026-07-28", [CLIENT_CAPABILITIES_META_KEY]: {} },
-    });
-    assert.ok(discovery.supportedVersions);
+    for (let probe = 0; probe < 3; probe++) {
+      const discovery = await request("server/discover", {
+        _meta: { [PROTOCOL_VERSION_META_KEY]: "2026-07-28", [CLIENT_CAPABILITIES_META_KEY]: {} },
+      });
+      assert.ok(discovery.supportedVersions);
+    }
     const initialized = await request("initialize", {
       protocolVersion: "2025-11-25",
       capabilities: {},
@@ -50,11 +52,19 @@ test("discarded modern discover probe can fall back to legacy on the same stdio 
   }
 });
 
-for (const modern of [false, true]) {
-  test(`public stdio runner serves ${modern ? "modern-pinned" : "legacy"} clients`, { timeout: 15000 }, async () => {
+for (const mode of ["default", "legacy", "auto", "modern-pinned"] as const) {
+  test(`public stdio runner serves ${mode} clients`, { timeout: 15000 }, async () => {
+    const modern = mode === "auto" || mode === "modern-pinned";
     const client = new Client(
       { name: "modern-client", version: "0.0.0" },
-      { versionNegotiation: { mode: modern ? { pin: "2026-07-28" } : "legacy", probe: { timeoutMs: 2000 } } },
+      mode === "default"
+        ? undefined
+        : {
+            versionNegotiation: {
+              mode: mode === "modern-pinned" ? { pin: "2026-07-28" } : mode,
+              probe: { timeoutMs: 2000 },
+            },
+          },
     );
     const transport = new StdioClientTransport({
       command: process.execPath,
@@ -132,6 +142,62 @@ test("SDK v1 client can use the dual-era public runner", { timeout: 15000 }, asy
     await transport.close();
   }
 });
+
+for (const modern of [false, true]) {
+  test(`EOF aborts an active timer-holding ${modern ? "modern" : "legacy"} tool`, { timeout: 15000 }, async (t) => {
+    const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe"] });
+    t.after(() => {
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+    });
+    const closed = once(child, "close", { signal: t.signal });
+    const lines = createInterface({ input: child.stdout });
+    const replies = lines[Symbol.asyncIterator]();
+    const ids: number[] = [];
+    const envelope = modern
+      ? { _meta: { [PROTOCOL_VERSION_META_KEY]: "2026-07-28", [CLIENT_CAPABILITIES_META_KEY]: {} } }
+      : {};
+    const send = (id: number, method: string, params: Record<string, unknown>) =>
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    const reply = async () => {
+      const next = await replies.next();
+      assert.equal(next.done, false);
+      const result: { id: number; error?: unknown; result: Record<string, unknown> } = JSON.parse(next.value ?? "");
+      ids.push(result.id);
+      assert.equal(result.error, undefined);
+      return result;
+    };
+    try {
+      if (!modern) {
+        send(1, "initialize", {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "eof-client", version: "0.0.0" },
+        });
+        assert.equal((await reply()).id, 1);
+        child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+      }
+      send(2, "tools/call", { name: "wait", arguments: {}, ...envelope });
+      send(3, "tools/call", { name: "status", arguments: {}, ...envelope });
+      const status = await reply();
+      assert.equal(status.id, 3);
+      assert.deepEqual(status.result.structuredContent, { started: true, aborted: false });
+      // Drain the iterator after EOF as well, so a stray pending-tool response
+      // cannot escape the no-post-EOF-response assertion.
+      child.stdin.end();
+      for await (const line of replies) {
+        const response: { id?: number } = JSON.parse(line);
+        if (response.id !== undefined) ids.push(response.id);
+      }
+      const [code, signal] = await closed;
+      assert.equal(code, 0);
+      assert.equal(signal, null);
+      assert.equal(ids.includes(2), false);
+    } finally {
+      lines.close();
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+    }
+  });
+}
 
 test("stdio runner exits cleanly when stdin closes", { timeout: 15000 }, async () => {
   const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe"] });

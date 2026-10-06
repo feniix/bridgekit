@@ -35,12 +35,19 @@ await runMcpStdioServer({
     simpleTool("invalid_output", () => ({ text: "wrong", structuredContent: { text: 42 } })),
     simpleTool("wait", async (_args, ctx) => {
       started = true;
-      await new Promise((resolve) => {
-        if (ctx.signal?.aborted) resolve();
-        else ctx.signal?.addEventListener("abort", resolve, { once: true });
-      });
-      aborted = true;
-      return { text: "cancelled", isError: true };
+      // EOF tests must prove abort-driven cleanup, not natural process exit
+      // from an unresolved Promise that holds no event-loop resource.
+      const keepAlive = setInterval(() => {}, 1000);
+      try {
+        await new Promise((resolve) => {
+          if (ctx.signal?.aborted) resolve();
+          else ctx.signal?.addEventListener("abort", resolve, { once: true });
+        });
+        aborted = true;
+        return { text: "cancelled", isError: true };
+      } finally {
+        clearInterval(keepAlive);
+      }
     }),
     definePortableTool({
       name: "status",
