@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-06
+
 ### Changed
 
 - `@types/node` moves from 25.x to 22.x to match the `>=22.19.0` engines floor,
