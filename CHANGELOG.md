@@ -18,8 +18,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The package smoke test packs with `pnpm pack` and installs the tarball into a strict pnpm
   consumer, which now declares `@modelcontextprotocol/server` explicitly for the `Server` type.
   A new invariant fails when `packageManager` is unpinned or an npm/yarn lockfile reappears.
-- The Release workflow's `checks` job now runs the same Node `22.19`/`24` matrix as CI,
-  matching pi's engines floor; `publish` stays on Node 24 for npm trusted publishing.
+- CI and all release jobs run on Node 22 only, matching pi's workflows: the `22.19`/`24`
+  CI matrix is gone and the release no longer uses Node 24. The publish job upgrades to
+  `npm@11.16.0` (as pi does) because Node 22's bundled npm 10.x cannot do trusted publishing.
+  The `engines.node` floor stays `>=22.19.0`.
 - No runtime change: `runBinWrapper` still builds missing output with `npm run <buildScript>`,
   since downstream consumers own their package manager.
 
