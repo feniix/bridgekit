@@ -14,7 +14,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - `@types/node` follows the floor's major (22.x), so APIs added after Node 22 fail
-  to typecheck; Dependabot no longer proposes semver-major `@types/node` bumps.
+  to typecheck.
+- Dependabot version updates are disabled (`.github/dependabot.yml` removed);
+  dependency bumps are now made manually. CI's `npm audit` gate is unchanged.
 
 ## [0.16.1] - 2026-10-06
 
