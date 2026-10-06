@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-10-06
+
 ### Fixed
 
 - Validation errors report correct field names under TypeBox 1.3+, which the
