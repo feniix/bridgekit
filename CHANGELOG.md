@@ -6,16 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed (breaking)
-
-- Raised the Node.js floor to `>=24.21.0` (Node 24 LTS), from `>=22.19.0`.
-  Node 22 is no longer supported. CI runs a pinned 24.21 leg alongside the
-  newest 24.x.
-
 ### Changed
 
-- `@types/node` follows the floor's major (24.x), so APIs added after Node 24 fail
-  to typecheck.
+- `@types/node` moves from 25.x to 22.x to match the `>=22.19.0` engines floor,
+  which also matches pi (`@earendil-works/pi-*`); APIs added after Node 22 now
+  fail to typecheck. The Node floor itself is unchanged.
 - Dependabot version updates are disabled (`.github/dependabot.yml` removed);
   dependency bumps are now made manually. CI's `npm audit` gate is unchanged.
 
