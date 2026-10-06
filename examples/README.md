@@ -208,7 +208,7 @@ In `package.json`:
     "prepack": "npm run build"
   },
   "engines": {
-    "node": ">=22.23.0"
+    "node": ">=24.21.0"
   },
   "dependencies": {
     "@feniix/bridgekit": "^0.14.0",
@@ -234,7 +234,7 @@ For mixed source-loaded pi + compiled MCP packages, keep the pi source entrypoin
     "prepack": "npm run build:mcp"
   },
   "engines": {
-    "node": ">=22.23.0"
+    "node": ">=24.21.0"
   },
   "dependencies": {
     "@feniix/bridgekit": "^0.14.0",
@@ -411,7 +411,7 @@ For publishable tool packages:
 - Compile runtime entrypoints to JavaScript and declarations before packing.
 - Use `exports` to expose only supported entrypoints.
 - Keep runtime imports in `dependencies`, not only dev dependencies.
-- Declare Node `>=22.23.0` when publishing BridgeKit-powered MCP bins.
+- Declare Node `>=24.21.0` when publishing BridgeKit-powered MCP bins.
 - Avoid `workspace:` or `file:` ranges in publishable package dependencies.
 - Avoid dangling `sourceMappingURL` comments: either publish maps and useful sources, or disable source maps for package builds.
 - Ensure the npm bin entrypoint starts with a shebang, is executable (`chmod +x` or equivalent), and appears in `npm pack --dry-run --json` with executable mode.
