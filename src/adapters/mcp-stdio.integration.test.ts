@@ -150,6 +150,9 @@ for (const modern of [false, true]) {
       if (child.exitCode === null && child.signalCode === null) child.kill();
     });
     const closed = once(child, "close", { signal: t.signal });
+    // A timeout can reject this before the readline drain finishes. Observe it
+    // immediately; awaiting the original promise below still propagates errors.
+    void closed.catch(() => {});
     const lines = createInterface({ input: child.stdout });
     const replies = lines[Symbol.asyncIterator]();
     const ids: number[] = [];
