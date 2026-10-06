@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-06
+
 ### Added
 
 - The MCP adapter forwards `ctx.progress?.(update)` as `notifications/progress` when the
