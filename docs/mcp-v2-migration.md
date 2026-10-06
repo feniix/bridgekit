@@ -22,8 +22,8 @@ Use the public runner to enable modern revision `2026-07-28`.
 
 ## Breaking-change policy
 
-Ship this as the next pre-1.0 **minor** release. No version bump is made as part
-of implementation. The returned `Server` type/object changes, even though
+Ship this as pre-1.0 **minor** release `0.16.0`. The returned `Server`
+type/object changes, even though
 legacy clients remain interoperable on the wire.
 
 Consumers using `createMcpServer` beyond the public runner must:

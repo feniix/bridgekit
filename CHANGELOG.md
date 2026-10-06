@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-06
+
 ### Added
 
 - Optional object-shaped `PortableTool.outputSchema`. Successful calls must return
@@ -18,6 +20,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Schema-declaring `definePortableTool` calls check successful structured data at
   compile time while preserving inferred result unions; explicit annotations can
   retain schemas with a third `PortableTool` generic. Domain failures are exempt.
+  Explicit legacy two-generic function calls intentionally erase schema linkage
+  and retain runtime validation; inferred calls are recommended for type checking.
 - Output-schema construction failures carry stable diagnostic codes, with
   reference/union-specific recipes and MCP constructor attribution.
 
