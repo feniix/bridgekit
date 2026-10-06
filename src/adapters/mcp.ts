@@ -235,8 +235,8 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
 }
 
 export async function runMcpStdioServer(options: CreateMcpServerOptions): Promise<void> {
-  // Validate eagerly; pin this server to the era selected by the opening
-  // discovery/initialize exchange. Startup resolves without waiting for EOF.
-  const server = createMcpServer(options);
-  serveStdio(() => server);
+  // Validate eagerly, but each discarded probe/connection must own its server:
+  // a modern probe installs era-specific handlers before it can be discarded.
+  createMcpServer(options);
+  serveStdio(() => createMcpServer(options));
 }
