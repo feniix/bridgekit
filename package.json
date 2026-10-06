@@ -1,6 +1,6 @@
 {
   "name": "@feniix/bridgekit",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "description": "BridgeKit defines TypeBox-backed tools once and adapts them to pi, MCP, and other hosts.",
   "keywords": [
     "pi",
@@ -73,7 +73,7 @@
     "typebox": "^1.1.31"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.4",
+    "@biomejs/biome": "2.5.15",
     "@modelcontextprotocol/client": "^2.3.1",
     "@modelcontextprotocol/sdk": "^1.30.1",
     "@total-typescript/shoehorn": "^0.1.2",

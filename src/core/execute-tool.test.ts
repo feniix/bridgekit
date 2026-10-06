@@ -445,12 +445,13 @@ test("validatePortableToolArgs: multiple missing required properties expand to o
 });
 
 test("validatePortableToolArgs: slash in property name survives intact for wrong-type errors (schema-walk fallback)", async () => {
-  // TypeBox does NOT escape `/` in property names when building `instancePath`
-  // (it doesn't follow JSON Pointer RFC 6901's `~1` encoding). A property
+  // TypeBox < 1.3 does NOT escape `/` in property names when building
+  // `instancePath` (no JSON Pointer RFC 6901 `~1` encoding), so a property
   // named `a/b` produces `instancePath: "/a/b"` on a wrong-type error. The
   // string-split fallback would yield `field: "b"`; the schema-walk fallback
   // recognizes that `a/b` is a single property key on the parent schema and
-  // surfaces it intact. Required/additionalProperties keywords are unaffected
+  // surfaces it intact. TypeBox 1.3+ emits `/a~1b`, which must decode back to
+  // `a/b` rather than leak the escape. Required/additionalProperties keywords are unaffected
   // (they read structured `params`); this test covers the non-required
   // keyword paths. Resolves #36.
   const tool = definePortableTool({
@@ -699,6 +700,76 @@ test("validatePortableToolArgs: additionalProperties=false surfaces the offendin
     ["extra"],
   );
   assert.match(errors.at(0)?.message ?? "", /must not have additional property extra/);
+});
+
+test("validatePortableToolArgs: tilde in property name survives intact (RFC 6901 ~0 escape)", async () => {
+  // TypeBox 1.3+ escapes `~` as `~0` in instancePath/schemaPath. The field must
+  // be the literal key, not the escaped pointer segment.
+  const tool = definePortableTool({
+    name: "tilde_prop",
+    title: "Tilde Prop",
+    description: "Schema with a tilde in its property name.",
+    parameters: Type.Object({ "a~b": Type.String() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { "a~b": 42 }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.deepEqual(
+    errors.map((e) => e.field),
+    ["a~b"],
+  );
+});
+
+test("validatePortableToolArgs: schema-valued additionalProperties reports each extra key once", async () => {
+  // TypeBox 1.3+ emits both the `additionalProperties` summary and a per-key
+  // failure of the additionalProperties sub-schema; only the summary survives.
+  const tool = definePortableTool({
+    name: "additional_schema",
+    title: "Additional Schema",
+    description: "Schema whose additional properties must be strings.",
+    parameters: Type.Object({}, { additionalProperties: Type.String() }),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { k: 1 }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.deepEqual(
+    errors.map((e) => e.field),
+    ["k"],
+  );
+  assert.match(errors.at(0)?.message ?? "", /must not have additional property k/);
+});
+
+test("validatePortableToolArgs: losing union branch's additionalProperties=false keys stay suppressed", async () => {
+  // With op="create" active, branch B's `additionalProperties: false` objects to
+  // `name`. TypeBox 1.3+ also emits a per-key error at `/name`; it must not leak
+  // past phantom suppression as a `name` error. Only the real offender (`id`,
+  // additional for the active branch) remains.
+  const tool = definePortableTool({
+    name: "strict_union",
+    title: "Strict Union",
+    description: "Discriminated union of closed objects.",
+    parameters: Type.Union([
+      Type.Object({ op: Type.Literal("create"), name: Type.String() }, { additionalProperties: false }),
+      Type.Object({ op: Type.Literal("delete"), id: Type.String() }, { additionalProperties: false }),
+    ]),
+    execute() {
+      return { text: "ok" };
+    },
+  });
+  const result = await executePortableTool(tool, { op: "create", name: "n", id: "x" }, { host: "test" });
+  assert.equal(result.isError, true);
+  const errors = getValidationErrors(result);
+  assert.deepEqual(
+    errors.map((e) => e.field),
+    ["id"],
+  );
+  assert.match(errors.at(0)?.message ?? "", /must not have additional property id/);
 });
 
 test("validatePortableToolArgs: empty-string property name falls back to (root) sentinel", async () => {

@@ -16,6 +16,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `@types/node` follows the floor's major (22.x), so APIs added after Node 22 fail
   to typecheck; Dependabot no longer proposes semver-major `@types/node` bumps.
 
+## [0.16.1] - 2026-10-06
+
+### Fixed
+
+- Validation errors report correct field names under TypeBox 1.3+, which the
+  `typebox ^1.1.31` range already resolves to on fresh installs. TypeBox 1.3
+  escapes JSON Pointer paths per RFC 6901, so a property named `a/b` surfaced as
+  `a~1b` (and `a~b` as `a~0b`); fields are now decoded back to the literal key.
+- `additionalProperties` violations are reported once per key again. TypeBox 1.3
+  adds a per-key sub-schema error beside the summary, which duplicated fields and
+  let a losing union branch's closed-object errors slip past phantom suppression.
+  Both TypeBox 1.1 and 1.3 now produce identical validation errors.
+
 ## [0.16.0] - 2026-10-06
 
 ### Added
