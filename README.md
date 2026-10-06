@@ -61,7 +61,7 @@ export default function extension(pi: Parameters<typeof registerPiTools>[0]) {
 npm install @feniix/bridgekit typebox
 ```
 
-This package is ESM-only and supports Node.js 22.19.0 or newer. Published modules are import-passive and marked as side-effect free; tools are registered or servers are started only when the exported adapter functions are called.
+This package is ESM-only and supports Node.js 22.23.0 or newer. Published modules are import-passive and marked as side-effect free; tools are registered or servers are started only when the exported adapter functions are called.
 
 ## Stability and support
 
@@ -388,7 +388,7 @@ Package and release checklist:
 - For MCP stdio bins, ensure the executable entrypoint starts with a Node shebang, has executable mode (`chmod +x` or equivalent), and is included by `npm pack --dry-run --json`.
 - If an npm-launched bin depends on generated output, use `runBinWrapper` from `@feniix/bridgekit/bin-wrapper` (since 0.11.0) — it resolves the package-local generated entry, runs the package-local build when output is missing in workspace/local execution, preserves build failures, and distinguishes timeout from build error in its diagnostic. The bin script becomes a three-line invocation; no hand-rolled wrapper needed.
 - If a package keeps a source-loaded host entrypoint (for example a pi extension source file), use a package-local MCP build behind that wrapper and narrow the build to the MCP entrypoint plus shared host-neutral modules.
-- Declare a compatible Node engine (`>=22.19.0`) in downstream packages that expose BridgeKit-powered MCP bins.
+- Declare a compatible Node engine (`>=22.23.0`) in downstream packages that expose BridgeKit-powered MCP bins.
 - Run `npm run check`, `npm test`, `npm run pack:dry-run`, `npm run package-smoke`, and `npm audit --omit=dev --audit-level=high` before publishing.
 - Treat `docs/releasing.md` as the release handoff; publishing is manual via the Release workflow and npm trusted publishing.
 
