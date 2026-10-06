@@ -139,6 +139,10 @@ Runtime validation still protects JavaScript callers and dynamically sourced dat
 For explicitly annotated tools, use the third `PortableTool<TParams, TResult, TOutput>`
 generic to retain schema checking; existing two-generic annotations deliberately
 erase schema specificity.
+Existing annotated tools and metadata-only spreads remain accepted by
+`definePortableTool`; concrete schema-bearing spreads still check replacement
+handlers. Treat `parameters` and `outputSchema` as immutable after registration:
+do not mutate their contents or replace either schema object.
 
 Pi registrations forward the schema; Pi results now preserve `structuredContent`
 directly for programmatic/codemode consumers, alongside the renderer-facing

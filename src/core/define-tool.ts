@@ -189,7 +189,11 @@ export interface PortableTool<
   title: string;
   description: string;
   parameters: TParams;
-  /** Object-shaped TypeBox schema for successful structuredContent. Literal isError:true results are exempt. */
+  /**
+   * Object-shaped TypeBox schema for successful structuredContent.
+   * Literal isError:true results are exempt. Treat this schema and parameters
+   * as immutable after registration, including replacing either schema object.
+   */
   outputSchema?: TOutput;
   execute: (
     args: Static<TParams>,
@@ -224,7 +228,31 @@ export function definePortableTool<
 ): PortableTool<TParams, Awaited<ReturnType<TExecute>>, TOutput>;
 export function definePortableTool<TParams extends TSchema, TResult extends PortableToolResult>(
   tool: PortableTool<TParams, TResult> & { outputSchema?: undefined },
-): PortableTool<TParams, TResult>;
+): PortableTool<TParams, TResult, undefined>;
+export function definePortableTool<
+  TParams extends TSchema,
+  TOutput extends TSchema,
+  TExecute extends (
+    args: Static<TParams>,
+    ctx: PortableToolContext,
+  ) => SchemaResult<NoInfer<TOutput>> | Promise<SchemaResult<NoInfer<TOutput>>>,
+>(
+  tool: Omit<PortableTool<TParams, PortableToolResult, TOutput>, "execute" | "outputSchema"> & {
+    outputSchema?: TOutput;
+    execute: TExecute;
+  },
+): PortableTool<TParams, Awaited<ReturnType<TExecute>>, TOutput>;
+// Only schema-erased annotations use this compatibility path. NoInfer keeps
+// concrete inline schemas from widening to TSchema to escape result checking.
+export function definePortableTool<
+  TParams extends TSchema,
+  TResult extends PortableToolResult,
+  TTool extends { outputSchema?: TSchema | undefined } = PortableTool<TParams, TResult>,
+>(
+  tool: PortableTool<TParams, TResult> &
+    TTool &
+    (TSchema extends NonNullable<NoInfer<TTool>["outputSchema"]> ? unknown : never),
+): TTool;
 export function definePortableTool(tool: PortableTool): PortableTool {
   return tool;
 }

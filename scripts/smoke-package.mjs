@@ -91,7 +91,7 @@ async function assertTypesCompile(installDir) {
   await writeFile(
     typecheckFile,
     `
-      import { Type, type Static } from "typebox";
+      import { Type, type Static, type TSchema } from "typebox";
       import {
         definePortableTool,
         executePortableTool,
@@ -165,6 +165,20 @@ async function assertTypesCompile(installDir) {
       });
 
       const builtInHost: PortableToolBuiltInHost = "mcp";
+      // Pair valid and invalid spreads so rejection cannot be caused by lost schema presence.
+      definePortableTool({ ...tool, execute: () => ({ text: "ok", structuredContent: { text: "ok" } }) });
+      const annotatedTool: PortableTool<typeof parameters, PortableToolResult> = tool;
+      definePortableTool(annotatedTool);
+      definePortableTool<typeof parameters, PortableToolResult>(annotatedTool);
+      const plainTool = definePortableTool({
+        name: "plain", title: "Plain", description: "Schema-less composition", parameters,
+        execute: (args) => ({ text: args.text }),
+      });
+      definePortableTool({ ...plainTool, title: "Retitled" });
+      function decorate<P extends TSchema, R extends PortableToolResult>(value: PortableTool<P, R>) {
+        return definePortableTool({ ...value, title: "Decorated" });
+      }
+      void decorate(plainTool);
       // @ts-expect-error installed declarations reject schema-incompatible successes
       definePortableTool({ ...tool, execute: () => ({ text: "bad", structuredContent: { text: 42 } }) });
       const defaultContext: PortableToolContext = { host: builtInHost };

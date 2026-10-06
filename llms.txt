@@ -67,6 +67,8 @@ export function createTools() {
   use literal `isError: true` for exempt domain failures. A third
   `PortableTool<TParams, TResult, TOutput>` generic preserves the schema in explicit
   annotations; legacy two-generic annotations erase it. Runtime checks still apply.
+  Existing tool annotations and metadata spreads remain composable. Treat both
+  `parameters` and `outputSchema` as immutable after registration (no mutation or replacement).
 - Use `isError: true` for domain/tool-level failures that should reach the model as tool output.
 - Throw only for unexpected programmer, adapter, or runtime failures.
 - Respect `ctx.signal` in long-running tools.

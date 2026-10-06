@@ -18,7 +18,7 @@ export interface CreateMcpServerOptions {
    * The outer array is snapshotted at construction; pushing or removing
    * entries from the caller's `tools` array post-construction does not affect
    * `tools/list` or `tools/call`. Schemas inside each tool are held by
-   * reference, not deep-cloned — treat `tool.parameters` as immutable once
+   * reference, not deep-cloned — treat `tool.parameters` and `tool.outputSchema` as immutable once
    * `createMcpServer` returns.
    */
   tools: readonly PortableTool<TSchema>[];

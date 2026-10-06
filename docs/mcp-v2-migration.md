@@ -62,6 +62,10 @@ Domain failures use the literal `isError: true` discriminator. Explicit annotati
 can use `PortableTool<TParams, TResult, TOutput>`; existing two-generic annotations
 erase schema specificity. Runtime validation remains necessary for JavaScript,
 untyped data, and refinements not represented by TypeScript (e.g. numeric bounds).
+Metadata decoration and already-annotated/schema-erased tool inputs remain
+supported. Listings retain schema references while execution reads the tool:
+both `parameters` and `outputSchema` are immutable after registration, including
+replacing either schema object.
 
 MCP output-schema construction errors remain `TypeError`s and now carry stable
 codes: `BRIDGEKIT_MCP_NON_OBJECT_OUTPUT_SCHEMA` or `BRIDGEKIT_MCP_REF_OUTPUT_SCHEMA`,

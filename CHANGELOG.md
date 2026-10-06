@@ -37,6 +37,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   diagnosed on stderr without contaminating protocol stdout.
 - Pi validates all output schemas before registering tools, preventing partial
   registration when a later tool has an invalid schema.
+- `definePortableTool` retains metadata composition and already-annotated
+  two-generic inputs while still checking concrete schema-bearing handlers.
+  Packed declarations pin both valid and invalid replacement handlers.
 
 ## [0.14.0] - 2026-05-28
 
