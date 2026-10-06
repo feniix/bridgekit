@@ -3,7 +3,7 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import type { TSchema } from "typebox";
 import type { PortableTool, PortableToolResult } from "../core/define-tool.js";
 import { executePortableTool } from "../core/execute-tool.js";
-import { assertPortableOutputSchema, isObjectSchema } from "../core/output-schema.js";
+import { assertPortableOutputSchema, isObjectSchema, schemaTypeLabel, throwWithCode } from "../core/output-schema.js";
 
 export interface CreateMcpServerOptions {
   name: string;
@@ -36,43 +36,6 @@ function toMcpResult(result: PortableToolResult): CallToolResult {
 }
 
 /**
- * Best-effort human-readable label for a non-object schema, used in error
- * messages. For `allOf` (TypeBox's `Intersect` lowering) we descend into the
- * branches and surface the first non-object branch by index — a bare `"allOf"`
- * label is misleading because the rejection is owned by one specific branch,
- * not the composition itself.
- *
- * The `$ref` check is first because `Type.Cyclic` produces
- * `{ $defs: {...}, $ref: "..." }` at the root; the `$ref` is the load-bearing
- * structural signal regardless of what else is set, and the recipe for that
- * shape (inline or split) is different from the generic `Type.Object(...)`
- * wrap recipe.
- */
-function schemaTypeLabel(schema: unknown): string {
-  if (typeof schema !== "object" || schema === null) return "unknown";
-  const candidate = schema as {
-    $ref?: unknown;
-    type?: unknown;
-    anyOf?: unknown;
-    oneOf?: unknown;
-    allOf?: unknown;
-  };
-  if (typeof candidate.$ref === "string") return "$ref";
-  if (typeof candidate.type === "string") return candidate.type;
-  if (Array.isArray(candidate.anyOf)) return "anyOf";
-  if (Array.isArray(candidate.oneOf)) return "oneOf";
-  if (Array.isArray(candidate.allOf)) {
-    if (candidate.allOf.length === 0) return "allOf (empty)";
-    for (let i = 0; i < candidate.allOf.length; i++) {
-      if (!isObjectSchema(candidate.allOf[i])) {
-        return `allOf[${i}] resolves to type="${schemaTypeLabel(candidate.allOf[i])}"`;
-      }
-    }
-  }
-  return "unknown";
-}
-
-/**
  * Render a validated object schema as MCP `inputSchema` or `outputSchema`.
  * MCP clients require the top-level schema to have `type: "object"`, so
  * `Type.Intersect` (which TypeBox renders as `{ allOf: [...] }` with no top-
@@ -99,12 +62,6 @@ function toMcpObjectSchema(schema: TSchema): Tool["inputSchema"] {
 const ERROR_CODE_NON_OBJECT_PARAMETERS = "BRIDGEKIT_MCP_NON_OBJECT_PARAMETERS";
 const ERROR_CODE_REF_PARAMETERS = "BRIDGEKIT_MCP_REF_PARAMETERS";
 const ERROR_CODE_DUPLICATE_TOOL_NAME = "BRIDGEKIT_MCP_DUPLICATE_TOOL_NAME";
-
-function throwWithCode(message: string, code: string): never {
-  const error = new Error(message) as Error & { code: string };
-  error.code = code;
-  throw error;
-}
 
 function assertObjectShapedParameters(tools: readonly PortableTool<TSchema>[]): void {
   for (const tool of tools) {
@@ -162,7 +119,7 @@ function assertUniqueToolNames(tools: readonly PortableTool<TSchema>[]): void {
 }
 
 export function createMcpServer(options: CreateMcpServerOptions): Server {
-  for (const tool of options.tools) assertPortableOutputSchema(tool);
+  for (const tool of options.tools) assertPortableOutputSchema(tool, "createMcpServer");
   assertObjectShapedParameters(options.tools);
   assertUniqueToolNames(options.tools);
   // Build the dispatch map and the listing payload at construction so

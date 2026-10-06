@@ -3,6 +3,7 @@ import test from "node:test";
 import { definePortableTool, type PortableTool } from "@feniix/bridgekit";
 import { type CreateMcpServerOptions, createMcpServer } from "@feniix/bridgekit/mcp";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import { fromAny } from "@total-typescript/shoehorn";
 import { type TSchema, Type } from "typebox";
 
 const echoParams = Type.Object({
@@ -11,6 +12,31 @@ const echoParams = Type.Object({
 });
 
 const emptyParams = Type.Object({});
+
+test("MCP output-schema construction failures have stable codes and actionable recipes", () => {
+  for (const [outputSchema, code, recipe] of [
+    [Type.String(), "BRIDGEKIT_MCP_NON_OBJECT_OUTPUT_SCHEMA", /inlined object/],
+    [Type.Ref("output"), "BRIDGEKIT_MCP_REF_OUTPUT_SCHEMA", /inline the referenced/],
+    [Type.Union([Type.Object({}), Type.Object({})]), "BRIDGEKIT_MCP_NON_OBJECT_OUTPUT_SCHEMA", /flatten branches/],
+  ] as const) {
+    const tool = definePortableTool({
+      name: "bad_output",
+      title: "Bad output",
+      description: "Invalid output schema",
+      parameters: emptyParams,
+      outputSchema,
+      execute: () => ({ text: "ok" }),
+    });
+    assert.throws(() => createMcpServer({ name: "bad", version: "0", tools: [tool] }), (error: unknown) => {
+      assert.ok(error instanceof TypeError);
+      const coded: { code: string } = fromAny(error);
+      assert.equal(coded.code, code);
+      assert.match(error.message, /^createMcpServer: Invalid outputSchema for bad_output/);
+      assert.match(error.message, recipe);
+      return true;
+    });
+  }
+});
 
 function textFromContent(content: unknown): string {
   assert.ok(Array.isArray(content), "tool result content must be an array");
