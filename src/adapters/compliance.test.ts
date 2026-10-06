@@ -281,4 +281,7 @@ test("Pi preserves the same validation data as the portable result", async () =>
   const portable = await executePortableTool(validationTool, { text: 42 }, { host: "pi" });
   assert.ok(isValidationFailure(portable));
   assert.deepEqual(piWire.details, portable.structuredContent);
+  // Shape-based guards now also match Pi's structured data at runtime; raw
+  // Pi results still lack portable `text` and aren't valid typed guard inputs.
+  assert.equal(isValidationFailure(fromAny(piWire)), true);
 });

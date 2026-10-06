@@ -452,7 +452,8 @@ try {
 
   const packageLock = await readJson(join(repoRoot, "package-lock.json"));
   const typeboxVersion = packageLock.packages?.["node_modules/typebox"]?.version ?? "1.1.38";
-  const clientVersion = packageLock.packages["node_modules/@modelcontextprotocol/client"].version;
+  const clientVersion = packageLock.packages["node_modules/@modelcontextprotocol/client"]?.version;
+  assert.ok(clientVersion, "package lock must include the MCP v2 client version for smoke-test consumers");
   await writeFile(
     join(installDir, "package.json"),
     JSON.stringify({ private: true, type: "module", dependencies: { typebox: typeboxVersion } }, null, 2),

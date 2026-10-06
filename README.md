@@ -286,6 +286,9 @@ Portable validation failures and portable `isError: true` results return `CallTo
 The two adapters return `{ isError: true }` for argument/domain failures by default.
 Use result guards on portable values; both wire formats now preserve `structuredContent`,
 and Pi also exposes its renderer-facing `details`.
+The guards match error/data shape, not provenance, so Pi wire failures also match
+at runtime. Raw Pi values still lack portable `text`; do not cast them to
+`PortableToolResult` to use the typed guards.
 
 #### MCP SDK v2 and modern stdio
 
