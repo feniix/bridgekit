@@ -80,7 +80,7 @@ export function createTools() {
 - For stateful tools, export a `createTools()` factory instead of a module-level `tools` singleton so each pi extension instance or MCP stdio process gets isolated state.
 - TypeBox validation runs before the portable handler. If you need custom guidance for missing fields or wrong primitive types, use a permissive schema plus domain validation; otherwise accept BridgeKit's structural validation result.
 - MCP stdio entrypoints should be testable: export a server-options factory and a run function, then start stdio only when executed as the package bin.
-- Keep package runtime Node >=22.23.0 and ESM-only.
+- Keep package runtime Node >=24.21.0 and ESM-only.
 - TypeScript is strict-plus: `strict`, `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes` are enabled.
 
 ## Host behavior
@@ -145,7 +145,7 @@ Some hosts, such as pi in source-extension packages, may intentionally load Type
   `mcpEntry` and `buildScript` must be literal strings — bridgekit rejects absolute/traversing entry paths and shell-shaped script names, but sourcing them from CLI args or env vars remains outside the supported threat model. The MCP entry module must export `async function runServer(): Promise<void>`. `buildStdio` defaults to `"inherit"`; MCP stdio server bins should override to `["ignore", "inherit", "inherit"]` (since 0.13.0) because `process.stdout` is the JSON-RPC channel and the build subprocess otherwise contaminates framing.
 - Narrow the MCP build to the MCP entrypoint and shared host-neutral modules; avoid compiling pi adapter entrypoints into the standalone MCP path.
 - Put runtime imports used by the compiled MCP bin in `dependencies`, not only peers or dev dependencies.
-- Declare BridgeKit's Node engine requirement in the downstream package (`>=22.23.0`).
+- Declare BridgeKit's Node engine requirement in the downstream package (`>=24.21.0`).
 - Ensure the bin script is executable (`chmod +x` or equivalent) and verify the mode with `npm pack --dry-run --json`.
 - If you write your own wrapper instead of using `runBinWrapper`, test the four behavior modes: existing output, missing output that the build creates, failed builds (non-zero exit), and builds that exit successfully without creating the expected file.
 

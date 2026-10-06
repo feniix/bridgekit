@@ -8,12 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed (breaking)
 
-- Raised the Node.js floor to `>=22.23.0` (the latest 22.x LTS), from
-  `>=22.19.0`. CI's minimum-version leg now runs 22.23 alongside 24.
+- Raised the Node.js floor to `>=24.21.0` (Node 24 LTS), from `>=22.19.0`.
+  Node 22 is no longer supported. CI runs a pinned 24.21 leg alongside the
+  newest 24.x.
 
 ### Changed
 
-- `@types/node` follows the floor's major (22.x), so APIs added after Node 22 fail
+- `@types/node` follows the floor's major (24.x), so APIs added after Node 24 fail
   to typecheck.
 - Dependabot version updates are disabled (`.github/dependabot.yml` removed);
   dependency bumps are now made manually. CI's `npm audit` gate is unchanged.
