@@ -6,7 +6,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The MCP adapter forwards `ctx.progress?.(update)` as `notifications/progress` when the
+  `tools/call` request carries `_meta.progressToken`. `progress` is a per-call counter
+  starting at 1, `message` is `update.text`, `total` is omitted. Notifications are flushed
+  before the result and skipped once the request is cancelled; a failed send never fails
+  the call. Without a token `ctx.progress` stays `undefined`, matching previous behaviour.
+- `outputSchema` accepts any JSON Schema root except a top-level `$ref`: arrays, primitives,
+  `null` and unions join objects and object intersections. The MCP SDK projects non-object
+  values for legacy-era clients (`{ result: value }` on both `tools/list` and `tools/call`)
+  while modern `2026-07-28` clients receive the natural value. Pi forwards the raw value on
+  `structuredContent` and wraps non-object values as `details.result`. `definePortableTool`
+  checks array and primitive roots at compile time without the open-record intersection.
+
 ### Changed
+
+- `PortableToolResult<TStructured>` drops the `Record<string, unknown>` constraint on its
+  generic (the default is unchanged), and bare `PortableTool` now defaults its result generic
+  to `PortableToolResult<unknown>` so adapter tool lists accept non-object outputs. A tool
+  annotated as bare `PortableTool` / `PortableTool<TSchema>` therefore yields
+  `structuredContent: unknown` from `executePortableTool` where it was `Record<string, unknown>`;
+  keep the inferred type from `definePortableTool` or annotate the result generic explicitly.
+  `PortableToolContext.progress`, the result guards and `PortableToolExecutionError` accept
+  `PortableToolResult<unknown>`. Custom adapters that declared `progress` with the narrower
+  object-only parameter need to widen it. Both adapters now test `structuredContent !== undefined`
+  instead of `??`, so a `null` structured value no longer falls back to `details`.
+- `BRIDGEKIT_MCP_NON_OBJECT_OUTPUT_SCHEMA` is gone; only `BRIDGEKIT_MCP_REF_OUTPUT_SCHEMA`
+  (and `BRIDGEKIT_REF_OUTPUT_SCHEMA` at the portable seam) remain.
 
 - Development, CI, and release installs use pnpm instead of npm. `package.json#packageManager`
   pins `pnpm@12.9.1`, `pnpm-lock.yaml` replaces `package-lock.json`, and CI installs with

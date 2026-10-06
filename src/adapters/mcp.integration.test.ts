@@ -13,32 +13,26 @@ const echoParams = Type.Object({
 
 const emptyParams = Type.Object({});
 
-test("MCP output-schema construction failures have stable codes and actionable recipes", () => {
-  for (const [outputSchema, code, recipe] of [
-    [Type.String(), "BRIDGEKIT_MCP_NON_OBJECT_OUTPUT_SCHEMA", /inlined object/],
-    [Type.Ref("output"), "BRIDGEKIT_MCP_REF_OUTPUT_SCHEMA", /inline the referenced/],
-    [Type.Union([Type.Object({}), Type.Object({})]), "BRIDGEKIT_MCP_NON_OBJECT_OUTPUT_SCHEMA", /flatten branches/],
-  ] as const) {
-    const tool = definePortableTool({
-      name: "bad_output",
-      title: "Bad output",
-      description: "Invalid output schema",
-      parameters: emptyParams,
-      outputSchema,
-      execute: () => ({ text: "ok", isError: true }),
-    });
-    assert.throws(
-      () => createMcpServer({ name: "bad", version: "0", tools: [tool] }),
-      (error: unknown) => {
-        assert.ok(error instanceof TypeError);
-        const coded: { code: string } = fromAny(error);
-        assert.equal(coded.code, code);
-        assert.match(error.message, /^createMcpServer: Invalid outputSchema for bad_output/);
-        assert.match(error.message, recipe);
-        return true;
-      },
-    );
-  }
+test("MCP output-schema construction rejects only $ref roots, with a stable code and recipe", () => {
+  const tool = definePortableTool({
+    name: "bad_output",
+    title: "Bad output",
+    description: "Invalid output schema",
+    parameters: emptyParams,
+    outputSchema: Type.Ref("output"),
+    execute: () => ({ text: "ok", isError: true }),
+  });
+  assert.throws(
+    () => createMcpServer({ name: "bad", version: "0", tools: [tool] }),
+    (error: unknown) => {
+      assert.ok(error instanceof TypeError);
+      const coded: { code: string } = fromAny(error);
+      assert.equal(coded.code, "BRIDGEKIT_MCP_REF_OUTPUT_SCHEMA");
+      assert.match(error.message, /^createMcpServer: Invalid outputSchema for bad_output \(type="\$ref"\)/);
+      assert.match(error.message, /inline the referenced/);
+      return true;
+    },
+  );
 });
 
 function textFromContent(content: unknown): string {
@@ -169,19 +163,82 @@ test("MCP output schemas preserve error data and turn handler contract violation
   }
 });
 
-test("MCP rejects non-object output schemas before connecting", () => {
-  const tool = definePortableTool({
-    name: "non_object_output",
-    title: "Non-object output",
-    description: "Invalid output schema",
-    parameters: emptyParams,
-    outputSchema: Type.String(),
-    execute: () => ({ text: "unused", isError: true }),
-  });
-  assert.throws(
-    () => createMcpServer({ name: "invalid", version: "0.0.0", tools: [tool] }),
-    /non_object_output.*object/,
+// A directly connected `Server` speaks the legacy era, where the SDK wraps a
+// non-object root as `{ result }` on both `tools/list` and `tools/call`. The
+// stdio integration tests pin the natural shape modern clients receive.
+test("MCP lists non-object output schemas and returns their values wrapped for legacy clients", async () => {
+  const cases = [
+    { name: "array_output", outputSchema: Type.Array(Type.Number()), value: [1, 2, 3] },
+    { name: "string_output", outputSchema: Type.String(), value: "plain" },
+    { name: "null_output", outputSchema: Type.Null(), value: null },
+    {
+      name: "union_output",
+      outputSchema: Type.Union([Type.Object({ ok: Type.Literal(true) }), Type.Object({ reason: Type.String() })]),
+      value: { reason: "busy" },
+    },
+  ] as const;
+  const tools = cases.map(({ name, outputSchema, value }) =>
+    definePortableTool({
+      name,
+      title: name,
+      description: "Non-object structured output",
+      parameters: emptyParams,
+      outputSchema,
+      execute: () => ({ text: "value", structuredContent: value }),
+    }),
   );
+  await withConnectedPair(tools, async (client) => {
+    const list = await client.listTools();
+    for (const { name, outputSchema, value } of cases) {
+      assert.deepEqual(list.tools.find((tool) => tool.name === name)?.outputSchema, {
+        type: "object",
+        properties: { result: outputSchema },
+        required: ["result"],
+      });
+      const result = await client.callTool({ name, arguments: {} });
+      assert.equal(result.isError, false);
+      assert.deepEqual(result.structuredContent, { result: value });
+      assert.deepEqual(result.content, [{ type: "text", text: "value" }]);
+    }
+  });
+});
+
+test("MCP intersections of objects still list and project with a synthesized object root", async () => {
+  const outputSchema = Type.Intersect([Type.Object({ name: Type.String() }), Type.Object({ count: Type.Number() })]);
+  const tool = definePortableTool({
+    name: "intersect_output",
+    title: "Intersect output",
+    description: "Composed object output",
+    parameters: emptyParams,
+    outputSchema,
+    execute: () => ({ text: "one", structuredContent: { name: "one", count: 1 } }),
+  });
+  await withConnectedPair([tool], async (client) => {
+    const list = await client.listTools();
+    assert.deepEqual(list.tools[0]?.outputSchema, { type: "object", ...outputSchema });
+    const result = await client.callTool({ name: tool.name, arguments: {} });
+    assert.deepEqual(result.structuredContent, { name: "one", count: 1 });
+  });
+});
+
+test("MCP validates non-object structured output against the declared schema", async () => {
+  const execute: () => { text: string; structuredContent: number[] } = fromAny(() => ({
+    text: "wrong",
+    structuredContent: ["one"],
+  }));
+  const tool = definePortableTool({
+    name: "array_output_error",
+    title: "Array output error",
+    description: "Violates an array output schema",
+    parameters: emptyParams,
+    outputSchema: Type.Array(Type.Number()),
+    execute,
+  });
+  await withConnectedPair([tool], async (client) => {
+    const result = await client.callTool({ name: tool.name, arguments: {} });
+    assert.equal(result.isError, true);
+    assert.match(textFromContent(result.content), /Invalid structured output for array_output_error/);
+  });
 });
 
 test("MCP server lists tools with TypeBox schemas passed through unchanged", async () => {
@@ -364,6 +421,69 @@ test("MCP server aborts ctx.signal when the client cancels mid-call", async () =
     assert.equal(capturedSignal.aborted, true);
     await callPromise;
   });
+});
+
+test("MCP server maps ctx.progress to notifications/progress when the client sends a progressToken", async () => {
+  const progressTool = definePortableTool({
+    name: "progress_test",
+    title: "Progress Test",
+    description: "Emits two progress updates before finishing.",
+    parameters: emptyParams,
+    execute(_args, ctx) {
+      ctx.progress?.({ text: "step one", structuredContent: { phase: 1 } });
+      ctx.progress?.({ text: "step two" });
+      return { text: "done", structuredContent: { steps: 2 } };
+    },
+  });
+  await withConnectedPair([progressTool], async (client) => {
+    const clientErrors: Error[] = [];
+    client.onerror = (error) => clientErrors.push(error);
+    const received: unknown[] = [];
+    const result = await client.callTool(
+      { name: "progress_test", arguments: {} },
+      { onprogress: (progress) => received.push(progress) },
+    );
+    assert.deepEqual(result.structuredContent, { steps: 2 });
+    assert.deepEqual(received, [
+      { progress: 1, message: "step one" },
+      { progress: 2, message: "step two" },
+    ]);
+    assert.deepEqual(clientErrors, []);
+  });
+});
+
+test("MCP server sends no progress notifications when the request carries no progressToken", async () => {
+  let sawProgressCallback: boolean | undefined;
+  const progressTool = definePortableTool({
+    name: "progress_silent",
+    title: "Progress Silent",
+    description: "Emits progress that nobody asked for.",
+    parameters: emptyParams,
+    execute(_args, ctx) {
+      sawProgressCallback = ctx.progress !== undefined;
+      ctx.progress?.({ text: "ignored" });
+      return { text: "done" };
+    },
+  });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const sentMethods: string[] = [];
+  const originalSend = serverTransport.send.bind(serverTransport);
+  serverTransport.send = (message, options) => {
+    if ("method" in message) sentMethods.push(message.method);
+    return originalSend(message, options);
+  };
+  const server = createMcpServer({ name: "progress-test", version: "0.0.0", tools: [progressTool] });
+  const client = new Client({ name: "progress-test-client", version: "0.0.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const result = await client.callTool({ name: "progress_silent", arguments: {} });
+    assert.equal(textFromContent(result.content), "done");
+    assert.equal(sawProgressCallback, false, "ctx.progress must be absent without a progressToken");
+    assert.equal(sentMethods.includes("notifications/progress"), false);
+  } finally {
+    await client.close();
+    await server.close();
+  }
 });
 
 test("MCP server forwards configured instructions to the client", async () => {

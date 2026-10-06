@@ -45,6 +45,38 @@ test("discarded modern discover probe can fall back to legacy on the same stdio 
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
     const result = await request("tools/call", { name: "echo", arguments: { text: "fallback" } });
     assert.deepEqual(result.structuredContent, { text: "fallback" });
+    // A synchronous progress burst is written in order and before the result.
+    child.stdin.write(
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        id: ++id,
+        method: "tools/call",
+        params: { name: "progress", arguments: { burst: true }, _meta: { progressToken: "tok" } },
+      })}\n`,
+    );
+    const burst: unknown[] = [];
+    for (let i = 0; i < 3; i++) {
+      const next = await replies.next();
+      assert.equal(next.done, false);
+      burst.push(JSON.parse(next.value ?? ""));
+    }
+    assert.deepEqual(burst, [
+      {
+        jsonrpc: "2.0",
+        method: "notifications/progress",
+        params: { progressToken: "tok", progress: 1, message: "first" },
+      },
+      {
+        jsonrpc: "2.0",
+        method: "notifications/progress",
+        params: { progressToken: "tok", progress: 2, message: "second" },
+      },
+      {
+        jsonrpc: "2.0",
+        id,
+        result: { content: [{ type: "text", text: "done" }], structuredContent: { steps: 2 }, isError: false },
+      },
+    ]);
   } finally {
     lines.close();
     child.stdin.end();
@@ -79,6 +111,26 @@ for (const mode of ["default", "legacy", "auto", "modern-pinned"] as const) {
       assert.equal(list.tools[0]?.outputSchema?.type, "object");
       const result = await client.callTool({ name: "echo", arguments: { text: "modern" } });
       assert.deepEqual(result.structuredContent, { text: "modern" });
+      // Non-object roots: the modern era carries the natural value; the SDK
+      // wraps it as `{ result }` for legacy clients, on both list and call.
+      const listOutput = list.tools.find((tool) => tool.name === "list_output")?.outputSchema;
+      const arraySchema = { type: "array", items: { type: "number" } };
+      assert.deepEqual(
+        listOutput,
+        modern ? arraySchema : { type: "object", properties: { result: arraySchema }, required: ["result"] },
+      );
+      const listResult = await client.callTool({ name: "list_output", arguments: {} });
+      assert.deepEqual(listResult.structuredContent, modern ? [1, 2, 3] : { result: [1, 2, 3] });
+      const progressUpdates: unknown[] = [];
+      const progressResult = await client.callTool(
+        { name: "progress", arguments: {} },
+        { onprogress: (progress) => progressUpdates.push(progress) },
+      );
+      assert.deepEqual(progressResult.structuredContent, { steps: 2 });
+      assert.deepEqual(progressUpdates, [
+        { progress: 1, message: "first" },
+        { progress: 2, message: "second" },
+      ]);
       const domain = await client.callTool({ name: "domain", arguments: {} });
       assert.equal(domain.isError, true);
       assert.deepEqual(domain.structuredContent, { reason: "offline" });
@@ -125,6 +177,16 @@ test("SDK v1 client can use the dual-era public runner", { timeout: 15000 }, asy
     assert.equal(list.tools[0]?.outputSchema?.type, "object");
     const result = await client.callTool({ name: "echo", arguments: { text: "legacy" } });
     assert.deepEqual(result.structuredContent, { text: "legacy" });
+    const listOutput = await client.callTool({ name: "list_output", arguments: {} });
+    assert.deepEqual(listOutput.structuredContent, { result: [1, 2, 3] });
+    const progressUpdates: unknown[] = [];
+    await client.callTool({ name: "progress", arguments: {} }, undefined, {
+      onprogress: (progress) => progressUpdates.push(progress),
+    });
+    assert.deepEqual(progressUpdates, [
+      { progress: 1, message: "first" },
+      { progress: 2, message: "second" },
+    ]);
     await assert.rejects(client.callTool({ name: "domain", arguments: {} }), (error: unknown) => {
       assert.ok(error instanceof McpError);
       assert.equal(error.code, ErrorCode.InvalidParams);

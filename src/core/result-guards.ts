@@ -28,7 +28,7 @@ export type PortableValidationFailure = PortableToolResult & {
  * (The pi adapter's `PortableToolExecutionError.details` does synthesize that
  * discriminator for the deprecated `errorHandling: "throw"` path.)
  */
-export type PortableDomainFailure = PortableToolResult & { isError: true };
+export type PortableDomainFailure = PortableToolResult<unknown> & { isError: true };
 
 /**
  * Type guard for results produced by `executePortableTool` when TypeBox
@@ -55,7 +55,7 @@ function isPortableValidationError(error: unknown): error is PortableValidationE
   return typeof candidate.field === "string" && typeof candidate.message === "string";
 }
 
-export function isValidationFailure(result: PortableToolResult): result is PortableValidationFailure {
+export function isValidationFailure(result: PortableToolResult<unknown>): result is PortableValidationFailure {
   if (result.isError !== true) return false;
   const structured = result.structuredContent;
   if (!structured || typeof structured !== "object") return false;
@@ -79,6 +79,6 @@ export function isValidationFailure(result: PortableToolResult): result is Porta
  *   metrics.increment("tool.domain_error", { tool: tool.name });
  * }
  */
-export function isDomainFailure(result: PortableToolResult): result is PortableDomainFailure {
+export function isDomainFailure(result: PortableToolResult<unknown>): result is PortableDomainFailure {
   return result.isError === true && !isValidationFailure(result);
 }

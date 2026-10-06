@@ -88,3 +88,58 @@ definePortableTool({
   outputSchema,
   execute: () => ({ text: "offline", isError: true }),
 });
+
+// Non-object roots: arrays and primitives are checked without the open-record
+// intersection object roots keep; unions of objects keep it per branch.
+const arrayOutput = definePortableTool({
+  ...metadata,
+  outputSchema: Type.Array(Type.Number()),
+  execute: () => ({ text: "list", structuredContent: [1, 2, 3] }),
+});
+const stringOutput = definePortableTool({
+  ...metadata,
+  outputSchema: Type.String(),
+  execute: () => ({ text: "plain", structuredContent: "plain" }),
+});
+const unionOutput = definePortableTool({
+  ...metadata,
+  outputSchema: Type.Union([Type.Object({ ok: Type.Literal(true) }), Type.Object({ reason: Type.String() })]),
+  execute: () => ({ text: "busy", structuredContent: { reason: "busy", extra: 1 } }),
+});
+
+async function nonObjectInferred(): Promise<void> {
+  const list = await executePortableTool(arrayOutput, { fail: false }, { host: "test" });
+  if (list.isError !== true) {
+    const first: number | undefined = list.structuredContent[0];
+    void first;
+  }
+  const plain = await executePortableTool(stringOutput, { fail: false }, { host: "test" });
+  if (plain.isError !== true) {
+    const value: string = plain.structuredContent;
+    void value;
+  }
+  const union = await executePortableTool(unionOutput, { fail: false }, { host: "test" });
+  if (union.isError !== true && "reason" in union.structuredContent) {
+    const reason: string = union.structuredContent.reason;
+    void reason;
+  }
+}
+void nonObjectInferred;
+
+// @ts-expect-error array roots check element types
+definePortableTool({
+  ...metadata,
+  outputSchema: Type.Array(Type.Number()),
+  execute: () => ({ text: "wrong", structuredContent: ["one"] }),
+});
+
+// @ts-expect-error primitive roots reject objects
+definePortableTool({
+  ...metadata,
+  outputSchema: Type.String(),
+  execute: () => ({ text: "wrong", structuredContent: { value: "plain" } }),
+});
+
+// Bare `PortableTool` accepts any result shape, so adapter tool lists do too.
+const anyShape: PortableTool[] = [valid, arrayOutput, stringOutput, unionOutput];
+void anyShape;

@@ -270,8 +270,11 @@ MCP behavior:
 - `tools/call` validates arguments before invoking handlers.
 - Invalid arguments and portable `isError: true` results return MCP tool results with `isError: true`.
 - Unexpected thrown errors become MCP tool errors with text content.
-- Optional object-shaped `outputSchema` is listed for successful structured results;
-  matching `structuredContent` is required and validated. Error results are exempt.
+- Optional `outputSchema` (any root except top-level `$ref`) is listed for successful
+  structured results; matching `structuredContent` is required and validated. Error
+  results are exempt. Non-object values are wrapped as `{ result }` for legacy clients.
+- `ctx.progress?.(...)` becomes `notifications/progress` when the client sent a
+  `progressToken`; otherwise `ctx.progress` is `undefined`.
 - The stdio runner serves legacy and modern `2026-07-28` clients through SDK v2.
   It retains `Promise<void>` startup behavior; stdin EOF shuts down the connection.
 - The module stays import-passive and testable: tests can import `createMcpServerOptions()` without starting stdio.

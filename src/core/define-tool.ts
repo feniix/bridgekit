@@ -1,9 +1,16 @@
 import type { Static, TSchema } from "typebox";
 
-export interface PortableToolResult<TStructured extends Record<string, unknown> = Record<string, unknown>> {
+export interface PortableToolResult<TStructured = Record<string, unknown>> {
   /** Plain text sent back to the model in every host. */
   text: string;
-  /** Structured data for hosts that support it. Preferred by both pi and MCP adapters. */
+  /**
+   * Structured data for hosts that support it. Preferred by both pi and MCP
+   * adapters. Any JSON value is accepted (object, array, primitive, `null`);
+   * the default type parameter keeps the common object case ergonomic.
+   * Non-object values reach MCP `structuredContent` directly on the modern
+   * era, are wrapped as `{ result: value }` by the SDK for legacy clients,
+   * and are wrapped the same way in pi's renderer-facing `details`.
+   */
   structuredContent?: TStructured;
   /**
    * Legacy/adapter debug details used only when `structuredContent` is absent.
@@ -41,7 +48,12 @@ export type PortableToolBuiltInHost = "pi" | "mcp" | "test";
 export interface PortableToolContext {
   host: PortableToolBuiltInHost;
   signal?: AbortSignal;
-  progress?: (update: PortableToolResult) => void;
+  /**
+   * Host progress channel. Pi maps each update to `onUpdate`; MCP maps it to
+   * `notifications/progress` when the request carried a `progressToken`
+   * (`progress` is a monotonic per-call counter and `message` is `update.text`).
+   */
+  progress?: (update: PortableToolResult<unknown>) => void;
 }
 
 /**
@@ -166,23 +178,30 @@ export interface PortableToolHostExtras {
   mcp?: McpHostExtras;
 }
 
+/**
+ * Object-rooted outputs keep the open-record intersection so handlers may
+ * return extra keys beyond the schema; array and primitive roots are used as-is
+ * (neither is assignable to `Record<string, unknown>`).
+ */
+type SchemaOutput<T> = [T] extends [readonly unknown[]] ? T : [T] extends [object] ? T & Record<string, unknown> : T;
+
 /** Successes satisfy the output schema; literal domain failures retain arbitrary data. */
 type SchemaResult<TOutput extends TSchema> =
-  | (PortableToolResult & {
-      structuredContent: Exclude<Static<TOutput>, undefined> & Record<string, unknown>;
+  | (PortableToolResult<unknown> & {
+      structuredContent: SchemaOutput<Exclude<Static<TOutput>, undefined>>;
       isError?: false;
     })
-  | (PortableToolResult & { isError: true });
+  | (PortableToolResult<unknown> & { isError: true });
 
-type CheckedResult<TResult extends PortableToolResult, TOutput extends TSchema | undefined> = [TOutput] extends [
-  TSchema,
-]
+type CheckedResult<TResult extends PortableToolResult<unknown>, TOutput extends TSchema | undefined> = [
+  TOutput,
+] extends [TSchema]
   ? TResult & SchemaResult<NoInfer<Extract<TOutput, TSchema>>>
   : TResult;
 
 export interface PortableTool<
   TParams extends TSchema = TSchema,
-  TResult extends PortableToolResult = PortableToolResult,
+  TResult extends PortableToolResult<unknown> = PortableToolResult<unknown>,
   TOutput extends TSchema | undefined = TSchema | undefined,
 > {
   name: string;
@@ -190,7 +209,9 @@ export interface PortableTool<
   description: string;
   parameters: TParams;
   /**
-   * Object-shaped TypeBox schema for successful structuredContent.
+   * TypeBox schema for successful structuredContent. Any JSON Schema root is
+   * accepted except a top-level `$ref` (`Type.Ref` / `Type.Cyclic`); objects,
+   * object intersections, arrays, primitives and unions are all valid.
    * Literal isError:true results are exempt. Treat this schema and parameters
    * as immutable after registration, including replacing either schema object.
    */
@@ -226,7 +247,7 @@ export function definePortableTool<
     execute: TExecute;
   },
 ): PortableTool<TParams, Awaited<ReturnType<TExecute>>, TOutput>;
-export function definePortableTool<TParams extends TSchema, TResult extends PortableToolResult>(
+export function definePortableTool<TParams extends TSchema, TResult extends PortableToolResult<unknown>>(
   tool: PortableTool<TParams, TResult> & { outputSchema?: undefined },
 ): PortableTool<TParams, TResult, undefined>;
 export function definePortableTool<
@@ -247,7 +268,7 @@ export function definePortableTool<
 // schemas from widening to TSchema to escape result checking.
 export function definePortableTool<
   TParams extends TSchema,
-  TResult extends PortableToolResult,
+  TResult extends PortableToolResult<unknown>,
   TTool extends { outputSchema?: TSchema | undefined } = PortableTool<TParams, TResult>,
 >(
   tool: PortableTool<TParams, TResult> &

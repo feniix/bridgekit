@@ -16,7 +16,7 @@ type PiToolUpdate = { content: PiContent[]; details: Record<string, unknown> };
 type PiToolResult = {
   content: PiContent[];
   details: Record<string, unknown>;
-  structuredContent?: Record<string, unknown>;
+  structuredContent?: unknown;
   isError?: boolean;
 };
 
@@ -84,11 +84,23 @@ export interface RegisterPiToolsOptions {
   errorHandling?: "throw" | "return";
 }
 
-function toPiDetails(result: PortableToolResult): Record<string, unknown> {
-  return result.structuredContent ?? result.details ?? {};
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function toPortableToolErrorDetails(result: PortableToolResult): PortableToolErrorDetails {
+/**
+ * Renderer-facing `details` is always an object. Non-object structured
+ * content (array, primitive, `null`) is wrapped as `{ result: value }`,
+ * mirroring the MCP SDK's legacy-era projection of the same values.
+ */
+function toPiDetails(result: PortableToolResult<unknown>): Record<string, unknown> {
+  if (result.structuredContent !== undefined) {
+    return isRecord(result.structuredContent) ? result.structuredContent : { result: result.structuredContent };
+  }
+  return result.details ?? {};
+}
+
+function toPortableToolErrorDetails(result: PortableToolResult<unknown>): PortableToolErrorDetails {
   if (isValidationFailure(result)) {
     return result.structuredContent;
   }
@@ -99,7 +111,7 @@ function toPortableToolErrorDetails(result: PortableToolResult): PortableToolErr
 export class PortableToolExecutionError extends Error {
   readonly details: PortableToolErrorDetails;
 
-  constructor(result: PortableToolResult) {
+  constructor(result: PortableToolResult<unknown>) {
     super(result.text);
     this.name = "PortableToolExecutionError";
     this.details = toPortableToolErrorDetails(result);
@@ -131,7 +143,7 @@ let throwModeDeprecationWarned = false;
  */
 export function registerPiTools(
   pi: PiToolRegistration,
-  tools: readonly PortableTool<TSchema>[],
+  tools: readonly PortableTool<TSchema, PortableToolResult<unknown>>[],
   options: RegisterPiToolsOptions = {},
 ): void {
   for (const tool of tools) assertPortableOutputSchema(tool);
@@ -168,7 +180,7 @@ export function registerPiTools(
       ...(piExtras?.renderCall !== undefined && { renderCall: piExtras.renderCall }),
       ...(piExtras?.renderResult !== undefined && { renderResult: piExtras.renderResult }),
       async execute(_toolCallId, params, signal, onUpdate, _ctx) {
-        let result: PortableToolResult;
+        let result: PortableToolResult<unknown>;
         try {
           // Pre-execute lifecycle hook. Fires exactly once per call, before
           // TypeBox validation runs, when the tool declares a non-empty

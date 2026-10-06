@@ -1,4 +1,6 @@
 // Spawned only by stdio integration tests, never imported by library entrypoints.
+
+import { setTimeout as sleep } from "node:timers/promises";
 import { definePortableTool } from "@feniix/bridgekit";
 import { runMcpStdioServer } from "@feniix/bridgekit/mcp";
 import { Type } from "typebox";
@@ -48,6 +50,29 @@ await runMcpStdioServer({
       } finally {
         clearInterval(keepAlive);
       }
+    }),
+    definePortableTool({
+      name: "list_output",
+      title: "List output",
+      description: "Array-rooted structured output.",
+      parameters: Type.Object({}),
+      outputSchema: Type.Array(Type.Number()),
+      execute: () => ({ text: "[1,2,3]", structuredContent: [1, 2, 3] }),
+    }),
+    definePortableTool({
+      name: "progress",
+      title: "Progress",
+      description: "Emits two progress updates over time, like a long-running tool.",
+      parameters: Type.Object({ burst: Type.Optional(Type.Boolean()) }),
+      execute: async (args, ctx) => {
+        // Spaced updates reach SDK clients' onprogress; a synchronous burst
+        // is still serialized in order on the wire (pinned by the raw test).
+        ctx.progress?.({ text: "first" });
+        if (!args.burst) await sleep(20);
+        ctx.progress?.({ text: "second", structuredContent: { phase: 2 } });
+        if (!args.burst) await sleep(20);
+        return { text: "done", structuredContent: { steps: 2 } };
+      },
     }),
     definePortableTool({
       name: "status",
