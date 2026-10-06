@@ -2,6 +2,7 @@ import type { Static, TSchema } from "typebox";
 import type { TLocalizedValidationError } from "typebox/error";
 import { Check, Errors, Pointer } from "typebox/value";
 import type { PortableTool, PortableToolContext, PortableToolResult, PortableValidationError } from "./define-tool.js";
+import { assertPortableOutputSchema } from "./output-schema.js";
 import type { PortableValidationFailure } from "./result-guards.js";
 
 const ROOT_FIELD = "(root)";
@@ -492,6 +493,7 @@ export async function executePortableTool<TParams extends TSchema, TResult exten
   args: unknown,
   ctx: PortableToolContext,
 ): Promise<PortableToolSuccess<TResult> | PortableValidationFailure> {
+  assertPortableOutputSchema(tool);
   const validation = validatePortableToolArgs(tool, args);
   if (!validation.ok) {
     return {
@@ -507,5 +509,15 @@ export async function executePortableTool<TParams extends TSchema, TResult exten
     };
   }
 
-  return (await tool.execute(validation.args, ctx)) as PortableToolSuccess<TResult>;
+  const result = await tool.execute(validation.args, ctx);
+  if (
+    tool.outputSchema !== undefined &&
+    result.isError !== true &&
+    (result.structuredContent === undefined || !Check(tool.outputSchema, result.structuredContent))
+  ) {
+    // A handler violating its declared success contract is a programmer error,
+    // not an argument failure. Keep inferred success/error result types intact.
+    throw new TypeError(`Invalid structured output for ${tool.name}: structuredContent must match outputSchema.`);
+  }
+  return result as PortableToolSuccess<TResult>;
 }

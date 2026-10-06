@@ -144,7 +144,8 @@ In `package.json`:
 
 pi behavior:
 
-- Valid portable results become pi tool results.
+- Valid portable results become pi tool results with `structuredContent` preserved
+  alongside renderer-facing `details`. Optional `outputSchema` is forwarded.
 - Invalid arguments and portable results with `isError: true` return `{ content, details, isError: true }` by default; tests should branch on `result.isError` and inspect `details`.
 - The legacy throw mode is still available with `registerPiTools(pi, tools, { errorHandling: "throw" })`, but it is deprecated and should not be used for new code.
 - Progress updates from `ctx.progress?.(...)` map to pi updates.
@@ -269,6 +270,10 @@ MCP behavior:
 - `tools/call` validates arguments before invoking handlers.
 - Invalid arguments and portable `isError: true` results return MCP tool results with `isError: true`.
 - Unexpected thrown errors become MCP tool errors with text content.
+- Optional object-shaped `outputSchema` is listed for successful structured results;
+  matching `structuredContent` is required and validated. Error results are exempt.
+- The stdio runner serves legacy and modern `2026-07-28` clients through SDK v2.
+  It retains `Promise<void>` startup behavior; stdin EOF shuts down the connection.
 - The module stays import-passive and testable: tests can import `createMcpServerOptions()` without starting stdio.
 
 ---

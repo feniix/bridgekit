@@ -2,15 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   definePortableTool,
+  executePortableTool,
   isValidationFailure,
   type PortableTool,
-  type PortableToolResult,
   type PortableValidationFailure,
 } from "@feniix/bridgekit";
 import { createMcpServer } from "@feniix/bridgekit/mcp";
 import { isPortableToolExecutionError, PortableToolExecutionError, registerPiTools } from "@feniix/bridgekit/pi";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { fromAny, fromPartial } from "@total-typescript/shoehorn";
 import { type TSchema, Type } from "typebox";
 
@@ -132,6 +131,7 @@ test("pi adapter (default return mode): success result returns content + details
   assert.deepEqual(result, {
     content: [{ type: "text", text: "hello" }],
     details: { echoed: "hello" },
+    structuredContent: { echoed: "hello" },
     isError: false,
   });
 });
@@ -153,6 +153,7 @@ test("pi adapter (default return mode): isError=true returns isError=true (does 
   assert.deepEqual(result, {
     content: [{ type: "text", text: "domain failure" }],
     details: { reason: "intentional" },
+    structuredContent: { reason: "intentional" },
     isError: true,
   });
 });
@@ -235,6 +236,7 @@ test("pi adapter (opt-in throw mode): success result still returns content + det
   assert.deepEqual(result, {
     content: [{ type: "text", text: "hello" }],
     details: { echoed: "hello" },
+    structuredContent: { echoed: "hello" },
     isError: false,
   });
 });
@@ -271,14 +273,15 @@ test("pi adapter (opt-in throw mode): unexpected handler throw still propagates"
   });
 });
 
-test("result guards apply to the portable result returned from executePortableTool, not the pi wire result", async () => {
-  // The guards operate on PortableToolResult (the value executePortableTool
-  // produces). The pi adapter's wire object exposes `details` instead of
-  // `structuredContent`, so calling the guards on it always returns false.
+test("Pi preserves the same validation data as the portable result", async () => {
   const tools = registerPi([validationTool]);
   const tool = tools.get("compliance_validation");
   assert.ok(tool);
   const piWire = await tool.execute("call-guard-scope", { text: 42 }, undefined, undefined, {});
-  const widened: PortableToolResult = fromAny(piWire);
-  assert.equal(isValidationFailure(widened), false);
+  const portable = await executePortableTool(validationTool, { text: 42 }, { host: "pi" });
+  assert.ok(isValidationFailure(portable));
+  assert.deepEqual(piWire.details, portable.structuredContent);
+  // Shape-based guards now also match Pi's structured data at runtime; raw
+  // Pi results still lack portable `text` and aren't valid typed guard inputs.
+  assert.equal(isValidationFailure(fromAny(piWire)), true);
 });

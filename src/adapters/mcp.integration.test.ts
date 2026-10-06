@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { definePortableTool, type PortableTool } from "@feniix/bridgekit";
 import { type CreateMcpServerOptions, createMcpServer } from "@feniix/bridgekit/mcp";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import { fromAny } from "@total-typescript/shoehorn";
 import { type TSchema, Type } from "typebox";
 
 const echoParams = Type.Object({
@@ -12,6 +12,34 @@ const echoParams = Type.Object({
 });
 
 const emptyParams = Type.Object({});
+
+test("MCP output-schema construction failures have stable codes and actionable recipes", () => {
+  for (const [outputSchema, code, recipe] of [
+    [Type.String(), "BRIDGEKIT_MCP_NON_OBJECT_OUTPUT_SCHEMA", /inlined object/],
+    [Type.Ref("output"), "BRIDGEKIT_MCP_REF_OUTPUT_SCHEMA", /inline the referenced/],
+    [Type.Union([Type.Object({}), Type.Object({})]), "BRIDGEKIT_MCP_NON_OBJECT_OUTPUT_SCHEMA", /flatten branches/],
+  ] as const) {
+    const tool = definePortableTool({
+      name: "bad_output",
+      title: "Bad output",
+      description: "Invalid output schema",
+      parameters: emptyParams,
+      outputSchema,
+      execute: () => ({ text: "ok", isError: true }),
+    });
+    assert.throws(
+      () => createMcpServer({ name: "bad", version: "0", tools: [tool] }),
+      (error: unknown) => {
+        assert.ok(error instanceof TypeError);
+        const coded: { code: string } = fromAny(error);
+        assert.equal(coded.code, code);
+        assert.match(error.message, /^createMcpServer: Invalid outputSchema for bad_output/);
+        assert.match(error.message, recipe);
+        return true;
+      },
+    );
+  }
+});
 
 function textFromContent(content: unknown): string {
   assert.ok(Array.isArray(content), "tool result content must be an array");
@@ -93,6 +121,67 @@ const throwingStringTool = definePortableTool({
   execute() {
     throw "string boom from portable tool";
   },
+});
+
+test("MCP lists outputSchema and returns validated structured output", async () => {
+  const outputSchema = Type.Object({ count: Type.Number() });
+  const tool = definePortableTool({
+    name: "output",
+    title: "Output",
+    description: "Declared structured output",
+    parameters: emptyParams,
+    outputSchema,
+    execute: () => ({ text: "one", structuredContent: { count: 1 } }),
+  });
+  await withConnectedPair([tool], async (client) => {
+    const list = await client.listTools();
+    assert.deepEqual(list.tools[0]?.outputSchema, outputSchema);
+    const result = await client.callTool({ name: tool.name, arguments: {} });
+    assert.deepEqual(result.structuredContent, { count: 1 });
+  });
+});
+
+test("MCP output schemas preserve error data and turn handler contract violations into failures", async () => {
+  for (const result of [
+    { text: "offline", structuredContent: { reason: "offline" }, isError: true },
+    { text: "wrong", structuredContent: { count: "one" } },
+    { text: "missing" },
+  ]) {
+    const execute: () => { text: string; structuredContent: { count: number } } = fromAny(() => result);
+    const tool = definePortableTool({
+      name: "output_error",
+      title: "Output error",
+      description: "Output contract failures",
+      parameters: emptyParams,
+      outputSchema: Type.Object({ count: Type.Number() }),
+      execute,
+    });
+    await withConnectedPair([tool], async (client) => {
+      await client.listTools();
+      const returned = await client.callTool({ name: tool.name, arguments: {} });
+      assert.equal(returned.isError, true);
+      if (result.isError) {
+        assert.deepEqual(returned.structuredContent, { reason: "offline" });
+      } else {
+        assert.match(textFromContent(returned.content), /Invalid structured output for output_error/);
+      }
+    });
+  }
+});
+
+test("MCP rejects non-object output schemas before connecting", () => {
+  const tool = definePortableTool({
+    name: "non_object_output",
+    title: "Non-object output",
+    description: "Invalid output schema",
+    parameters: emptyParams,
+    outputSchema: Type.String(),
+    execute: () => ({ text: "unused", isError: true }),
+  });
+  assert.throws(
+    () => createMcpServer({ name: "invalid", version: "0.0.0", tools: [tool] }),
+    /non_object_output.*object/,
+  );
 });
 
 test("MCP server lists tools with TypeBox schemas passed through unchanged", async () => {
@@ -226,7 +315,7 @@ test("MCP server propagates an AbortSignal to ctx.signal", async () => {
 
   await withConnectedPair([signalTool], async (client) => {
     const controller = new AbortController();
-    await client.callTool({ name: "signal_observe", arguments: {} }, undefined, { signal: controller.signal });
+    await client.callTool({ name: "signal_observe", arguments: {} }, { signal: controller.signal });
     assert.ok(observedSignal instanceof AbortSignal);
     assert.equal(observedSignal.aborted, false);
   });
@@ -265,7 +354,7 @@ test("MCP server aborts ctx.signal when the client cancels mid-call", async () =
   await withConnectedPair([longRunningTool], async (client) => {
     const controller = new AbortController();
     const callPromise = client
-      .callTool({ name: "long_running", arguments: {} }, undefined, { signal: controller.signal })
+      .callTool({ name: "long_running", arguments: {} }, { signal: controller.signal })
       .catch((error) => error);
     await toolStarted;
     assert.ok(capturedSignal instanceof AbortSignal);

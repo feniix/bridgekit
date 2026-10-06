@@ -109,6 +109,48 @@ Do not deep-import from `dist/` or `src/` in consuming packages.
 
 ### pi adapter
 
+#### Declared structured output
+
+Add an optional object-shaped `outputSchema` to a portable tool to describe its
+successful `structuredContent` for both Pi and MCP:
+
+```ts
+const echoTool = definePortableTool({
+  name: "echo",
+  title: "Echo",
+  description: "Echo text.",
+  parameters: Type.Object({ text: Type.String() }),
+  outputSchema: Type.Object({ text: Type.String() }),
+  execute: (args) => ({ text: args.text, structuredContent: { text: args.text } }),
+});
+```
+
+Inlined object schemas and intersections of objects are accepted. Success calls
+must return matching `structuredContent`; legacy `details` alone does not satisfy
+the schema. Missing/invalid output throws a tool-attributed `TypeError` at the
+portable seam and becomes an error result through the adapters. Argument/domain
+failures are exempt from success schemas. Without `outputSchema`, existing result
+behavior is unchanged.
+
+`definePortableTool` infers the output schema and checks synchronous/asynchronous
+successful data at compile time while preserving the handler's inferred result
+type. Domain failures must use the literal `isError: true` discriminator.
+Runtime validation still protects JavaScript callers and dynamically sourced data.
+For explicitly annotated tools, use the third `PortableTool<TParams, TResult, TOutput>`
+generic to retain schema checking; existing two-generic annotations deliberately
+erase schema specificity.
+Explicit legacy `definePortableTool<TParams, TResult>(...)` calls also erase the
+schema, even with a concrete `outputSchema`. Prefer inferred calls for compile-time
+schema checking; runtime output validation still applies to the explicit calls.
+Existing annotated tools and metadata-only spreads remain accepted by
+`definePortableTool`; concrete schema-bearing spreads still check replacement
+handlers. Treat `parameters` and `outputSchema` as immutable after registration:
+do not mutate their contents or replace either schema object.
+
+Pi registrations forward the schema; Pi results now preserve `structuredContent`
+directly for programmatic/codemode consumers, alongside the renderer-facing
+`details` described below. The new fields are omitted when not supplied.
+
 ```ts
 import { registerPiTools } from "@feniix/bridgekit/pi";
 import { createTools } from "./tools.js";
@@ -256,7 +298,30 @@ Tool `parameters` must resolve to a JSON-Schema object at the top level. `Type.O
 
 Portable validation failures and portable `isError: true` results return `CallToolResult` with `isError: true`. `structuredContent` is preserved; `details` is used only as a fallback when `structuredContent` is absent. Exporting a server-options factory keeps MCP entrypoints import-passive and easy to test without starting stdio.
 
-The two adapters now read in parallel: invalid args and portable `isError` results return `{ isError: true }` from both hosts by default. The result-guard helpers (`isValidationFailure`, `isDomainFailure`) narrow `PortableToolResult` values at the portable seam; adapter wire values expose the same data through host-specific fields (`structuredContent` for MCP, `details` for pi).
+The two adapters return `{ isError: true }` for argument/domain failures by default.
+Use result guards on portable values; both wire formats now preserve `structuredContent`,
+and Pi also exposes its renderer-facing `details`.
+The guards match error/data shape, not provenance, so Pi wire failures also match
+at runtime. Raw Pi values still lack portable `text`; do not cast them to
+`PortableToolResult` to use the typed guards.
+
+#### MCP SDK v2 and modern stdio
+
+`runMcpStdioServer(options)` serves both legacy MCP revisions and modern
+`2026-07-28` through SDK v2's `serveStdio`. Its `Promise<void>` resolves after
+startup wiring, not at shutdown. Stdin EOF closes the connection; long-running
+tools must honor `ctx.signal` and release their own resources.
+
+`createMcpServer` now returns `@modelcontextprotocol/server` SDK v2's low-level
+`Server`. This is a source-level breaking change for consumers using SDK methods
+or types, even though legacy clients work over the wire. A direct
+`server.connect(StdioServerTransport)` remains legacy-only; use the runner for
+modern serving. See [migration guidance](docs/mcp-v2-migration.md).
+
+Some SDK v1 clients validate error data against cached success output schemas
+in their convenience `callTool` method; their generic request API can preserve
+that data. SDK v2 clients correctly exempt error results. HTTP and tasks remain
+outside BridgeKit's runner support.
 
 ### bin-wrapper (since 0.11.0)
 

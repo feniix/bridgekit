@@ -4,6 +4,47 @@ All notable changes to `@feniix/bridgekit` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.16.0] - 2026-10-06
+
+### Added
+
+- Optional object-shaped `PortableTool.outputSchema`. Successful calls must return
+  matching `structuredContent`; missing or invalid output throws a tool-attributed
+  `TypeError`. Argument and domain failures are exempt from success schemas.
+- Pi registrations forward `outputSchema`, and Pi results preserve
+  `structuredContent` alongside the existing renderer-facing `details`.
+- MCP listings forward object-shaped output schemas, including intersections;
+  invalid output schemas are rejected at server construction.
+- Schema-declaring `definePortableTool` calls check successful structured data at
+  compile time while preserving inferred result unions; explicit annotations can
+  retain schemas with a third `PortableTool` generic. Domain failures are exempt.
+  Explicit legacy two-generic function calls intentionally erase schema linkage
+  and retain runtime validation; inferred calls are recommended for type checking.
+- Output-schema construction failures carry stable diagnostic codes, with
+  reference/union-specific recipes and MCP constructor attribution.
+
+### Changed (breaking)
+
+- MCP runtime now uses `@modelcontextprotocol/server` SDK v2. `createMcpServer`
+  returns a v2 `Server`; consumers using its low-level API must migrate method
+  registration/context types and must not mix v1 and v2 SDK instances.
+- `runMcpStdioServer` now serves both legacy MCP clients and modern protocol
+  `2026-07-28` via `serveStdio`. Its `Promise<void>` startup signature is unchanged.
+  This change requires a pre-1.0 minor release, not a patch.
+
+### Fixed
+
+- Discarded modern stdio discovery probes no longer contaminate legacy fallback:
+  each factory invocation gets a fresh server. SDK-reported opening errors are
+  diagnosed on stderr without contaminating protocol stdout.
+- Pi validates all output schemas before registering tools, preventing partial
+  registration when a later tool has an invalid schema.
+- `definePortableTool` retains metadata composition and already-annotated
+  two-generic inputs while still checking concrete schema-bearing handlers.
+  Packed declarations pin both valid and invalid replacement handlers.
+
 ## [0.14.0] - 2026-05-28
 
 ### Added

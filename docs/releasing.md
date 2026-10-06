@@ -162,7 +162,15 @@ Release-blocking bug categories (any of these warrants holding a release):
 
 ## MCP SDK stance
 
-As of this release, BridgeKit remains on `@modelcontextprotocol/sdk` v1.x. The adapter's low-level `Server` usage and the no-`registerMcpTools` policy both assume v1 semantics. If MCP SDK v2 stabilizes, a v2 migration plan should be authored as a separate ADR with adapter-compliance regression tests as the gate.
+The implementation for #117 uses `@modelcontextprotocol/server` SDK v2, with
+low-level method-string handlers and dual-era stdio serving. The v1 SDK and v2
+client are development-only compatibility/test dependencies. The no-high-level-
+registration-helper policy is unchanged: TypeBox remains JSON Schema passthrough.
+
+Release this migration as a pre-1.0 minor, not a patch: `createMcpServer` exposes a
+different SDK `Server` type/object. Keep legacy wire interoperability and the
+runner's `Promise<void>` signature. See [migration policy](mcp-v2-migration.md);
+the packed smoke test exercises both eras and pins the v2 server baseline.
 
 ## Maintainer & triage
 

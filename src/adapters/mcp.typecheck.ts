@@ -1,7 +1,6 @@
 import { definePortableTool } from "@feniix/bridgekit";
 import { createMcpServer } from "@feniix/bridgekit/mcp";
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type { ServerNotification, ServerRequest } from "@modelcontextprotocol/sdk/types.js";
+import type { ServerContext } from "@modelcontextprotocol/server";
 import { Type } from "typebox";
 
 // As of 0.9 the `tools` parameter is typed `PortableTool<TSchema>[]`, so the
@@ -47,10 +46,9 @@ createMcpServer({
   tools: [{ name: "incomplete" }],
 });
 
-// Adversarial pin: `signalFromExtra` was deleted in 0.11.0 (#3) under the
-// guarantee that the MCP SDK ships `RequestHandlerExtra<...>` with a
-// non-optional `signal: AbortSignal`. `src/adapters/mcp.ts` reads
-// `extra.signal` directly with no runtime guard, so a future SDK reshape
+// Adversarial pin: SDK v2 ServerContext carries a non-optional
+// `mcpReq.signal: AbortSignal`. `src/adapters/mcp.ts` reads it directly
+// with no runtime guard, so a future SDK reshape
 // (e.g. `signal?: AbortSignal`, or `signal: AbortSignal | undefined`)
 // would silently regress cancellation propagation while every behavior
 // test still passes.
@@ -63,7 +61,7 @@ createMcpServer({
 // time (TS2322 — Type 'true' is not assignable to type 'false'). Verified
 // in both directions during the 0.10.0 cluster: today passes; a manual
 // edit of the SDK's `.d.ts` to make `signal?` optional errors here.
-type _SdkExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
+type _SdkExtra = ServerContext["mcpReq"];
 type _SignalIsExactlyAbortSignal = _SdkExtra["signal"] extends AbortSignal
   ? AbortSignal extends _SdkExtra["signal"]
     ? true

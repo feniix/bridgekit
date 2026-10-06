@@ -59,6 +59,18 @@ export function createTools() {
 - Keep portable tools host-neutral. Do not import pi or MCP SDKs from files that define tool behavior.
 - Tool `parameters` for MCP-compatible tools must resolve to a JSON-Schema object at the top level. `Type.Object(...)` is the common case; `Type.Intersect([Type.Object(...), Type.Object(...)])` is also accepted. Non-object top-level shapes throw at `createMcpServer` construction.
 - Return `{ text, structuredContent }` for successful results.
+- Optional `outputSchema` declares successful structured data for both hosts: use
+  an inlined TypeBox object or object intersection. Missing/invalid successful
+  `structuredContent` throws `TypeError`; argument/domain error results are exempt.
+  Legacy `details` alone does not satisfy a declared output schema.
+  `definePortableTool` infers/checks schema-linked success data at compile time;
+  use literal `isError: true` for exempt domain failures. A third
+  `PortableTool<TParams, TResult, TOutput>` generic preserves the schema in explicit
+  annotations; legacy two-generic annotations erase it. Runtime checks still apply.
+  Explicit legacy `definePortableTool<TParams, TResult>(...)` calls also erase
+  schema inference, even for concrete schemas; prefer inferred calls for checking.
+  Existing tool annotations and metadata spreads remain composable. Treat both
+  `parameters` and `outputSchema` as immutable after registration (no mutation or replacement).
 - Use `isError: true` for domain/tool-level failures that should reach the model as tool output.
 - Throw only for unexpected programmer, adapter, or runtime failures.
 - Respect `ctx.signal` in long-running tools.
@@ -75,9 +87,19 @@ export function createTools() {
 
 - pi invalid arguments and portable `isError: true` results return `{ content, details, isError: true }` by default (as of 0.7). Unexpected handler exceptions are also caught in return mode and surfaced as `{ content, details: {}, isError: true }`. Branch on `result.isError`; validation failures surface as `result.details.kind === "validation"`. The result guards from `@feniix/bridgekit` operate on `PortableToolResult` values at the portable seam, not directly on the pi wire object.
 - MCP invalid arguments and portable `isError: true` results return `CallToolResult` with `isError: true`. Inspect `structuredContent` on MCP wire results, or use the guards on `PortableToolResult` values before/at the adapter seam.
-- MCP preserves `structuredContent`; pi maps `structuredContent` into the pi `details` field. Both adapters fall back to `details` for legacy/debug payloads when `structuredContent` is absent.
+- Both adapters preserve `structuredContent`; Pi also maps it into renderer-facing
+  `details`. Both retain legacy `details` fallback. Output schemas are forwarded
+  to registrations/listings only when provided.
 - Validation errors and domain errors share the `{ field, message }` shape *inside* `validationErrors[]`. The array itself only appears on `kind: "validation"` — narrow with `isValidationFailure` (or check the discriminator) before iterating. `field` is derived from TypeBox's structured error data: required-property errors read `params.requiredProperties` (one entry per missing prop), additional-property errors read `params.additionalProperties` (one entry per offending key), `const`/`enum` errors carry the allowed value(s) in the message (`must equal "create"` / `must equal one of "create", "update"`), other errors take the last meaningful segment of the offending JSON pointer (`text`, not `/text`). Locale-independent and prop-names-with-commas-safe. Duplicate `(field, message)` pairs from union mismatches are deduplicated. As of 0.8.0; `path` no longer exists. As of 0.8.2: **discriminated unions** (`Type.Union([Type.Object({tag:Literal("a"),…}),Type.Object({tag:Literal("b"),…})])`) surface the *active branch's* missing-required hints when exactly one branch's discriminator is satisfied — instead of the bare `anyOf` summary. Recognized discriminator shapes: `Literal` (`const`), `enum`, and `Union of Literals` (`anyOf` of consts). Works inside `Type.Array(...)` per-element. When no branch matches (invalid discriminator), falls back to the 0.8.1 behavior (drop sibling `required`, keep `const`/`enum`/`anyOf` summary). Caveats: array-element fields can be numeric indices (`field: "0"`, path context lost); root-level schema failures use the sentinel `field: "(root)"` rather than empty string; for nested discriminated unions `field` is the leaf segment, not the full path.
-- The result guards take a `PortableToolResult` — the value `executePortableTool` returns at the seam between BridgeKit and a host. They are not designed to be called on the pi adapter's wire object (`{ content, details, isError }`), which exposes `details` instead of `structuredContent`.
+- Result guards take `PortableToolResult` values from `executePortableTool`, not
+  raw Pi wire objects (`content` instead of portable `text`).
+  Their runtime predicates are shape-based, so Pi structured failures also
+  match; that does not make a raw Pi result a valid portable typed value.
+- MCP uses SDK v2's low-level `Server` and method-string handlers. Cancellation
+  reads `ctx.mcpReq.signal`. `runMcpStdioServer` serves legacy and modern
+  `2026-07-28` stdio; direct `Server.connect` remains legacy-only. The runner's
+  `Promise<void>` resolves at startup, not EOF. Migration details:
+  `docs/mcp-v2-migration.md`.
 - `registerPiTools(pi, tools, { errorHandling: "throw" })` opts into the pre-0.7 behavior where `isError` results throw `PortableToolExecutionError`. Selecting this value emits a `DeprecationWarning` (code `BRIDGEKIT_PI_THROW_DEPRECATED`) once per process; only the `"throw"` value is deprecated, not the option itself. Scheduled for removal in 1.0; do not adopt it for new code.
 - `PortableTool.hostExtras` (0.9+) carries optional per-host metadata in namespaced sub-objects (`pi`, `mcp`, plus module-augmentable custom hosts). Each field is optional and zero-cost when absent — a tool without `hostExtras` produces byte-identical pi registration and MCP `tools/list` payloads to 0.8.x. `hostExtras.pi.pendingMessage` fires `onUpdate({ content, details: { status: "pending" } })` exactly once before TypeBox validation; `hostExtras.pi.promptSnippet` / `promptGuidelines` pass through to pi's `registerTool`; `hostExtras.pi.renderCall` / `renderResult` are opaque TUI callbacks typed by exported `PiToolCallRenderer` / `PiToolResultRenderer` aliases and forwarded by identity; `hostExtras.mcp.annotations` (`title` / `readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint`) attaches MCP advisory hints. Tool definitions stay host-neutral — host-specific metadata lives in its namespace, not on the tool's top-level fields.
 

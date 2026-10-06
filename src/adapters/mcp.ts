@@ -1,25 +1,9 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import {
-  CallToolRequestSchema,
-  type CallToolResult,
-  ListToolsRequestSchema,
-  type ServerNotification,
-  type ServerRequest,
-  type Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+import { type CallToolResult, Server, type Tool } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import type { TSchema } from "typebox";
 import type { PortableTool, PortableToolResult } from "../core/define-tool.js";
 import { executePortableTool } from "../core/execute-tool.js";
-
-// The MCP SDK ships `RequestHandlerExtra<ServerRequest, ServerNotification>`
-// with a non-optional `signal: AbortSignal`. We pull it from `shared/protocol`
-// (the source of truth) rather than the `server/index` re-export. An
-// adversarial type-level pin in `mcp.typecheck.ts` fails closed if the SDK
-// ever reshapes `signal` — that's the regression anchor that lets us read
-// `extra.signal` directly here without a runtime guard.
-type CallToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
+import { assertPortableOutputSchema, isObjectSchema, schemaTypeLabel, throwWithCode } from "../core/output-schema.js";
 
 export interface CreateMcpServerOptions {
   name: string;
@@ -34,7 +18,7 @@ export interface CreateMcpServerOptions {
    * The outer array is snapshotted at construction; pushing or removing
    * entries from the caller's `tools` array post-construction does not affect
    * `tools/list` or `tools/call`. Schemas inside each tool are held by
-   * reference, not deep-cloned — treat `tool.parameters` as immutable once
+   * reference, not deep-cloned — treat `tool.parameters` and `tool.outputSchema` as immutable once
    * `createMcpServer` returns.
    */
   tools: readonly PortableTool<TSchema>[];
@@ -52,84 +36,22 @@ function toMcpResult(result: PortableToolResult): CallToolResult {
 }
 
 /**
- * Returns true if `schema` resolves to a JSON-Schema object at the top level —
- * either `{"type": "object", ...}` directly, or an `allOf` composition whose
- * branches are all object schemas (as produced by `Type.Intersect`).
- *
- * The check walks the canonical JSON-Schema shape rather than poking at
- * TypeBox `Kind` symbols, mirroring how `executePortableTool` traverses
- * schemas. The MCP wire contract is "top-level object," so that's the
- * predicate, regardless of which TypeBox combinator built the schema.
- */
-function isObjectSchema(schema: unknown): boolean {
-  if (typeof schema !== "object" || schema === null) return false;
-  const candidate = schema as { $ref?: unknown; type?: unknown; allOf?: unknown };
-  // $ref takes structural precedence: a hybrid {type: "object", $ref: "..."}
-  // is not an inlined object schema — it's a reference, and
-  // assertObjectShapedParameters owns the rejection recipe. Return false so
-  // the $ref branch runs.
-  if (typeof candidate.$ref === "string") return false;
-  if (candidate.type === "object") return true;
-  if (Array.isArray(candidate.allOf) && candidate.allOf.length > 0) {
-    return candidate.allOf.every((entry) => isObjectSchema(entry));
-  }
-  return false;
-}
-
-/**
- * Best-effort human-readable label for a non-object schema, used in error
- * messages. For `allOf` (TypeBox's `Intersect` lowering) we descend into the
- * branches and surface the first non-object branch by index — a bare `"allOf"`
- * label is misleading because the rejection is owned by one specific branch,
- * not the composition itself.
- *
- * The `$ref` check is first because `Type.Cyclic` produces
- * `{ $defs: {...}, $ref: "..." }` at the root; the `$ref` is the load-bearing
- * structural signal regardless of what else is set, and the recipe for that
- * shape (inline or split) is different from the generic `Type.Object(...)`
- * wrap recipe.
- */
-function schemaTypeLabel(schema: unknown): string {
-  if (typeof schema !== "object" || schema === null) return "unknown";
-  const candidate = schema as {
-    $ref?: unknown;
-    type?: unknown;
-    anyOf?: unknown;
-    oneOf?: unknown;
-    allOf?: unknown;
-  };
-  if (typeof candidate.$ref === "string") return "$ref";
-  if (typeof candidate.type === "string") return candidate.type;
-  if (Array.isArray(candidate.anyOf)) return "anyOf";
-  if (Array.isArray(candidate.oneOf)) return "oneOf";
-  if (Array.isArray(candidate.allOf)) {
-    if (candidate.allOf.length === 0) return "allOf (empty)";
-    for (let i = 0; i < candidate.allOf.length; i++) {
-      if (!isObjectSchema(candidate.allOf[i])) {
-        return `allOf[${i}] resolves to type="${schemaTypeLabel(candidate.allOf[i])}"`;
-      }
-    }
-  }
-  return "unknown";
-}
-
-/**
- * Render `parameters` as MCP `inputSchema`. The MCP SDK Zod-validates that the
- * top-level schema has `type: "object"` on the client side of `tools/list`, so
+ * Render a validated object schema as MCP `inputSchema` or `outputSchema`.
+ * MCP clients require the top-level schema to have `type: "object"`, so
  * `Type.Intersect` (which TypeBox renders as `{ allOf: [...] }` with no top-
  * level `type`) needs `type: "object"` synthesized before transmission. This
  * is a no-op for `Type.Object` schemas, which already carry the field.
  *
- * The casts here are sound because `assertObjectShapedParameters` runs first
- * and rejects any schema whose top-level lowering isn't `type:"object"` or
- * `allOf` of objects — both shapes round-trip as MCP `Tool["inputSchema"]`.
+ * The casts here are sound because `assertObjectShapedParameters` or
+ * `assertPortableOutputSchema` runs first and rejects schemas whose top-level
+ * lowering isn't `type:"object"` or `allOf` of objects.
  */
-function toInputSchema(parameters: TSchema): Tool["inputSchema"] {
-  const candidate = parameters as unknown as { type?: unknown };
+function toMcpObjectSchema(schema: TSchema): Tool["inputSchema"] {
+  const candidate = schema as unknown as { type?: unknown };
   if (candidate.type === "object") {
-    return parameters as unknown as Tool["inputSchema"];
+    return schema as unknown as Tool["inputSchema"];
   }
-  return { type: "object", ...(parameters as Record<string, unknown>) } as unknown as Tool["inputSchema"];
+  return { type: "object", ...(schema as Record<string, unknown>) } as unknown as Tool["inputSchema"];
 }
 
 /**
@@ -140,12 +62,6 @@ function toInputSchema(parameters: TSchema): Tool["inputSchema"] {
 const ERROR_CODE_NON_OBJECT_PARAMETERS = "BRIDGEKIT_MCP_NON_OBJECT_PARAMETERS";
 const ERROR_CODE_REF_PARAMETERS = "BRIDGEKIT_MCP_REF_PARAMETERS";
 const ERROR_CODE_DUPLICATE_TOOL_NAME = "BRIDGEKIT_MCP_DUPLICATE_TOOL_NAME";
-
-function throwWithCode(message: string, code: string): never {
-  const error = new Error(message) as Error & { code: string };
-  error.code = code;
-  throw error;
-}
 
 function assertObjectShapedParameters(tools: readonly PortableTool<TSchema>[]): void {
   for (const tool of tools) {
@@ -203,6 +119,7 @@ function assertUniqueToolNames(tools: readonly PortableTool<TSchema>[]): void {
 }
 
 export function createMcpServer(options: CreateMcpServerOptions): Server {
+  for (const tool of options.tools) assertPortableOutputSchema(tool, "createMcpServer", "BRIDGEKIT_MCP");
   assertObjectShapedParameters(options.tools);
   assertUniqueToolNames(options.tools);
   // Build the dispatch map and the listing payload at construction so
@@ -229,7 +146,8 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
       name: tool.name,
       title: tool.title,
       description: tool.description,
-      inputSchema: toInputSchema(tool.parameters),
+      inputSchema: toMcpObjectSchema(tool.parameters),
+      ...(tool.outputSchema !== undefined && { outputSchema: toMcpObjectSchema(tool.outputSchema) }),
       ...(hasAnnotations ? { annotations: { ...annotations } } : {}),
     };
   });
@@ -241,9 +159,9 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
     },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcpTools }));
+  server.setRequestHandler("tools/list", async () => ({ tools: mcpTools }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra: CallToolExtra) => {
+  server.setRequestHandler("tools/call", async (request, ctx) => {
     const tool = byName.get(request.params.name);
     if (!tool) {
       return {
@@ -255,9 +173,12 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
     try {
       const result = await executePortableTool(tool, request.params.arguments ?? {}, {
         host: "mcp",
-        signal: extra.signal,
+        signal: ctx.mcpReq.signal,
       });
-      return toMcpResult(result);
+      return server.projectCallToolResult(
+        toMcpResult(result),
+        tool.outputSchema !== undefined ? toMcpObjectSchema(tool.outputSchema) : undefined,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -271,6 +192,10 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
 }
 
 export async function runMcpStdioServer(options: CreateMcpServerOptions): Promise<void> {
-  const server = createMcpServer(options);
-  await server.connect(new StdioServerTransport());
+  // Validate eagerly, but each discarded probe/connection must own its server:
+  // a modern probe installs era-specific handlers before it can be discarded.
+  createMcpServer(options);
+  serveStdio(() => createMcpServer(options), {
+    onerror: (error) => process.stderr.write(`[bridgekit-mcp] ${error.message}\n`),
+  });
 }

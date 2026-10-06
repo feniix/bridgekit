@@ -91,7 +91,7 @@ async function assertTypesCompile(installDir) {
   await writeFile(
     typecheckFile,
     `
-      import { Type, type Static } from "typebox";
+      import { Type, type Static, type TSchema } from "typebox";
       import {
         definePortableTool,
         executePortableTool,
@@ -115,7 +115,8 @@ async function assertTypesCompile(installDir) {
         type RegisterPiToolsOptions,
         registerPiTools,
       } from "@feniix/bridgekit/pi";
-      import { type CreateMcpServerOptions } from "@feniix/bridgekit/mcp";
+      import { createMcpServer, type CreateMcpServerOptions } from "@feniix/bridgekit/mcp";
+      import type { Server } from "@modelcontextprotocol/server";
       import { runBinWrapper, type BinWrapperOptions } from "@feniix/bridgekit/bin-wrapper";
 
       const _binWrapperOpts: BinWrapperOptions = {
@@ -156,6 +157,7 @@ async function assertTypesCompile(installDir) {
         title: "Typecheck Tool",
         description: "Typecheck fixture.",
         parameters,
+        outputSchema: Type.Object({ text: Type.String() }),
         execute(args) {
           const typed: Parameters = args;
           return { text: typed.text, structuredContent: { text: typed.text } };
@@ -163,6 +165,22 @@ async function assertTypesCompile(installDir) {
       });
 
       const builtInHost: PortableToolBuiltInHost = "mcp";
+      // Pair valid and invalid spreads so rejection cannot be caused by lost schema presence.
+      definePortableTool({ ...tool, execute: () => ({ text: "ok", structuredContent: { text: "ok" } }) });
+      const annotatedTool: PortableTool<typeof parameters, PortableToolResult> = tool;
+      definePortableTool(annotatedTool);
+      definePortableTool<typeof parameters, PortableToolResult>(annotatedTool);
+      const plainTool = definePortableTool({
+        name: "plain", title: "Plain", description: "Schema-less composition", parameters,
+        execute: (args) => ({ text: args.text }),
+      });
+      definePortableTool({ ...plainTool, title: "Retitled" });
+      function decorate<P extends TSchema, R extends PortableToolResult>(value: PortableTool<P, R>) {
+        return definePortableTool({ ...value, title: "Decorated" });
+      }
+      void decorate(plainTool);
+      // @ts-expect-error installed declarations reject schema-incompatible successes
+      definePortableTool({ ...tool, execute: () => ({ text: "bad", structuredContent: { text: 42 } }) });
       const defaultContext: PortableToolContext = { host: builtInHost };
       void defaultContext;
 
@@ -183,6 +201,8 @@ async function assertTypesCompile(installDir) {
       };
       void options;
       void piRegistration;
+      const sdkServer: Server = createMcpServer(options);
+      void sdkServer;
 
       async function run(): Promise<PortableToolResult> {
         return executePortableTool(tool, { text: "hello" }, { host: "test" });
@@ -328,10 +348,11 @@ async function assertManifestInvariants() {
     "package.json must not define a publish script (releases go through Actions)",
   );
 
-  // inv-mcp-sdk-major: the MCP adapter is built on SDK v1's low-level Server
-  // semantics. v2 migration is a separate ADR.
-  const mcpRange = packageJson.dependencies?.["@modelcontextprotocol/sdk"];
-  assert.match(mcpRange ?? "", /^\^?1\./, "@modelcontextprotocol/sdk must remain pinned to v1.x");
+  // inv-mcp-sdk-major: low-level SDK v2 Server is part of the public contract.
+  const mcpRange = packageJson.dependencies?.["@modelcontextprotocol/server"];
+  assert.match(mcpRange ?? "", /^\^?2\./, "@modelcontextprotocol/server must remain pinned to v2.x");
+  assert.equal(packageJson.dependencies?.["@modelcontextprotocol/sdk"], undefined, "v1 SDK must be test-only");
+  assert.equal(packageJson.dependencies?.["@modelcontextprotocol/client"], undefined, "MCP client must be test-only");
 
   // inv-no-source-map-urls: tsconfig.json declares sourceMap: false and the
   // package does not ship `.map` files. Shipping a sourceMappingURL reference
@@ -379,6 +400,57 @@ function assertPackFileList(entry) {
   }
 }
 
+async function assertPackedMcpProtocol(installDir) {
+  await writeFile(
+    join(installDir, "server.mjs"),
+    `
+    import { Type } from "typebox";
+    import { definePortableTool } from "@feniix/bridgekit";
+    import { runMcpStdioServer } from "@feniix/bridgekit/mcp";
+    await runMcpStdioServer({
+      name: "packed-server", version: "0.0.0", tools: [definePortableTool({
+        name: "echo", title: "Echo", description: "Echo",
+        parameters: Type.Object({ text: Type.String() }),
+        outputSchema: Type.Object({ text: Type.String() }),
+        execute: args => ({ text: args.text, structuredContent: { text: args.text } }),
+      })],
+    });
+    `,
+  );
+  await run(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+      import assert from "node:assert/strict";
+      import { Client } from "@modelcontextprotocol/client";
+      import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+      for (const modern of [false, true]) {
+        const client = new Client({ name: "packed-client", version: "0.0.0" }, {
+          versionNegotiation: { mode: modern ? { pin: "2026-07-28" } : "legacy" },
+        });
+        const transport = new StdioClientTransport({
+          command: process.execPath, args: ["server.mjs"], stderr: "pipe",
+        });
+        try {
+          await client.connect(transport);
+          assert.equal(client.getProtocolEra(), modern ? "modern" : "legacy");
+          const list = await client.listTools();
+          assert.equal(list.tools[0].outputSchema.type, "object");
+          const result = await client.callTool({ name: "echo", arguments: { text: "packed" } });
+          assert.deepEqual(result.structuredContent, { text: "packed" });
+        } finally {
+          await client.close();
+          await transport.close();
+        }
+      }
+      `,
+    ],
+    { cwd: installDir },
+  );
+}
+
 let tempRoot;
 try {
   tempRoot = await mkdtemp(join(tmpdir(), "bridgekit-package-smoke-"));
@@ -396,21 +468,35 @@ try {
 
   const packageLock = await readJson(join(repoRoot, "package-lock.json"));
   const typeboxVersion = packageLock.packages?.["node_modules/typebox"]?.version ?? "1.1.38";
+  const clientVersion = packageLock.packages["node_modules/@modelcontextprotocol/client"]?.version;
+  assert.ok(clientVersion, "package lock must include the MCP v2 client version for smoke-test consumers");
   await writeFile(
     join(installDir, "package.json"),
     JSON.stringify({ private: true, type: "module", dependencies: { typebox: typeboxVersion } }, null, 2),
   );
-  await run("npm", ["install", "--ignore-scripts", tarballPath, `typebox@${typeboxVersion}`], { cwd: installDir });
+  await run(
+    "npm",
+    [
+      "install",
+      "--ignore-scripts",
+      tarballPath,
+      `typebox@${typeboxVersion}`,
+      `@modelcontextprotocol/client@${clientVersion}`,
+    ],
+    { cwd: installDir },
+  );
 
   await assertRuntimeExports(installDir);
   await assertTypesCompile(installDir);
   await assertUnsupportedDeepImportFails(installDir);
+  await assertPackedMcpProtocol(installDir);
 
-  console.error("✓ manifest invariants (sideEffects, no release/publish scripts, MCP SDK v1, no source maps)");
+  console.error("✓ manifest invariants (sideEffects, no release/publish scripts, MCP SDK v2 server, no source maps)");
   console.error("✓ packed tarball file list includes public runtime entries and excludes tests/maps");
   console.error("✓ temporary consumer imports all public runtime subpaths from installed tarball");
   console.error("✓ temporary consumer compiles strict-plus NodeNext TypeScript against installed declarations");
   console.error("✓ unsupported deep imports fail through package exports");
+  console.error("✓ packed server serves legacy and modern stdio clients with declared structured output");
 } finally {
   if (tempRoot) await rm(tempRoot, { recursive: true, force: true });
 }
