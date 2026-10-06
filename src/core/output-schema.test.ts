@@ -21,17 +21,47 @@ test("portable execution validates successful structured output without widening
   }
 });
 
-test("portable output schemas must be inlined object schemas or intersections of objects", async () => {
-  for (const outputSchema of [Type.String(), Type.Union([Type.Object({}), Type.Object({})])]) {
+test("portable output schemas reject only top-level $ref roots", async () => {
+  const tool = definePortableTool({
+    name: "ref_output_schema",
+    title: "Ref schema",
+    description: "Top-level $ref output schema",
+    parameters: Type.Object({}),
+    outputSchema: Type.Ref("Output"),
+    execute: () => ({ text: "no data", structuredContent: {} }),
+  });
+  await assert.rejects(executePortableTool(tool, {}, { host: "test" }), (error: unknown) => {
+    assert.ok(error instanceof TypeError);
+    const coded: { code: string } = fromAny(error);
+    assert.equal(coded.code, "BRIDGEKIT_REF_OUTPUT_SCHEMA");
+    assert.match(error.message, /Invalid outputSchema for ref_output_schema \(type="\$ref"\)/);
+    return true;
+  });
+});
+
+test("non-object output schemas validate array, primitive, null and union structured output", async () => {
+  const cases = [
+    { outputSchema: Type.Array(Type.Number()), valid: [1, 2], invalid: ["one"] },
+    { outputSchema: Type.String(), valid: "plain", invalid: 1 },
+    { outputSchema: Type.Null(), valid: null, invalid: {} },
+    { outputSchema: Type.Union([Type.Object({ ok: Type.Literal(true) }), Type.String()]), valid: "no", invalid: 2 },
+  ] as const;
+  for (const { outputSchema, valid, invalid } of cases) {
     const tool = definePortableTool({
-      name: "bad_output_schema",
-      title: "Bad schema",
-      description: "Non-object output schema",
+      name: "non_object_output",
+      title: "Non-object output",
+      description: "Non-object root",
       parameters: Type.Object({}),
       outputSchema,
-      execute: () => ({ text: "no data", structuredContent: {} }),
+      execute: () => ({ text: "value", structuredContent: valid }),
     });
-    await assert.rejects(executePortableTool(tool, {}, { host: "test" }), /bad_output_schema.*object/);
+    const result = await executePortableTool(tool, {}, { host: "test" });
+    assert.deepEqual(result, { text: "value", structuredContent: valid });
+    const execute: typeof tool.execute = fromAny(() => ({ text: "wrong", structuredContent: invalid }));
+    await assert.rejects(executePortableTool({ ...tool, execute }, {}, { host: "test" }), {
+      name: "TypeError",
+      message: /Invalid structured output for non_object_output/,
+    });
   }
 });
 

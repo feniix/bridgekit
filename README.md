@@ -111,8 +111,8 @@ Do not deep-import from `dist/` or `src/` in consuming packages.
 
 #### Declared structured output
 
-Add an optional object-shaped `outputSchema` to a portable tool to describe its
-successful `structuredContent` for both Pi and MCP:
+Add an optional `outputSchema` to a portable tool to describe its successful
+`structuredContent` for both Pi and MCP:
 
 ```ts
 const echoTool = definePortableTool({
@@ -125,9 +125,13 @@ const echoTool = definePortableTool({
 });
 ```
 
-Inlined object schemas and intersections of objects are accepted. Success calls
-must return matching `structuredContent`; legacy `details` alone does not satisfy
-the schema. Missing/invalid output throws a tool-attributed `TypeError` at the
+Any JSON Schema root is accepted except a top-level `$ref` (`Type.Ref` /
+`Type.Cyclic`): objects, intersections of objects, arrays, primitives, `null` and
+unions all work. Success calls must return matching `structuredContent`; legacy
+`details` alone does not satisfy the schema. Non-object values reach modern MCP
+clients as-is; for legacy-era clients the MCP SDK wraps both the listed schema and
+the value as `{ result: ... }`. Pi receives the raw value on `structuredContent`
+and `{ result: value }` on renderer-facing `details`. Missing/invalid output throws a tool-attributed `TypeError` at the
 portable seam and becomes an error result through the adapters. Argument/domain
 failures are exempt from success schemas. Without `outputSchema`, existing result
 behavior is unchanged.
@@ -297,6 +301,8 @@ The MCP adapter uses low-level `tools/list` and `tools/call` handlers so TypeBox
 Tool `parameters` must resolve to a JSON-Schema object at the top level. `Type.Object(...)` is the common case; `Type.Intersect([Type.Object(...), Type.Object(...)])` of object schemas is also accepted (its `allOf` lowering is recognised, and `type: "object"` is synthesised onto the `tools/list` response so MCP clients that validate the inputSchema shape stay happy). Non-object top-level schemas (`Type.String()`, `Type.Union([Type.Object(...), Type.Object(...)])`, etc.) throw at server construction with a named-tool error so the failure surfaces at adapter setup, not at first `tools/call`.
 
 Portable validation failures and portable `isError: true` results return `CallToolResult` with `isError: true`. `structuredContent` is preserved; `details` is used only as a fallback when `structuredContent` is absent. Exporting a server-options factory keeps MCP entrypoints import-passive and easy to test without starting stdio.
+
+When a client sends `_meta.progressToken` on `tools/call`, each `ctx.progress?.(update)` becomes a `notifications/progress` notification: `progress` is a per-call counter starting at 1 (the spec requires it to increase), `message` is `update.text`, and `total` is omitted. Without a token `ctx.progress` is `undefined`, so tools should keep calling it optionally. Notifications are flushed before the result and skipped once the request is cancelled. Caveat: the official SDK clients defer notification handlers while handling responses synchronously, so a burst of progress calls issued synchronously right before returning can be dropped by the client when it arrives in the same stdio chunk as the result. BridgeKit writes them in order regardless; tools that emit progress over time are unaffected.
 
 The two adapters return `{ isError: true }` for argument/domain failures by default.
 Use result guards on portable values; both wire formats now preserve `structuredContent`,

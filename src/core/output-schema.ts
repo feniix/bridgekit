@@ -1,4 +1,5 @@
-import type { PortableTool } from "./define-tool.js";
+import type { TSchema } from "typebox";
+import type { PortableTool, PortableToolResult } from "./define-tool.js";
 
 /** Follow JSON Schema structure rather than TypeBox-specific symbols. */
 export function isObjectSchema(schema: unknown): boolean {
@@ -40,18 +41,23 @@ export function throwWithCode(message: string, code: string, ErrorType: ErrorCon
   throw error;
 }
 
-export function assertPortableOutputSchema(tool: PortableTool, context?: string, codePrefix = "BRIDGEKIT"): void {
-  if (tool.outputSchema !== undefined && !isObjectSchema(tool.outputSchema)) {
-    const label = schemaTypeLabel(tool.outputSchema);
-    let recipe = "Use an inlined object schema or an intersection of object schemas.";
-    if (label.includes("$ref")) {
-      recipe += " Top-level $ref / Type.Cyclic is unsupported; inline the referenced shape or split recursive shapes.";
-    } else if (label.includes("anyOf") || label.includes("oneOf")) {
-      recipe += " Top-level unions are unsupported; flatten branches into one object or expose separate tools.";
-    }
+/**
+ * Output schemas may use any JSON Schema root (object, array, primitive,
+ * union); the MCP SDK projects non-object roots for legacy clients. Only a
+ * top-level `$ref` is rejected: `tools/list` ships schemas by value and clients
+ * do not resolve references.
+ */
+export function assertPortableOutputSchema(
+  tool: PortableTool<TSchema, PortableToolResult<unknown>>,
+  context?: string,
+  codePrefix = "BRIDGEKIT",
+): void {
+  const schema = tool.outputSchema as { $ref?: unknown } | undefined;
+  if (schema !== undefined && typeof schema.$ref === "string") {
     throwWithCode(
-      `${context ? `${context}: ` : ""}Invalid outputSchema for ${tool.name} (type="${label}"): ${recipe}`,
-      `${codePrefix}_${label.includes("$ref") ? "REF" : "NON_OBJECT"}_OUTPUT_SCHEMA`,
+      `${context ? `${context}: ` : ""}Invalid outputSchema for ${tool.name} (type="$ref"): ` +
+        "Top-level $ref / Type.Cyclic is unsupported; inline the referenced shape or split recursive shapes.",
+      `${codePrefix}_REF_OUTPUT_SCHEMA`,
       TypeError,
     );
   }

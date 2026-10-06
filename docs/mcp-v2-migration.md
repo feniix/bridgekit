@@ -38,9 +38,14 @@ The v2 client is test-only. Runtime code imports only the v2 server package.
 
 ## Structured output
 
-`PortableTool.outputSchema` is optional, object-shaped TypeBox JSON Schema.
-Inlined objects and object intersections are accepted; primitive/union/reference
-roots are rejected. Intersections are lowered to `type: "object"` for MCP listing.
+`PortableTool.outputSchema` is optional TypeBox JSON Schema with any root except a
+top-level `$ref`. Objects, object intersections, arrays, primitives, `null` and
+unions are accepted. All-object intersections are lowered to `type: "object"` for
+MCP listing and projection, because the SDK's legacy `{ result }` wrap keys on the
+advertised root `type`; every other root passes through by reference and
+`projectCallToolResult` wraps the listed schema and the value as `{ result }` on
+the 2025 era while modern clients receive the natural value. Pi forwards the raw
+value and wraps non-object values as `details.result`.
 
 Successful tools declaring a schema must return matching `structuredContent`;
 legacy `details` alone does not satisfy that contract. Contract violations throw
@@ -70,9 +75,23 @@ supported. Listings retain schema references while execution reads the tool:
 both `parameters` and `outputSchema` are immutable after registration, including
 replacing either schema object.
 
-MCP output-schema construction errors remain `TypeError`s and now carry stable
-codes: `BRIDGEKIT_MCP_NON_OBJECT_OUTPUT_SCHEMA` or `BRIDGEKIT_MCP_REF_OUTPUT_SCHEMA`,
-with a `createMcpServer:` prefix and root/branch-specific correction guidance.
+MCP output-schema construction errors remain `TypeError`s with the stable code
+`BRIDGEKIT_MCP_REF_OUTPUT_SCHEMA` and a `createMcpServer:` prefix; the former
+`BRIDGEKIT_MCP_NON_OBJECT_OUTPUT_SCHEMA` code no longer exists because non-object
+roots are accepted.
+
+## Progress notifications
+
+`ctx.progress` is wired on MCP only when the request carried `_meta.progressToken`.
+Each update sends `notifications/progress` with the token, a per-call counter
+starting at 1 as `progress`, and `update.text` as `message`; `total` is omitted and
+no numeric convention is read from `structuredContent`. Sends are awaited before
+the result and skipped once `ctx.mcpReq.signal` is aborted; a failed send never
+fails the call. Known client limitation: the official SDK clients (v1 and v2)
+dispatch notification handlers on a microtask while responses are handled
+synchronously, so a synchronous burst of updates immediately followed by the
+result can be dropped client-side when it lands in one stdio chunk. The wire
+order is correct (pinned by the raw stdio test); spaced updates are delivered.
 
 ## Verification and scope
 
@@ -80,7 +99,8 @@ Regression seams: portable execution, Pi registration/results, MCP connected pai
 spawned legacy/v2-modern stdio clients, cancellation through the public tool seam,
 EOF shutdown, and installed tarball declarations/protocol calls.
 
-HTTP/auth, tasks, resources/prompts, additional Pi metadata, and non-object portable
-results are out of scope. Passing these tests is not an official conformance claim.
+HTTP/auth, tasks, resources/prompts, and additional Pi metadata are out of scope and
+tracked as GitHub issues #126-#131. Passing these tests is not an official
+conformance claim.
 
 Research and isolated evidence: [research/mcp-protocol-v2.md](research/mcp-protocol-v2.md).

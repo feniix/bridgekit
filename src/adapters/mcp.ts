@@ -1,7 +1,7 @@
 import { type CallToolResult, Server, type Tool } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import type { TSchema } from "typebox";
-import type { PortableTool, PortableToolResult } from "../core/define-tool.js";
+import type { PortableTool, PortableToolContext, PortableToolResult } from "../core/define-tool.js";
 import { executePortableTool } from "../core/execute-tool.js";
 import { assertPortableOutputSchema, isObjectSchema, schemaTypeLabel, throwWithCode } from "../core/output-schema.js";
 
@@ -21,16 +21,17 @@ export interface CreateMcpServerOptions {
    * reference, not deep-cloned — treat `tool.parameters` and `tool.outputSchema` as immutable once
    * `createMcpServer` returns.
    */
-  tools: readonly PortableTool<TSchema>[];
+  tools: readonly PortableTool<TSchema, PortableToolResult<unknown>>[];
   instructions?: string;
 }
 
 type McpContent = { type: "text"; text: string };
 
-function toMcpResult(result: PortableToolResult): CallToolResult {
+function toMcpResult(result: PortableToolResult<unknown>): CallToolResult {
+  // `!== undefined` rather than `??`: `null` is a legal structured value.
   return {
     content: [{ type: "text", text: result.text } satisfies McpContent],
-    structuredContent: result.structuredContent ?? result.details,
+    structuredContent: result.structuredContent !== undefined ? result.structuredContent : result.details,
     isError: result.isError ?? false,
   };
 }
@@ -55,6 +56,23 @@ function toMcpObjectSchema(schema: TSchema): Tool["inputSchema"] {
 }
 
 /**
+ * Render an output schema for `tools/list` and for `projectCallToolResult`.
+ * All-object `allOf` intersections still get `type: "object"` synthesized:
+ * the SDK's legacy-era `{ result: ... }` wrap keys purely on the advertised
+ * root `type`, so an unlowered intersection would silently change the wire
+ * shape existing `Type.Intersect` outputs have today. Every other root
+ * (array, primitive, union) passes through by reference and the SDK projects
+ * it per era. The same object must feed both the listing and the projection.
+ */
+function toMcpOutputSchema(schema: TSchema): Record<string, unknown> {
+  const candidate = schema as unknown as Record<string, unknown>;
+  if (candidate.type === undefined && isObjectSchema(schema)) {
+    return { type: "object", ...candidate };
+  }
+  return candidate;
+}
+
+/**
  * Stable `error.code` values attached to `createMcpServer` construction
  * failures so consumers have a non-string anchor (the message text is
  * recipe-shaped and may evolve; the code is part of the public contract).
@@ -63,7 +81,7 @@ const ERROR_CODE_NON_OBJECT_PARAMETERS = "BRIDGEKIT_MCP_NON_OBJECT_PARAMETERS";
 const ERROR_CODE_REF_PARAMETERS = "BRIDGEKIT_MCP_REF_PARAMETERS";
 const ERROR_CODE_DUPLICATE_TOOL_NAME = "BRIDGEKIT_MCP_DUPLICATE_TOOL_NAME";
 
-function assertObjectShapedParameters(tools: readonly PortableTool<TSchema>[]): void {
+function assertObjectShapedParameters(tools: readonly PortableTool<TSchema, PortableToolResult<unknown>>[]): void {
   for (const tool of tools) {
     if (!isObjectSchema(tool.parameters)) {
       const typeLabel = schemaTypeLabel(tool.parameters);
@@ -103,7 +121,7 @@ function assertObjectShapedParameters(tools: readonly PortableTool<TSchema>[]): 
   }
 }
 
-function assertUniqueToolNames(tools: readonly PortableTool<TSchema>[]): void {
+function assertUniqueToolNames(tools: readonly PortableTool<TSchema, PortableToolResult<unknown>>[]): void {
   const seen = new Set<string>();
   for (const tool of tools) {
     if (seen.has(tool.name)) {
@@ -125,8 +143,12 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
   // Build the dispatch map and the listing payload at construction so
   // `tools/list` returns a pre-computed array and post-construction mutations
   // to the caller's array cannot leak unvalidated schemas onto the wire.
-  const byName = new Map(options.tools.map((tool) => [tool.name, tool]));
-  const mcpTools: Tool[] = options.tools.map((tool) => {
+  const entries = options.tools.map((tool) => ({
+    tool,
+    outputSchema: tool.outputSchema !== undefined ? toMcpOutputSchema(tool.outputSchema) : undefined,
+  }));
+  const byName = new Map(entries.map((entry) => [entry.tool.name, entry]));
+  const mcpTools: Tool[] = entries.map(({ tool, outputSchema }) => {
     const annotations = tool.hostExtras?.mcp?.annotations;
     // MCP advisory hints from `hostExtras.mcp.annotations`. Two gates:
     //   1. `annotations !== undefined` — a tool without hostExtras builds a
@@ -147,7 +169,7 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
       title: tool.title,
       description: tool.description,
       inputSchema: toMcpObjectSchema(tool.parameters),
-      ...(tool.outputSchema !== undefined && { outputSchema: toMcpObjectSchema(tool.outputSchema) }),
+      ...(outputSchema !== undefined && { outputSchema }),
       ...(hasAnnotations ? { annotations: { ...annotations } } : {}),
     };
   });
@@ -162,24 +184,50 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
   server.setRequestHandler("tools/list", async () => ({ tools: mcpTools }));
 
   server.setRequestHandler("tools/call", async (request, ctx) => {
-    const tool = byName.get(request.params.name);
-    if (!tool) {
+    const entry = byName.get(request.params.name);
+    if (!entry) {
       return {
         content: [{ type: "text", text: `Unknown tool: ${request.params.name}` }],
         isError: true,
       } satisfies CallToolResult;
     }
 
+    // `ctx.progress` is only wired when the client asked for progress by
+    // sending `_meta.progressToken`; otherwise the context is byte-identical
+    // to the pre-progress shape. `progress` is a monotonic per-call counter
+    // (the spec requires it to increase) and `message` is the update text.
+    // Sends are skipped once the request is cancelled and awaited before the
+    // result goes out, so a client never sees a notification for a token it
+    // has already released. A failed send never fails the tool call.
+    const progressToken = ctx.mcpReq._meta?.progressToken;
+    const pendingNotifications: Promise<void>[] = [];
+    let progressCount = 0;
+    const progress: PortableToolContext["progress"] =
+      progressToken === undefined
+        ? undefined
+        : (update) => {
+            if (ctx.mcpReq.signal.aborted) return;
+            progressCount += 1;
+            pendingNotifications.push(
+              ctx.mcpReq
+                .notify({
+                  method: "notifications/progress",
+                  params: { progressToken, progress: progressCount, message: update.text },
+                })
+                .catch(() => undefined),
+            );
+          };
+
     try {
-      const result = await executePortableTool(tool, request.params.arguments ?? {}, {
+      const result = await executePortableTool(entry.tool, request.params.arguments ?? {}, {
         host: "mcp",
         signal: ctx.mcpReq.signal,
+        ...(progress !== undefined && { progress }),
       });
-      return server.projectCallToolResult(
-        toMcpResult(result),
-        tool.outputSchema !== undefined ? toMcpObjectSchema(tool.outputSchema) : undefined,
-      );
+      await Promise.all(pendingNotifications);
+      return server.projectCallToolResult(toMcpResult(result), entry.outputSchema);
     } catch (error) {
+      await Promise.all(pendingNotifications);
       const message = error instanceof Error ? error.message : String(error);
       return {
         content: [{ type: "text", text: message }],

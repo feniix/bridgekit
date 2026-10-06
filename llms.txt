@@ -59,9 +59,11 @@ export function createTools() {
 - Keep portable tools host-neutral. Do not import pi or MCP SDKs from files that define tool behavior.
 - Tool `parameters` for MCP-compatible tools must resolve to a JSON-Schema object at the top level. `Type.Object(...)` is the common case; `Type.Intersect([Type.Object(...), Type.Object(...)])` is also accepted. Non-object top-level shapes throw at `createMcpServer` construction.
 - Return `{ text, structuredContent }` for successful results.
-- Optional `outputSchema` declares successful structured data for both hosts: use
-  an inlined TypeBox object or object intersection. Missing/invalid successful
-  `structuredContent` throws `TypeError`; argument/domain error results are exempt.
+- Optional `outputSchema` declares successful structured data for both hosts: any
+  TypeBox schema except a top-level `$ref` (objects, intersections, arrays,
+  primitives, unions). Missing/invalid successful `structuredContent` throws
+  `TypeError`; argument/domain error results are exempt. Non-object values are
+  wrapped as `{ result }` for legacy MCP clients by the SDK and on pi `details`.
   Legacy `details` alone does not satisfy a declared output schema.
   `definePortableTool` infers/checks schema-linked success data at compile time;
   use literal `isError: true` for exempt domain failures. A third
@@ -75,6 +77,8 @@ export function createTools() {
 - Throw only for unexpected programmer, adapter, or runtime failures.
 - Respect `ctx.signal` in long-running tools.
 - Use `ctx.progress?.(...)` for incremental progress updates when the host supports them.
+  Pi maps them to `onUpdate`; MCP emits `notifications/progress` (counter + `update.text`)
+  only when the client sent `_meta.progressToken`, otherwise `ctx.progress` is `undefined`.
 - Wire hosts explicitly: pi registration and MCP server startup are separate adapter calls.
 - Keep modules import-passive. Do not register tools, start servers, read package metadata, read env vars, or touch files at import time.
 - For stateful tools, export a `createTools()` factory instead of a module-level `tools` singleton so each pi extension instance or MCP stdio process gets isolated state.

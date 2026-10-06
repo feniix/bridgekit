@@ -7,7 +7,7 @@ import type { PortableValidationFailure } from "./result-guards.js";
 
 const ROOT_FIELD = "(root)";
 
-type PortableToolSuccess<TResult extends PortableToolResult> = TResult & {
+type PortableToolSuccess<TResult extends PortableToolResult<unknown>> = TResult & {
   details?: Record<string, unknown>;
   isError?: boolean;
 } & (TResult extends { structuredContent?: infer TStructured }
@@ -495,7 +495,7 @@ function expandTypeBoxError(schema: TSchema, error: TLocalizedValidationError): 
 }
 
 export function validatePortableToolArgs<TParams extends TSchema>(
-  tool: PortableTool<TParams>,
+  tool: PortableTool<TParams, PortableToolResult<unknown>>,
   args: unknown,
 ): { ok: true; args: Static<TParams> } | { ok: false; errors: PortableValidationError[] } {
   if (Check(tool.parameters, args)) {
@@ -529,7 +529,7 @@ export function validatePortableToolArgs<TParams extends TSchema>(
   return { ok: false, errors };
 }
 
-export async function executePortableTool<TParams extends TSchema, TResult extends PortableToolResult>(
+export async function executePortableTool<TParams extends TSchema, TResult extends PortableToolResult<unknown>>(
   tool: PortableTool<TParams, TResult>,
   args: unknown,
   ctx: PortableToolContext,

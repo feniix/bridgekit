@@ -51,11 +51,18 @@ Each of the four entrypoints (`.`, `./pi`, `./mcp`, `./bin-wrapper`) maps to its
 
 `executePortableTool` validates args via TypeBox `Check`/`Errors`, and on failure **returns** a result with `isError: true` — it does not throw. Adapters decide whether to surface that as a thrown exception or a structured result.
 
-Optional `PortableTool.outputSchema` describes successful object-shaped structured
-output. Execution requires matching `structuredContent`; missing/invalid success
-data throws a tool-attributed `TypeError`. Argument/domain failures are exempt.
-Both adapters forward the schema. Pi preserves `structuredContent` directly as
-well as renderer-facing `details`; unset optional fields remain omitted.
+Optional `PortableTool.outputSchema` describes successful structured output with
+any JSON Schema root except a top-level `$ref` (object, intersection of objects,
+array, primitive, union). Execution requires matching `structuredContent`;
+missing/invalid success data throws a tool-attributed `TypeError`. Argument/domain
+failures are exempt. Both adapters forward the schema. The MCP adapter still
+synthesizes `type: "object"` onto all-object `allOf` roots (the SDK's legacy
+`{ result }` wrap keys on the root `type`) and passes every other root through;
+the SDK projects non-object values per era. Pi preserves `structuredContent`
+directly and wraps non-object values as `details.result`; unset optional fields
+remain omitted. `PortableToolResult<TStructured>` defaults to an object but the
+generic accepts any value; bare `PortableTool` accepts any result shape.
+
 `definePortableTool` checks schema-linked success data at compile time while
 preserving inferred handler unions. Explicit schema-typed tool annotations use
 `PortableTool<TParams, TResult, TOutput>`; two-generic annotations erase the schema.
@@ -63,7 +70,12 @@ Domain failures require the literal `isError: true` discriminator.
 Explicit legacy `definePortableTool<TParams, TResult>` calls also erase schema
 inference. Prefer inferred calls for compile-time checking; runtime checks remain.
 
-`PortableTool` carries generics for parameters and the inferred success result (`TParams extends TSchema`, `TResult extends PortableToolResult`). The host is a fixed literal union: `PortableToolBuiltInHost = "pi" | "mcp" | "test"`. `PortableToolContext.host` is typed to that union directly, so `@ts-expect-error` assertions in `execute-tool.test.ts` reject any literal outside the union (e.g. `{ host: "custom-adapter" }`). Do not reintroduce a `<THost>` generic — the audit (#5, removed in 0.10.0) confirmed no consumer used it, and the simplification is intentional.
+MCP progress: when `tools/call` carries `_meta.progressToken`, `ctx.progress` is
+wired to `notifications/progress` (monotonic counter, `message = update.text`),
+flushed before the result and skipped after cancellation. Without a token
+`ctx.progress` is `undefined`, so the no-progress context stays byte-identical.
+
+`PortableTool` carries generics for parameters and the inferred success result (`TParams extends TSchema`, `TResult extends PortableToolResult<unknown>`, defaulting to `PortableToolResult<unknown>` so bare annotations accept any result shape). The host is a fixed literal union: `PortableToolBuiltInHost = "pi" | "mcp" | "test"`. `PortableToolContext.host` is typed to that union directly, so `@ts-expect-error` assertions in `execute-tool.test.ts` reject any literal outside the union (e.g. `{ host: "custom-adapter" }`). Do not reintroduce a `<THost>` generic — the audit (#5, removed in 0.10.0) confirmed no consumer used it, and the simplification is intentional.
 
 ### Adapter error behavior
 
