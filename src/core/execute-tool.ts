@@ -14,19 +14,32 @@ type PortableToolSuccess<TResult extends PortableToolResult> = TResult & {
     ? { structuredContent?: TStructured }
     : { structuredContent?: Record<string, unknown> });
 
+/**
+ * Decode one RFC 6901 JSON Pointer segment (`~1` → `/`, `~0` → `~`).
+ *
+ * TypeBox 1.3+ escapes property names in `instancePath` and `schemaPath`
+ * (`"a/b"` → `/a~1b`); TypeBox 1.1 did not. The package range spans both, so
+ * every lookup tries the raw segment first and the decoded form second.
+ */
+function decodePointerSegment(segment: string): string {
+  return segment.replaceAll("~1", "/").replaceAll("~0", "~");
+}
+
 function fieldFromPath(instancePath: string): string {
-  return instancePath.split("/").filter(Boolean).at(-1) ?? ROOT_FIELD;
+  const last = instancePath.split("/").filter(Boolean).at(-1);
+  return last === undefined ? ROOT_FIELD : decodePointerSegment(last);
 }
 
 /**
  * Resolve the leaf property name from a TypeBox error by walking
  * `error.schemaPath` rather than `error.instancePath`.
  *
- * `instancePath` does not escape `/` inside property names (TypeBox does not
- * follow JSON Pointer RFC 6901's `~1` encoding), so a schema with BOTH a
- * slash-named property `"a/b"` AND a nested path `a.b` produces the same
+ * Before 1.3, TypeBox's `instancePath` did not escape `/` inside property
+ * names (no JSON Pointer RFC 6901 `~1` encoding), so a schema with BOTH a
+ * slash-named property `"a/b"` AND a nested path `a.b` produced the same
  * `instancePath: "/a/b"` for either failure — the two cases are
- * indistinguishable from the data path alone. `schemaPath` carries explicit
+ * indistinguishable from the data path alone. TypeBox 1.3+ escapes both paths
+ * (`/a~1b`, `#/properties/a~1b`); the walker accepts either form. `schemaPath` carries explicit
  * `/properties/` markers per nesting level, so the two cases become
  * structurally distinct:
  *
@@ -102,13 +115,16 @@ function walkSegments(node: unknown, segments: string[], i: number, lastField: s
     return walkSegments(obj.items, segments, i + 1, lastField);
   }
   // `properties` command: subsequent segments form the property name (joined
-  // by `/` to recover slash-named keys). Consume by greedy longest-prefix
-  // match against the parent's actual `properties` keys, then descend.
+  // by `/` to recover unescaped slash-named keys from TypeBox < 1.3). Consume
+  // by greedy longest-prefix match against the parent's actual `properties`
+  // keys, then descend. The raw candidate wins; the RFC 6901-decoded form
+  // covers TypeBox 1.3+, which emits `a~1b` as a single segment.
   if (head === "properties" && obj.properties && typeof obj.properties === "object") {
     const props = obj.properties;
     for (let j = segments.length; j > i + 1; j--) {
-      const candidate = segments.slice(i + 1, j).join("/");
-      if (Object.hasOwn(props, candidate)) {
+      const raw = segments.slice(i + 1, j).join("/");
+      for (const candidate of new Set([raw, decodePointerSegment(raw)])) {
+        if (!Object.hasOwn(props, candidate)) continue;
         const child = walkSegments(props[candidate], segments, j, candidate);
         if (child !== undefined) return child;
       }
@@ -190,11 +206,14 @@ function resolveSchemaAtPath(schema: TSchema, instancePath: string): unknown {
   for (const segment of segments) {
     if (!current || typeof current !== "object") return undefined;
     const obj = current as { properties?: Record<string, unknown>; items?: unknown };
-    if (obj.properties && typeof obj.properties === "object" && segment in obj.properties) {
-      const next = obj.properties[segment];
-      if (next === undefined) return undefined;
-      current = next;
-      continue;
+    if (obj.properties && typeof obj.properties === "object") {
+      const key = segment in obj.properties ? segment : decodePointerSegment(segment);
+      if (key in obj.properties) {
+        const next = obj.properties[key];
+        if (next === undefined) return undefined;
+        current = next;
+        continue;
+      }
     }
     if (obj.items !== undefined && /^\d+$/.test(segment)) {
       if (Array.isArray(obj.items)) {
@@ -396,7 +415,9 @@ function suppressSiblingErrorsUnderUnion(
       if (!error.instancePath.startsWith(prefix)) continue;
       const remainder = error.instancePath.slice(prefix.length);
       if (remainder.includes("/")) continue; // only direct discriminator props
-      const losingValues = resolution.losingDiscriminators.get(remainder);
+      const losingValues =
+        resolution.losingDiscriminators.get(remainder) ??
+        resolution.losingDiscriminators.get(decodePointerSegment(remainder));
       if (!losingValues) continue;
       if (error.keyword === "const" && losingValues.has(error.params.allowedValue)) return false;
       if (error.keyword === "enum" && Array.isArray(error.params.allowedValues)) {
@@ -405,6 +426,22 @@ function suppressSiblingErrorsUnderUnion(
     }
     return true;
   });
+}
+
+/**
+ * TypeBox 1.3+ reports each additional property twice: once as the
+ * `additionalProperties` summary at the object (which `expandTypeBoxError`
+ * expands per key) and once per key as the failure of the `additionalProperties`
+ * sub-schema itself (`keyword: "boolean"` for `false`, or e.g. `"type"` for a
+ * schema value), with `schemaPath` ending at that keyword. TypeBox 1.1 emitted
+ * only the summary. Dropping the per-key duplicates keeps one error per key and
+ * lets union phantom suppression, which reasons about the summary, stay
+ * authoritative. A trailing segment after a `properties` command is a property
+ * literally named `additionalProperties`, not the keyword.
+ */
+function isAdditionalPropertiesSubschemaError(error: TLocalizedValidationError): boolean {
+  const segments = error.schemaPath.split("/");
+  return segments.at(-1) === "additionalProperties" && segments.at(-2) !== "properties";
 }
 
 function expandTypeBoxError(schema: TSchema, error: TLocalizedValidationError): PortableValidationError[] {
@@ -472,9 +509,13 @@ export function validatePortableToolArgs<TParams extends TSchema>(
   // satisfy ONE branch, not all of them). Then dedupe the survivors by
   // (field, message) using JSON.stringify so the key can't collide regardless
   // of what characters field or message contain.
-  const rawErrors = suppressSiblingErrorsUnderUnion(tool.parameters, args, [
-    ...Errors(tool.parameters, args),
-  ] as TLocalizedValidationError[]);
+  const rawErrors = suppressSiblingErrorsUnderUnion(
+    tool.parameters,
+    args,
+    ([...Errors(tool.parameters, args)] as TLocalizedValidationError[]).filter(
+      (error) => !isAdditionalPropertiesSubschemaError(error),
+    ),
+  );
   const seen = new Set<string>();
   const errors = rawErrors
     .flatMap((error) => expandTypeBoxError(tool.parameters, error))
