@@ -29,7 +29,7 @@ const intersectParamTool = definePortableTool({
 });
 
 // Type-only assertion that the widened signature accepts both shapes. This file
-// is never executed (excluded from `npm test` and the published tarball); only
+// is never executed (excluded from `pnpm test` and the published tarball); only
 // `tsc` reads it during the standard typecheck.
 createMcpServer({ name: "bad-server", version: "0.1.0", tools: [stringParamTool] });
 createMcpServer({ name: "ok-server", version: "0.1.0", tools: [intersectParamTool] });

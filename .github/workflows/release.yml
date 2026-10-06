@@ -97,29 +97,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: pnpm audit --prod --audit-level high
 
       - name: Lint and typecheck
-        run: npm run check
+        run: pnpm run check
 
       - name: Build and test
-        run: npm test
+        run: pnpm test
 
       - name: Pack dry-run
-        run: npm run pack:dry-run
+        run: pnpm run pack:dry-run
 
       - name: Package smoke test
-        run: npm run package-smoke
+        run: pnpm run package-smoke
 
   checks_skipped:
     needs: detect
@@ -148,6 +151,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -155,8 +161,11 @@ jobs:
           registry-url: https://registry.npmjs.org/
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
+      # pnpm manages installs; npm (bundled with Node 24) performs the OIDC
+      # trusted-publishing exchange and provenance attestation. Its prepack
+      # hook runs `pnpm run build`, so pnpm must stay on PATH for this job.
       - name: Publish
         run: npm publish --access public --provenance
 

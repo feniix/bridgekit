@@ -13,7 +13,7 @@
 // produce a duplicate-declaration error at the program level. Future
 // negative-case fixtures must use distinct namespace names.
 //
-// Excluded from `npm test` (`*.typecheck.ts` glob) and from the published
+// Excluded from `pnpm test` (`*.typecheck.ts` glob) and from the published
 // tarball (`package.json#files`).
 
 import {

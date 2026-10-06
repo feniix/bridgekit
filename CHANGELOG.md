@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Development, CI, and release installs use pnpm instead of npm. `package.json#packageManager`
+  pins `pnpm@12.9.1`, `pnpm-lock.yaml` replaces `package-lock.json`, and CI installs with
+  `pnpm install --frozen-lockfile`. The production audit gate is now
+  `pnpm audit --prod --audit-level high`. Publishing still uses
+  `npm publish --access public --provenance` for OIDC trusted publishing.
+  The lockfile resolves `typebox` to 1.3.35 rather than 1.3.36, because pnpm's default
+  `minimumReleaseAge` skips same-day releases; both satisfy `^1.1.31`.
+- The package smoke test packs with `pnpm pack` and installs the tarball into a strict pnpm
+  consumer, which now declares `@modelcontextprotocol/server` explicitly for the `Server` type.
+  A new invariant fails when `packageManager` is unpinned or an npm/yarn lockfile reappears.
+- No runtime change: `runBinWrapper` still builds missing output with `npm run <buildScript>`,
+  since downstream consumers own their package manager.
+
 ## [0.17.0] - 2026-10-06
 
 ### Changed
