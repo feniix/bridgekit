@@ -132,6 +132,14 @@ portable seam and becomes an error result through the adapters. Argument/domain
 failures are exempt from success schemas. Without `outputSchema`, existing result
 behavior is unchanged.
 
+`definePortableTool` infers the output schema and checks synchronous/asynchronous
+successful data at compile time while preserving the handler's inferred result
+type. Domain failures must use the literal `isError: true` discriminator.
+Runtime validation still protects JavaScript callers and dynamically sourced data.
+For explicitly annotated tools, use the third `PortableTool<TParams, TResult, TOutput>`
+generic to retain schema checking; existing two-generic annotations deliberately
+erase schema specificity.
+
 Pi registrations forward the schema; Pi results now preserve `structuredContent`
 directly for programmatic/codemode consumers, alongside the renderer-facing
 `details` described below. The new fields are omitted when not supplied.

@@ -15,6 +15,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `structuredContent` alongside the existing renderer-facing `details`.
 - MCP listings forward object-shaped output schemas, including intersections;
   invalid output schemas are rejected at server construction.
+- Schema-declaring `definePortableTool` calls check successful structured data at
+  compile time while preserving inferred result unions; explicit annotations can
+  retain schemas with a third `PortableTool` generic. Domain failures are exempt.
+- Output-schema construction failures carry stable diagnostic codes, with
+  reference/union-specific recipes and MCP constructor attribution.
 
 ### Changed (breaking)
 
@@ -24,6 +29,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `runMcpStdioServer` now serves both legacy MCP clients and modern protocol
   `2026-07-28` via `serveStdio`. Its `Promise<void>` startup signature is unchanged.
   This change requires a pre-1.0 minor release, not a patch.
+
+### Fixed
+
+- Discarded modern stdio discovery probes no longer contaminate legacy fallback:
+  each factory invocation gets a fresh server. SDK-reported opening errors are
+  diagnosed on stderr without contaminating protocol stdout.
+- Pi validates all output schemas before registering tools, preventing partial
+  registration when a later tool has an invalid schema.
 
 ## [0.14.0] - 2026-05-28
 

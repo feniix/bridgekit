@@ -56,6 +56,17 @@ portable failure details to work around that client behavior.
 Pi forwards both `outputSchema` and result `structuredContent`, retaining the old
 renderer-facing `details` precedence/fallback. Fields not supplied remain omitted.
 
+`definePortableTool` checks successful structured data against the inferred schema
+at compile time, including async results, while retaining inferred handler unions.
+Domain failures use the literal `isError: true` discriminator. Explicit annotations
+can use `PortableTool<TParams, TResult, TOutput>`; existing two-generic annotations
+erase schema specificity. Runtime validation remains necessary for JavaScript,
+untyped data, and refinements not represented by TypeScript (e.g. numeric bounds).
+
+MCP output-schema construction errors remain `TypeError`s and now carry stable
+codes: `BRIDGEKIT_MCP_NON_OBJECT_OUTPUT_SCHEMA` or `BRIDGEKIT_MCP_REF_OUTPUT_SCHEMA`,
+with a `createMcpServer:` prefix and root/branch-specific correction guidance.
+
 ## Verification and scope
 
 Regression seams: portable execution, Pi registration/results, MCP connected pairs,

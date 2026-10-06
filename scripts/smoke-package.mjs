@@ -165,6 +165,8 @@ async function assertTypesCompile(installDir) {
       });
 
       const builtInHost: PortableToolBuiltInHost = "mcp";
+      // @ts-expect-error installed declarations reject schema-incompatible successes
+      definePortableTool({ ...tool, execute: () => ({ text: "bad", structuredContent: { text: 42 } }) });
       const defaultContext: PortableToolContext = { host: builtInHost };
       void defaultContext;
 

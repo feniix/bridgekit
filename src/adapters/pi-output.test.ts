@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { definePortableTool } from "@feniix/bridgekit";
 import { type PiToolRegistration, registerPiTools } from "@feniix/bridgekit/pi";
+import { fromAny } from "@total-typescript/shoehorn";
 import { Type } from "typebox";
 
 test("Pi forwards outputSchema and structuredContent while retaining details", async () => {
@@ -52,6 +53,7 @@ test("Pi preserves domain error data outside success schemas and surfaces invali
     { text: "offline", structuredContent: { reason: "offline" }, isError: true },
     { text: "wrong", structuredContent: { count: "one" } },
   ]) {
+    const execute: () => { text: string; structuredContent: { count: number } } = fromAny(() => output);
     const registered: Array<Parameters<PiToolRegistration["registerTool"]>[0]> = [];
     registerPiTools({ registerTool: (tool) => registered.push(tool) }, [
       definePortableTool({
@@ -60,7 +62,7 @@ test("Pi preserves domain error data outside success schemas and surfaces invali
         description: "Output error",
         parameters: Type.Object({}),
         outputSchema: Type.Object({ count: Type.Number() }),
-        execute: () => output,
+        execute,
       }),
     ]);
     const tool = registered[0];

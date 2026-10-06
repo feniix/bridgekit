@@ -25,16 +25,19 @@ test("MCP output-schema construction failures have stable codes and actionable r
       description: "Invalid output schema",
       parameters: emptyParams,
       outputSchema,
-      execute: () => ({ text: "ok" }),
+      execute: () => ({ text: "ok", isError: true }),
     });
-    assert.throws(() => createMcpServer({ name: "bad", version: "0", tools: [tool] }), (error: unknown) => {
-      assert.ok(error instanceof TypeError);
-      const coded: { code: string } = fromAny(error);
-      assert.equal(coded.code, code);
-      assert.match(error.message, /^createMcpServer: Invalid outputSchema for bad_output/);
-      assert.match(error.message, recipe);
-      return true;
-    });
+    assert.throws(
+      () => createMcpServer({ name: "bad", version: "0", tools: [tool] }),
+      (error: unknown) => {
+        assert.ok(error instanceof TypeError);
+        const coded: { code: string } = fromAny(error);
+        assert.equal(coded.code, code);
+        assert.match(error.message, /^createMcpServer: Invalid outputSchema for bad_output/);
+        assert.match(error.message, recipe);
+        return true;
+      },
+    );
   }
 });
 
@@ -144,13 +147,14 @@ test("MCP output schemas preserve error data and turn handler contract violation
     { text: "wrong", structuredContent: { count: "one" } },
     { text: "missing" },
   ]) {
+    const execute: () => { text: string; structuredContent: { count: number } } = fromAny(() => result);
     const tool = definePortableTool({
       name: "output_error",
       title: "Output error",
       description: "Output contract failures",
       parameters: emptyParams,
       outputSchema: Type.Object({ count: Type.Number() }),
-      execute: () => result,
+      execute,
     });
     await withConnectedPair([tool], async (client) => {
       await client.listTools();
@@ -172,7 +176,7 @@ test("MCP rejects non-object output schemas before connecting", () => {
     description: "Invalid output schema",
     parameters: emptyParams,
     outputSchema: Type.String(),
-    execute: () => ({ text: "unused" }),
+    execute: () => ({ text: "unused", isError: true }),
   });
   assert.throws(
     () => createMcpServer({ name: "invalid", version: "0.0.0", tools: [tool] }),

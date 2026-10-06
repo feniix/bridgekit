@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { definePortableTool, executePortableTool } from "@feniix/bridgekit";
+import { fromAny } from "@total-typescript/shoehorn";
 import { Type } from "typebox";
 
 test("portable execution validates successful structured output without widening its inferred type", async () => {
@@ -56,13 +57,15 @@ test("invalid or missing successful structured output throws instead of being ad
     { text: "missing" },
     { text: "legacy is not declared output", details: { count: 1 } },
   ]) {
+    // Deliberately inject untyped runtime data to exercise the runtime guard.
+    const execute: () => { text: string; structuredContent: { count: number } } = fromAny(() => result);
     const tool = definePortableTool({
       name: "invalid_output",
       title: "Invalid output",
       description: "Violates its output contract.",
       parameters: Type.Object({}),
       outputSchema: Type.Object({ count: Type.Number() }),
-      execute: () => result,
+      execute,
     });
     await assert.rejects(executePortableTool(tool, {}, { host: "test" }), {
       name: "TypeError",
@@ -72,13 +75,16 @@ test("invalid or missing successful structured output throws instead of being ad
 });
 
 test("an optional object output schema still requires successful structuredContent", async () => {
+  const execute: () => { text: string; structuredContent: Record<string, unknown> } = fromAny(() => ({
+    text: "missing",
+  }));
   const tool = definePortableTool({
     name: "optional_output",
     title: "Optional output",
     description: "Must supply structured output even if the schema accepts undefined.",
     parameters: Type.Object({}),
     outputSchema: Type.Optional(Type.Object({})),
-    execute: () => ({ text: "missing" }),
+    execute,
   });
   await assert.rejects(
     executePortableTool(tool, {}, { host: "test" }),

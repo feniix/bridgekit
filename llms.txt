@@ -63,6 +63,10 @@ export function createTools() {
   an inlined TypeBox object or object intersection. Missing/invalid successful
   `structuredContent` throws `TypeError`; argument/domain error results are exempt.
   Legacy `details` alone does not satisfy a declared output schema.
+  `definePortableTool` infers/checks schema-linked success data at compile time;
+  use literal `isError: true` for exempt domain failures. A third
+  `PortableTool<TParams, TResult, TOutput>` generic preserves the schema in explicit
+  annotations; legacy two-generic annotations erase it. Runtime checks still apply.
 - Use `isError: true` for domain/tool-level failures that should reach the model as tool output.
 - Throw only for unexpected programmer, adapter, or runtime failures.
 - Respect `ctx.signal` in long-running tools.

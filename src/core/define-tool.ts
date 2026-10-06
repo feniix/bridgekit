@@ -166,17 +166,35 @@ export interface PortableToolHostExtras {
   mcp?: McpHostExtras;
 }
 
+/** Successes satisfy the output schema; literal domain failures retain arbitrary data. */
+type SchemaResult<TOutput extends TSchema> =
+  | (PortableToolResult & {
+      structuredContent: Exclude<Static<TOutput>, undefined> & Record<string, unknown>;
+      isError?: false;
+    })
+  | (PortableToolResult & { isError: true });
+
+type CheckedResult<TResult extends PortableToolResult, TOutput extends TSchema | undefined> = [TOutput] extends [
+  TSchema,
+]
+  ? TResult & SchemaResult<NoInfer<Extract<TOutput, TSchema>>>
+  : TResult;
+
 export interface PortableTool<
   TParams extends TSchema = TSchema,
   TResult extends PortableToolResult = PortableToolResult,
+  TOutput extends TSchema | undefined = TSchema | undefined,
 > {
   name: string;
   title: string;
   description: string;
   parameters: TParams;
-  /** Object-shaped TypeBox schema for successful structuredContent. Error results are exempt. */
-  outputSchema?: TSchema;
-  execute: (args: Static<TParams>, ctx: PortableToolContext) => TResult | Promise<TResult>;
+  /** Object-shaped TypeBox schema for successful structuredContent. Literal isError:true results are exempt. */
+  outputSchema?: TOutput;
+  execute: (
+    args: Static<TParams>,
+    ctx: PortableToolContext,
+  ) => CheckedResult<TResult, TOutput> | Promise<CheckedResult<TResult, TOutput>>;
   /**
    * Optional per-host metadata. Adapters consume the keys they recognise;
    * unknown host namespaces are ignored. Absent → no behavior change.
@@ -189,8 +207,24 @@ export interface PortableTool<
   hostExtras?: PortableToolHostExtras;
 }
 
+// Infer the entire handler (including success/domain unions), rather than
+// inferring TResult through an intersection that can select just one branch.
+export function definePortableTool<
+  TParams extends TSchema,
+  TOutput extends TSchema,
+  TExecute extends (
+    args: Static<TParams>,
+    ctx: PortableToolContext,
+  ) => SchemaResult<NoInfer<TOutput>> | Promise<SchemaResult<NoInfer<TOutput>>>,
+>(
+  tool: Omit<PortableTool<TParams, PortableToolResult, TOutput>, "execute" | "outputSchema"> & {
+    outputSchema: TOutput;
+    execute: TExecute;
+  },
+): PortableTool<TParams, Awaited<ReturnType<TExecute>>, TOutput>;
 export function definePortableTool<TParams extends TSchema, TResult extends PortableToolResult>(
-  tool: PortableTool<TParams, TResult>,
-): PortableTool<TParams, TResult> {
+  tool: PortableTool<TParams, TResult> & { outputSchema?: undefined },
+): PortableTool<TParams, TResult>;
+export function definePortableTool(tool: PortableTool): PortableTool {
   return tool;
 }
