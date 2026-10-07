@@ -11,5 +11,8 @@ export function createMcpHttpHandler(
   httpOptions: CreateMcpHandlerOptions = {},
 ): McpHttpHandler {
   const factory = createMcpServerFactory(options);
-  return createMcpHandler(factory, httpOptions);
+  return createMcpHandler(factory, {
+    ...httpOptions,
+    onerror: httpOptions.onerror ?? ((error) => process.stderr.write(`[bridgekit-mcp] ${error.message}\n`)),
+  });
 }

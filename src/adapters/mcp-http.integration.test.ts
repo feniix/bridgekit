@@ -185,3 +185,48 @@ for (const modern of [false, true]) {
     }
   });
 }
+
+test("HTTP diagnostics default to stderr and honor a caller reporter", async (t) => {
+  const diagnostics: string[] = [];
+  t.mock.method(process.stderr, "write", (text: string) => {
+    diagnostics.push(text);
+    return true;
+  });
+  for (const custom of [false, true]) {
+    const reported: Error[] = [];
+    const handler = createMcpHttpHandler(
+      { name: "diagnostics", version: "0", tools },
+      {
+        legacy: "reject",
+        ...(custom && {
+          onerror: (error: Error) => {
+            reported.push(error);
+          },
+        }),
+      },
+    );
+    try {
+      await handler.fetch(
+        new Request("http://localhost/mcp", {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "old", version: "0" } },
+          }),
+        }),
+      );
+      if (custom) {
+        assert.equal(reported.length, 1);
+        assert.equal(diagnostics.length, 1);
+      } else {
+        assert.equal(diagnostics.length, 1);
+        assert.match(diagnostics[0] ?? "", /^\[bridgekit-mcp\]/);
+      }
+    } finally {
+      await handler.close();
+    }
+  }
+});
