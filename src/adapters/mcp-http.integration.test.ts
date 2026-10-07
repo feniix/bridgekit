@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
-import { definePortableTool } from "@feniix/bridgekit";
+import { definePortableTool, type PortableTool } from "@feniix/bridgekit";
 import { createMcpHttpHandler } from "@feniix/bridgekit/mcp";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { Type } from "typebox";
@@ -126,3 +126,62 @@ test("HTTP options can reject legacy clients and bound request bodies", async ()
     await handler.close();
   }
 });
+
+for (const modern of [false, true]) {
+  test(`HTTP snapshots caller options across ${modern ? "modern" : "legacy"} requests`, async () => {
+    const icon = { src: "https://example.com/original.svg" };
+    const meta = { category: "original" };
+    const mutableTools: PortableTool[] = [
+      definePortableTool({
+        name: "original",
+        title: "Original",
+        description: "Original",
+        parameters: Type.Object({}),
+        hostExtras: { mcp: { icons: [icon], _meta: meta } },
+        execute: () => ({ text: "original" }),
+      }),
+    ];
+    const options = { name: "snapshot", version: "0", tools: mutableTools };
+    const handler = createMcpHttpHandler(options);
+    icon.src = "mutated";
+    meta.category = "mutated";
+    options.name = "mutated";
+    mutableTools.push(
+      definePortableTool({
+        name: "late",
+        title: "Late",
+        description: "Late",
+        parameters: Type.String(),
+        execute: () => ({ text: "late" }),
+      }),
+    );
+    const client = new Client(
+      { name: "snapshot-client", version: "0" },
+      {
+        versionNegotiation: { mode: modern ? { pin: "2026-07-28" } : "legacy" },
+      },
+    );
+    const transport = new StreamableHTTPClientTransport(new URL("http://localhost/mcp"), {
+      fetch: (input, init) => handler.fetch(new Request(input, init)),
+    });
+    try {
+      await client.connect(transport);
+      assert.equal(client.getServerVersion()?.name, "snapshot");
+      for (let i = 0; i < 2; i++) {
+        const list = await client.listTools();
+        assert.deepEqual(
+          list.tools.map((tool) => tool.name),
+          ["original"],
+        );
+        assert.deepEqual(list.tools[0]?.icons, [{ src: "https://example.com/original.svg" }]);
+        assert.deepEqual(list.tools[0]?._meta, { category: "original" });
+        assert.equal((await client.callTool({ name: "original", arguments: {} })).isError, false);
+        assert.equal((await client.callTool({ name: "late", arguments: {} })).isError, true);
+      }
+    } finally {
+      await client.close();
+      await transport.close();
+      await handler.close();
+    }
+  });
+}

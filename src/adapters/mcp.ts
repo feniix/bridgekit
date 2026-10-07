@@ -136,7 +136,9 @@ function assertUniqueToolNames(tools: readonly PortableTool<TSchema, PortableToo
   }
 }
 
-export function createMcpServer(options: CreateMcpServerOptions): Server {
+/** Internal serving seam: validate and snapshot once, then build isolated SDK servers cheaply. */
+export function createMcpServerFactory(options: CreateMcpServerOptions): () => Server {
+  const { name, version, instructions } = options;
   for (const tool of options.tools) assertPortableOutputSchema(tool, "createMcpServer", "BRIDGEKIT_MCP");
   assertObjectShapedParameters(options.tools);
   assertUniqueToolNames(options.tools);
@@ -144,7 +146,7 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
   // `tools/list` returns a pre-computed array and post-construction mutations
   // to the caller's array cannot leak unvalidated schemas onto the wire.
   const entries = options.tools.map((tool) => ({
-    tool,
+    tool: { ...tool },
     outputSchema: tool.outputSchema !== undefined ? toMcpOutputSchema(tool.outputSchema) : undefined,
   }));
   const byName = new Map(entries.map((entry) => [entry.tool.name, entry]));
@@ -179,70 +181,76 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
       ...(meta !== undefined ? { _meta: { ...meta } } : {}),
     };
   });
-  const server = new Server(
-    { name: options.name, version: options.version },
-    {
-      capabilities: { tools: { listChanged: false } },
-      ...(options.instructions !== undefined && { instructions: options.instructions }),
-    },
-  );
+  return () => {
+    const server = new Server(
+      { name, version },
+      {
+        capabilities: { tools: { listChanged: false } },
+        ...(instructions !== undefined && { instructions }),
+      },
+    );
 
-  server.setRequestHandler("tools/list", async () => ({ tools: mcpTools }));
+    server.setRequestHandler("tools/list", async () => ({ tools: mcpTools }));
 
-  server.setRequestHandler("tools/call", async (request, ctx) => {
-    const entry = byName.get(request.params.name);
-    if (!entry) {
-      return {
-        content: [{ type: "text", text: `Unknown tool: ${request.params.name}` }],
-        isError: true,
-      } satisfies CallToolResult;
-    }
+    server.setRequestHandler("tools/call", async (request, ctx) => {
+      const entry = byName.get(request.params.name);
+      if (!entry) {
+        return {
+          content: [{ type: "text", text: `Unknown tool: ${request.params.name}` }],
+          isError: true,
+        } satisfies CallToolResult;
+      }
 
-    // `ctx.progress` is only wired when the client asked for progress by
-    // sending `_meta.progressToken`; otherwise the context is byte-identical
-    // to the pre-progress shape. `progress` is a monotonic per-call counter
-    // (the spec requires it to increase) and `message` is the update text.
-    // Sends are skipped once the request is cancelled and awaited before the
-    // result goes out, so a client never sees a notification for a token it
-    // has already released. A failed send never fails the tool call.
-    const progressToken = ctx.mcpReq._meta?.progressToken;
-    const pendingNotifications: Promise<void>[] = [];
-    let progressCount = 0;
-    const progress: PortableToolContext["progress"] =
-      progressToken === undefined
-        ? undefined
-        : (update) => {
-            if (ctx.mcpReq.signal.aborted) return;
-            progressCount += 1;
-            pendingNotifications.push(
-              ctx.mcpReq
-                .notify({
-                  method: "notifications/progress",
-                  params: { progressToken, progress: progressCount, message: update.text },
-                })
-                .catch(() => undefined),
-            );
-          };
+      // `ctx.progress` is only wired when the client asked for progress by
+      // sending `_meta.progressToken`; otherwise the context is byte-identical
+      // to the pre-progress shape. `progress` is a monotonic per-call counter
+      // (the spec requires it to increase) and `message` is the update text.
+      // Sends are skipped once the request is cancelled and awaited before the
+      // result goes out, so a client never sees a notification for a token it
+      // has already released. A failed send never fails the tool call.
+      const progressToken = ctx.mcpReq._meta?.progressToken;
+      const pendingNotifications: Promise<void>[] = [];
+      let progressCount = 0;
+      const progress: PortableToolContext["progress"] =
+        progressToken === undefined
+          ? undefined
+          : (update) => {
+              if (ctx.mcpReq.signal.aborted) return;
+              progressCount += 1;
+              pendingNotifications.push(
+                ctx.mcpReq
+                  .notify({
+                    method: "notifications/progress",
+                    params: { progressToken, progress: progressCount, message: update.text },
+                  })
+                  .catch(() => undefined),
+              );
+            };
 
-    try {
-      const result = await executePortableTool(entry.tool, request.params.arguments ?? {}, {
-        host: "mcp",
-        signal: ctx.mcpReq.signal,
-        ...(progress !== undefined && { progress }),
-      });
-      await Promise.all(pendingNotifications);
-      return server.projectCallToolResult(toMcpResult(result), entry.outputSchema);
-    } catch (error) {
-      await Promise.all(pendingNotifications);
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        content: [{ type: "text", text: message }],
-        isError: true,
-      } satisfies CallToolResult;
-    }
-  });
+      try {
+        const result = await executePortableTool(entry.tool, request.params.arguments ?? {}, {
+          host: "mcp",
+          signal: ctx.mcpReq.signal,
+          ...(progress !== undefined && { progress }),
+        });
+        await Promise.all(pendingNotifications);
+        return server.projectCallToolResult(toMcpResult(result), entry.outputSchema);
+      } catch (error) {
+        await Promise.all(pendingNotifications);
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [{ type: "text", text: message }],
+          isError: true,
+        } satisfies CallToolResult;
+      }
+    });
 
-  return server;
+    return server;
+  };
+}
+
+export function createMcpServer(options: CreateMcpServerOptions): Server {
+  return createMcpServerFactory(options)();
 }
 
 export interface McpStdioServerHandle {
@@ -257,8 +265,8 @@ export interface McpStdioServerHandle {
 export async function runMcpStdioServer(options: CreateMcpServerOptions): Promise<McpStdioServerHandle> {
   // Validate eagerly, but each discarded probe/connection must own its server:
   // a modern probe installs era-specific handlers before it can be discarded.
-  createMcpServer(options);
-  const handle = serveStdio(() => createMcpServer(options), {
+  const factory = createMcpServerFactory(options);
+  const handle = serveStdio(factory, {
     onerror: (error) => process.stderr.write(`[bridgekit-mcp] ${error.message}\n`),
   });
   let closing: Promise<void> | undefined;

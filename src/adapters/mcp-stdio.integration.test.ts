@@ -95,6 +95,12 @@ test("discarded modern discover probe can fall back to legacy on the same stdio 
     });
     assert.equal(initialized.protocolVersion, "2025-11-25");
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+    const listing = await request("tools/list", {});
+    assert.ok(Array.isArray(listing.tools));
+    const echo = listing.tools.find((tool) => tool.name === "echo");
+    assert.deepEqual(echo.icons, [{ src: "https://example.com/original.svg" }]);
+    assert.deepEqual(echo._meta, { category: "original" });
+    assert.ok(!listing.tools.some((tool) => tool.name === "late-invalid"));
     const result = await request("tools/call", { name: "echo", arguments: { text: "fallback" } });
     assert.deepEqual(result.structuredContent, { text: "fallback" });
     // A synchronous progress burst is written in order and before the result.

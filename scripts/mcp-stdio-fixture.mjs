@@ -18,12 +18,14 @@ const simpleTool = (name, execute) =>
     execute,
   });
 
-const handle = await runMcpStdioServer({
+const icon = { src: "https://example.com/original.svg" };
+const options = {
   name: "stdio-fixture",
   version: "0.0.0",
   tools: [
     definePortableTool({
       name: "echo",
+      hostExtras: { mcp: { icons: [icon], _meta: { category: "original" } } },
       title: "Echo",
       description: "Echo with declared output.",
       parameters: Type.Intersect([Type.Object({ text: Type.String() }), Type.Object({})]),
@@ -83,7 +85,20 @@ const handle = await runMcpStdioServer({
       execute: () => ({ text: "status", structuredContent: { started, aborted } }),
     }),
   ],
-});
+};
+const handle = await runMcpStdioServer(options);
+// Mutations after startup must not change later probe/connection server instances.
+icon.src = "https://example.com/mutated.svg";
+options.tools[0].hostExtras.mcp._meta.category = "mutated";
+options.tools.push(
+  definePortableTool({
+    name: "late-invalid",
+    title: "Late",
+    description: "Late",
+    parameters: Type.String(),
+    execute: (text) => ({ text }),
+  }),
+);
 
 // IPC is used only by lifecycle tests; normal stdio consumers never see it.
 if (process.send) {
