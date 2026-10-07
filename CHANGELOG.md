@@ -12,15 +12,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   snapshots and no new wire keys when absent (#128).
 - Add `createMcpHttpHandler` for Web-standard HTTP serving with modern MCP and
   stateless legacy fallback. Listener and security policy remain application-owned
-  (#126).
+  (#126). HTTP options and handler types are exported from the MCP entrypoint.
 
-### Changed
+### Changed (breaking)
 
 - `runMcpStdioServer` now returns `Promise<McpStdioServerHandle>` with an
   idempotent `close()` that aborts pending requests (#129). Awaiting startup
   means stdio wiring is ready, not that a client has connected. Callers that
   explicitly annotated `Promise<void>` must update their annotation; existing
   callers that ignore the resolved value need no changes.
+
+### Fixed
+
+- Snapshot validated tool definitions once for HTTP and stdio serving, including
+  discovery fallback; later caller array/metadata mutations cannot leak onto the wire.
+- Reject invalid MCP icon shapes at construction with tool-attributed
+  `BRIDGEKIT_MCP_INVALID_ICONS` errors; HTTP serving defaults to stderr diagnostics.
+- Clarify that stdio `close()` aborts requests without awaiting asynchronous tool cleanup.
 
 ### Tests
 

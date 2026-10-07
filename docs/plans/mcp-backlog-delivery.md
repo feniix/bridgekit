@@ -16,17 +16,17 @@
 
 ## Delivery status
 
-Changes listed as implemented are local, uncommitted, and unreleased. Do not
+Changes listed as implemented are committed on `feat/mcp-backlog-delivery` in PR #135 and unreleased. Do not
 close GitHub issues merely because this checklist says implemented.
 
 | Issue | Status | Evidence / next step |
 | --- | --- | --- |
-| #126 HTTP | Implemented locally | `createMcpHttpHandler`, real HTTP tests for legacy/modern, packed HTTP transport checks, README recipe/security ownership |
+| #126 HTTP | Implemented in PR #135 | `createMcpHttpHandler`, real HTTP tests for legacy/modern, packed HTTP transport checks, README recipe/security ownership |
 | #127 Tasks | Design approved; implementation pending | Add backend/execution primitive, revision-specific handlers, capability guards, TTL/capacity/cancellation, stdio and HTTP coverage |
-| #128 Metadata | Implemented locally | `hostExtras.mcp.icons` / `_meta`, snapshots, exact absent key set, type fixtures, packed HTTP checks |
-| #129 Lifecycle | Implemented locally | `Promise<McpStdioServerHandle>`, idempotent close, before-negotiation/in-flight shutdown tests, installed declarations |
+| #128 Metadata | Implemented in PR #135 | `hostExtras.mcp.icons` / `_meta`, snapshots, exact absent key set, type fixtures, packed HTTP checks |
+| #129 Lifecycle | Implemented in PR #135 | `Promise<McpStdioServerHandle>`, idempotent close, before-negotiation/in-flight shutdown tests, installed declarations |
 | #130 Conformance | Partial, blocked for direct stdio/modern | Four passing official HTTP scenarios; published harness rejects `2026-07-28` and has no stdio invocation |
-| #131 SDK v1 | Implemented locally | Retain dev dependency; error-schema rejection/workaround and recovery tests; documented rationale |
+| #131 SDK v1 | Implemented in PR #135 | Retain dev dependency; error-schema rejection/workaround and recovery tests; documented rationale |
 | #132 Progress | Upstream blocked | SDK issue #2580 remains open as checked 2026-10-07; do not remove caveat or use a timing workaround |
 | #20 Stability | Pending | Record current policy and evidence-based gates without scheduling or publishing 1.0.0 |
 

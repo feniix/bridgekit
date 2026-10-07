@@ -5,12 +5,14 @@
 Use SDK v2's low-level `Server`, preserving TypeBox JSON Schema passthrough.
 Upgrade the existing `runMcpStdioServer` to dual-era `serveStdio` serving, rather
 than introducing another public runner or entrypoint. The original migration
-preserved `Promise<void>`. The upcoming #129 change returns
+preserved `Promise<void>`. The #129 lifecycle change returns
 `Promise<McpStdioServerHandle>` with idempotent `close(): Promise<void>` to close
 the transport and abort in-flight requests. Resolution means startup wiring is
 installed, not that negotiation has completed or shutdown has occurred.
 Explicit `Promise<void>` annotations must be updated; callers that ignore the
-resolved value need no changes. Stdin EOF still triggers cleanup.
+resolved value need no changes. `close()` aborts requests but does not await
+handler completion or asynchronous cleanup: consumers must coordinate tool
+cleanup before disposing shared application resources. Stdin EOF still triggers cleanup.
 The SDK closes stdio on EOF; tools must respect their cancellation signal and
 must not leave unrelated processes/timers running.
 
@@ -125,9 +127,9 @@ spawned legacy/v2-modern stdio clients, cancellation through the public tool sea
 EOF shutdown, and installed tarball declarations/protocol calls.
 
 HTTP/auth, tasks, resources/prompts, and additional Pi metadata were out of scope
-for the original SDK migration. The upcoming backlog pass adds HTTP serving
+for the original SDK migration. The backlog pass adds HTTP serving
 (#126), MCP tool metadata (#128), and stdio lifecycle control (#129); auth and
-listener policy remain application-owned. Tasks (#127) remain in progress.
+listener policy remain application-owned. Tasks (#127) have an approved design; implementation is pending.
 Passing the project tests is not an official conformance claim.
 
 Research and isolated evidence: [research/mcp-protocol-v2.md](research/mcp-protocol-v2.md).

@@ -187,7 +187,7 @@ registration-helper policy is unchanged: TypeBox remains JSON Schema passthrough
 
 Release this migration as a pre-1.0 minor, not a patch: `createMcpServer` exposes a
 different SDK `Server` type/object. Keep legacy wire interoperability. The
-upcoming lifecycle change also requires a minor: the runner now returns
+lifecycle change also requires a minor: the runner now returns
 `Promise<McpStdioServerHandle>`. See [migration policy](mcp-v2-migration.md);
 the packed smoke test exercises both eras and pins the v2 server baseline.
 

@@ -351,7 +351,9 @@ stateless; sessionful legacy deployments must keep their own transport wiring.
 `2026-07-28` through SDK v2's `serveStdio`. Its `Promise<McpStdioServerHandle>`
 resolves after startup wiring, not at shutdown. Stdin EOF or `handle.close()`
 closes the connection; long-running
-tools must honor `ctx.signal` and release their own resources.
+tools must honor `ctx.signal` and release their own resources. `close()` aborts
+requests but does **not** await handler completion or asynchronous abort cleanup;
+coordinate tool cleanup before disposing shared application resources.
 
 `createMcpServer` now returns `@modelcontextprotocol/server` SDK v2's low-level
 `Server`. This is a source-level breaking change for consumers using SDK methods
@@ -361,8 +363,17 @@ modern serving. See [migration guidance](docs/mcp-v2-migration.md).
 
 Some SDK v1 clients validate error data against cached success output schemas
 in their convenience `callTool` method; their generic request API can preserve
-that data. SDK v2 clients correctly exempt error results. HTTP and tasks remain
-outside BridgeKit's runner support.
+that data. SDK v2 clients correctly exempt error results. HTTP is exposed through
+`createMcpHttpHandler`; tasks remain pending.
+
+HTTP option and return types are available as `CreateMcpHttpHandlerOptions` and
+`McpHttpHandler` from `@feniix/bridgekit/mcp`; consumers need not import SDK types.
+HTTP errors default to `[bridgekit-mcp]` diagnostics on stderr; `onerror` overrides
+that reporter. Tool definitions are static (`tools.listChanged: false`); the SDK
+handler's `notify.toolsChanged()` is not supported by BridgeKit's static tools.
+For legacy stateless HTTP, cancelling by a separate cancellation notification
+cannot reach a previous request's server; disconnect its HTTP exchange instead.
+Modern HTTP and stdio support request cancellation normally.
 
 ### bin-wrapper (since 0.11.0)
 

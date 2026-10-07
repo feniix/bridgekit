@@ -283,7 +283,11 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
 }
 
 export interface McpStdioServerHandle {
-  /** Close the transport and abort in-flight requests. Safe to call repeatedly. */
+  /**
+   * Close the transport and abort in-flight requests. Safe to call repeatedly.
+   * Does not await tool handlers: asynchronous abort cleanup may outlive close().
+   * Coordinate shared-resource disposal with your tools before ending pools.
+   */
   close(): Promise<void>;
 }
 

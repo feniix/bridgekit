@@ -111,7 +111,7 @@ baseline changes explicit and preserve low-level TypeBox passthrough.
 
 - `@feniix/bridgekit`: `["definePortableTool", "executePortableTool", "isDomainFailure", "isValidationFailure", "validatePortableToolArgs"]`
 - `@feniix/bridgekit/pi`: `["PortableToolExecutionError", "isPortableToolExecutionError", "registerPiTools"]`
-- `@feniix/bridgekit/mcp`: `["createMcpServer", "runMcpStdioServer"]`
+- `@feniix/bridgekit/mcp`: `["createMcpHttpHandler", "createMcpServer", "runMcpStdioServer"]`
 - `@feniix/bridgekit/bin-wrapper`: `["runBinWrapper"]` (also: `typeof runBinWrapper === "function"`)
 
 **Where**: `scripts/smoke-package.mjs:assertRuntimeExports`.
