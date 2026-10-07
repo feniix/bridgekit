@@ -92,6 +92,9 @@ dispatch notification handlers on a microtask while responses are handled
 synchronously, so a synchronous burst of updates immediately followed by the
 result can be dropped client-side when it lands in one stdio chunk. The wire
 order is correct (pinned by the raw stdio test); spaced updates are delivered.
+Upstream: [typescript-sdk#2580](https://github.com/modelcontextprotocol/typescript-sdk/issues/2580), fix pending in
+[typescript-sdk#2967](https://github.com/modelcontextprotocol/typescript-sdk/pull/2967);
+tracked in [#132](https://github.com/feniix/bridgekit/issues/132).
 
 ## Verification and scope
 
