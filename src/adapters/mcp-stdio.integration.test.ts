@@ -220,7 +220,10 @@ for (const mode of ["default", "legacy", "auto", "modern-pinned"] as const) {
   });
 }
 
-test("SDK v1 client can use the dual-era public runner", { timeout: 15000 }, async () => {
+// Keep the dev-only v1 SDK for this client-specific compatibility pin (#131).
+// The v2 client's legacy mode covers the wire era, but not v1 callTool's
+// success-schema validation of domain errors or its generic-request workaround.
+test("SDK v1 client interoperates and exposes its error-schema workaround", { timeout: 15000 }, async () => {
   const client = new LegacyClient({ name: "sdk-v1-client", version: "0.0.0" });
   const transport = new LegacyTransport({ command: process.execPath, args: [fixture], stderr: "pipe" });
   try {
@@ -251,6 +254,34 @@ test("SDK v1 client can use the dual-era public runner", { timeout: 15000 }, asy
     );
     assert.equal(domain.isError, true);
     assert.deepEqual(domain.structuredContent, { reason: "offline" });
+    // Invalid arguments also produce error data outside echo's success schema.
+    // Pin both the v1 high-level rejection and the raw error result so future
+    // dependency changes cannot silently turn a tool failure into a success.
+    await assert.rejects(client.callTool({ name: "echo", arguments: { text: 42 } }), (error: unknown) => {
+      assert.ok(error instanceof McpError);
+      assert.equal(error.code, ErrorCode.InvalidParams);
+      assert.match(error.message, /Structured content does not match/);
+      return true;
+    });
+    const invalid = await client.request(
+      { method: "tools/call", params: { name: "echo", arguments: { text: 42 } } },
+      CallToolResultSchema,
+    );
+    assert.equal(invalid.isError, true);
+    const validation: { kind: string } = fromAny(invalid.structuredContent);
+    assert.equal(validation.kind, "validation");
+
+    for (const name of ["throws", "invalid_output", "missing"]) {
+      const failure = await client.request(
+        { method: "tools/call", params: { name, arguments: {} } },
+        CallToolResultSchema,
+      );
+      assert.equal(failure.isError, true, name);
+      assert.equal(failure.content[0]?.type, "text", name);
+    }
+    // Failed calls must not poison the connection or the success-schema cache.
+    const recovered = await client.callTool({ name: "echo", arguments: { text: "recovered" } });
+    assert.deepEqual(recovered.structuredContent, { text: "recovered" });
   } finally {
     await client.close();
     await transport.close();
