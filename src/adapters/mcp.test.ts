@@ -10,9 +10,10 @@ import { type TObject, Type } from "typebox";
 // (above) stays load-bearing on the same symbol the rest of the file uses.
 const { createMcpServer } = mcp;
 
-test("MCP subpath exposes createMcpServer and runMcpStdioServer without a high-level register helper", () => {
+test("MCP subpath exposes the server and both serving entrypoints without a high-level register helper", () => {
   const surface = mcp as Record<string, unknown>;
   assert.equal(typeof surface.createMcpServer, "function");
+  assert.equal(typeof surface.createMcpHttpHandler, "function");
   assert.equal(typeof surface.runMcpStdioServer, "function");
   assert.equal(surface.registerMcpTools, undefined);
 });

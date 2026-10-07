@@ -1,5 +1,12 @@
 import { definePortableTool, type McpHostExtras } from "@feniix/bridgekit";
-import { createMcpServer, type McpStdioServerHandle, runMcpStdioServer } from "@feniix/bridgekit/mcp";
+import {
+  type CreateMcpHttpHandlerOptions,
+  createMcpHttpHandler,
+  createMcpServer,
+  type McpHttpHandler,
+  type McpStdioServerHandle,
+  runMcpStdioServer,
+} from "@feniix/bridgekit/mcp";
 import type { ServerContext } from "@modelcontextprotocol/server";
 import { Type } from "typebox";
 
@@ -90,3 +97,7 @@ const _stdioHandle: Promise<McpStdioServerHandle> = runMcpStdioServer({
   tools: [],
 });
 void _stdioHandle;
+
+const httpOptions: CreateMcpHttpHandlerOptions = { responseMode: "auto", legacy: "stateless" };
+const httpHandler: McpHttpHandler = createMcpHttpHandler({ name: "typed-http", version: "0", tools: [] }, httpOptions);
+void httpHandler;
