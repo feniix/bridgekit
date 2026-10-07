@@ -15,6 +15,58 @@ import { fromAny } from "@total-typescript/shoehorn";
 
 const fixture = fileURLToPath(new URL("../../../scripts/mcp-stdio-fixture.mjs", import.meta.url));
 
+for (const active of [false, true]) {
+  test(`stdio close handle shuts down ${active ? "an active request" : "before negotiation"}`, {
+    timeout: 15000,
+  }, async () => {
+    const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe", "ipc"] });
+    assert.ok(child.stdout);
+    assert.ok(child.stdin);
+    const exited = once(child, "exit");
+    const lines = createInterface({ input: child.stdout });
+    const replies = lines[Symbol.asyncIterator]();
+    try {
+      const [ready] = await once(child, "message");
+      assert.deepEqual(ready, { ready: true });
+      if (active) {
+        child.stdin.write(
+          `${JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-11-25",
+              capabilities: {},
+              clientInfo: { name: "lifecycle-test", version: "0.0.0" },
+            },
+          })}\n`,
+        );
+        assert.equal((await replies.next()).done, false);
+        child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+        child.stdin.write(
+          `${JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: { name: "wait", arguments: {}, _meta: { progressToken: "started" } },
+          })}\n`,
+        );
+        const started = await replies.next();
+        assert.equal(started.done, false);
+        assert.equal(JSON.parse(started.value ?? "").method, "notifications/progress");
+      }
+      const closed = once(child, "message");
+      child.send("close");
+      assert.deepEqual((await closed)[0], { closed: true, aborted: active });
+      assert.deepEqual(await exited, [0, null]);
+      assert.equal((await replies.next()).done, true, "no result should be written after closure");
+    } finally {
+      lines.close();
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+    }
+  });
+}
+
 test("discarded modern discover probe can fall back to legacy on the same stdio pipe", { timeout: 15000 }, async () => {
   const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe"] });
   const lines = createInterface({ input: child.stdout });

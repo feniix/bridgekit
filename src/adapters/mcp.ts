@@ -245,11 +245,27 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
   return server;
 }
 
-export async function runMcpStdioServer(options: CreateMcpServerOptions): Promise<void> {
+export interface McpStdioServerHandle {
+  /** Close the transport and abort in-flight requests. Safe to call repeatedly. */
+  close(): Promise<void>;
+}
+
+/**
+ * Install dual-era stdio serving and return a close handle. Resolution means
+ * transport wiring is ready, not that a client has connected or shutdown.
+ */
+export async function runMcpStdioServer(options: CreateMcpServerOptions): Promise<McpStdioServerHandle> {
   // Validate eagerly, but each discarded probe/connection must own its server:
   // a modern probe installs era-specific handlers before it can be discarded.
   createMcpServer(options);
-  serveStdio(() => createMcpServer(options), {
+  const handle = serveStdio(() => createMcpServer(options), {
     onerror: (error) => process.stderr.write(`[bridgekit-mcp] ${error.message}\n`),
   });
+  let closing: Promise<void> | undefined;
+  return {
+    close: () => {
+      closing ??= handle.close();
+      return closing;
+    },
+  };
 }

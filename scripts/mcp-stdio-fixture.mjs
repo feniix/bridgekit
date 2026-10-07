@@ -18,7 +18,7 @@ const simpleTool = (name, execute) =>
     execute,
   });
 
-await runMcpStdioServer({
+const handle = await runMcpStdioServer({
   name: "stdio-fixture",
   version: "0.0.0",
   tools: [
@@ -37,6 +37,7 @@ await runMcpStdioServer({
     simpleTool("invalid_output", () => ({ text: "wrong", structuredContent: { text: 42 } })),
     simpleTool("wait", async (_args, ctx) => {
       started = true;
+      ctx.progress?.({ text: "started" });
       // EOF tests must prove abort-driven cleanup, not natural process exit
       // from an unresolved Promise that holds no event-loop resource.
       const keepAlive = setInterval(() => {}, 1000);
@@ -83,3 +84,14 @@ await runMcpStdioServer({
     }),
   ],
 });
+
+// IPC is used only by lifecycle tests; normal stdio consumers never see it.
+if (process.send) {
+  process.on("message", async (message) => {
+    if (message !== "close") return;
+    await Promise.all([handle.close(), handle.close()]);
+    process.send?.({ closed: true, aborted });
+    process.disconnect();
+  });
+  process.send({ ready: true });
+}

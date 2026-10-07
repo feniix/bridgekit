@@ -1,5 +1,5 @@
 import { definePortableTool, type McpHostExtras } from "@feniix/bridgekit";
-import { createMcpServer } from "@feniix/bridgekit/mcp";
+import { createMcpServer, type McpStdioServerHandle, runMcpStdioServer } from "@feniix/bridgekit/mcp";
 import type { ServerContext } from "@modelcontextprotocol/server";
 import { Type } from "typebox";
 
@@ -83,3 +83,10 @@ const _badTheme: McpHostExtras = {
   icons: [{ src: "https://example.com/icon.svg", theme: "blue" }],
 };
 void [_metadata, _badIcon, _badTheme];
+
+const _stdioHandle: Promise<McpStdioServerHandle> = runMcpStdioServer({
+  name: "lifecycle",
+  version: "0.1.0",
+  tools: [],
+});
+void _stdioHandle;
