@@ -425,6 +425,17 @@ function assertPackFileList(entry) {
 
 async function assertPackedMcpProtocol(installDir) {
   await writeFile(
+    join(installDir, "close.mjs"),
+    `
+    import { runMcpStdioServer } from "@feniix/bridgekit/mcp";
+    const handle = await runMcpStdioServer({ name: "packed-close", version: "0", tools: [] });
+    await Promise.all([handle.close(), handle.close()]);
+    console.log("explicitly closed");
+    `,
+  );
+  const closed = await run(process.execPath, ["close.mjs"], { cwd: installDir });
+  assert.equal(closed.stdout.trim(), "explicitly closed");
+  await writeFile(
     join(installDir, "server.mjs"),
     `
     import { Type } from "typebox";

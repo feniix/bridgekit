@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import test from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { definePortableTool, type PortableTool } from "@feniix/bridgekit";
 import { createMcpHttpHandler } from "@feniix/bridgekit/mcp";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
@@ -24,8 +25,58 @@ for (const modern of [false, true]) {
   test(`HTTP handler serves ${modern ? "modern" : "legacy"} clients over a real listener`, {
     timeout: 15000,
   }, async () => {
-    const handler = createMcpHttpHandler({ name: "http-test", version: "0.0.0", tools });
-    const nodeHandler = toNodeHandler(handler);
+    let markStarted: () => void = () => {};
+    let markAborted: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const aborted = new Promise<void>((resolve) => {
+      markAborted = resolve;
+    });
+    const handler = createMcpHttpHandler({
+      name: "http-test",
+      version: "0.0.0",
+      tools: [
+        ...tools,
+        definePortableTool({
+          name: "progress",
+          title: "Progress",
+          description: "Progress",
+          parameters: Type.Object({}),
+          execute: async (_args, ctx) => {
+            ctx.progress?.({ text: "working" });
+            await sleep(20);
+            return { text: "done" };
+          },
+        }),
+        definePortableTool({
+          name: "wait",
+          title: "Wait",
+          description: "Wait for cancellation",
+          parameters: Type.Object({}),
+          execute: async (_args, ctx) => {
+            markStarted();
+            await new Promise<void>((resolve) => {
+              if (ctx.signal?.aborted) {
+                markAborted();
+                resolve();
+                return;
+              }
+              ctx.signal?.addEventListener(
+                "abort",
+                () => {
+                  markAborted();
+                  resolve();
+                },
+                { once: true },
+              );
+            });
+            return { text: "cancelled" };
+          },
+        }),
+      ],
+    });
+    const nodeHandler = toNodeHandler(handler, { maxRequestBodySize: 1024 });
     const validHost = localhostHostValidation();
     const validOrigin = localhostOriginValidation();
     const listener = createServer((incoming, outgoing) => {
@@ -43,8 +94,28 @@ for (const modern of [false, true]) {
       { name: "http-client", version: "0.0.0" },
       { versionNegotiation: { mode: modern ? { pin: "2026-07-28" } : "legacy" } },
     );
-    const transport = new StreamableHTTPClientTransport(url);
+    const responseTypes: string[] = [];
+    const transport = new StreamableHTTPClientTransport(url, {
+      fetch: async (input, init) => {
+        const response = await fetch(input, init);
+        responseTypes.push(response.headers.get("content-type") ?? "");
+        return response;
+      },
+    });
     try {
+      assert.equal(
+        await new Promise<number | undefined>((resolve, reject) => {
+          const request = httpRequest(url, { headers: { host: "attacker.example" } }, (response) => {
+            response.resume();
+            resolve(response.statusCode);
+          });
+          request.on("error", reject);
+          request.end();
+        }),
+        403,
+      );
+      assert.equal((await fetch(url, { headers: { origin: "https://attacker.example" } })).status, 403);
+      assert.equal((await fetch(url, { method: "POST", body: "x".repeat(1025) })).status, 413);
       await client.connect(transport);
       assert.equal(client.getProtocolEra(), modern ? "modern" : "legacy");
       const list = await client.listTools();
@@ -54,6 +125,44 @@ for (const modern of [false, true]) {
       assert.deepEqual(result.structuredContent, { text: "http" });
       const invalid = await client.callTool({ name: "echo", arguments: { text: 42 } });
       assert.equal(invalid.isError, true);
+      const updates: string[] = [];
+      responseTypes.length = 0;
+      const progress = await client.callTool(
+        { name: "progress", arguments: {} },
+        {
+          onprogress: (update) => {
+            updates.push(update.message ?? "");
+          },
+        },
+      );
+      assert.deepEqual(updates, ["working"]);
+      assert.deepEqual(progress.content, [{ type: "text", text: "done" }]);
+      assert.ok(
+        responseTypes.some((type) => type.startsWith("text/event-stream")),
+        "auto mode streams progress over SSE",
+      );
+      const controller = new AbortController();
+      // Legacy clients send cancellation as a separate stateless notification;
+      // explicitly disconnect the HTTP request to pin Node -> Request.signal propagation.
+      const pending = modern
+        ? client.callTool({ name: "wait", arguments: {} }, { signal: controller.signal })
+        : fetch(url, {
+            method: "POST",
+            signal: controller.signal,
+            headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 99,
+              method: "tools/call",
+              params: { name: "wait", arguments: {} },
+            }),
+          });
+      const rejected = assert.rejects(pending);
+      await started;
+      controller.abort();
+      await rejected;
+      await aborted;
+      assert.equal((await client.callTool({ name: "echo", arguments: { text: "after-cancel" } })).isError, false);
     } finally {
       await client.close();
       await transport.close();
@@ -102,7 +211,11 @@ test("HTTP options can reject legacy clients and bound request bodies", async ()
         }),
       }),
     );
-    assert.match(await response.text(), /unsupported|Unsupported/);
+    assert.equal(response.status, 400);
+    const rejection = await response.json();
+    assert.equal(rejection.error.code, -32022);
+    assert.deepEqual(rejection.error.data.supported, ["2026-07-28"]);
+    assert.equal(rejection.id, 1);
     const oversized = await handler.fetch(
       new Request("http://localhost/mcp", {
         method: "POST",
