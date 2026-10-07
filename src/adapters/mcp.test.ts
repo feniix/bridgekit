@@ -3,6 +3,7 @@ import test from "node:test";
 import { definePortableTool, type PortableToolHostExtras } from "@feniix/bridgekit";
 import * as mcp from "@feniix/bridgekit/mcp";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import { fromAny } from "@total-typescript/shoehorn";
 import { type TObject, Type } from "typebox";
 
 // Pull from the namespace import so `surface.registerMcpTools === undefined`
@@ -842,3 +843,30 @@ test("createMcpServer ignores unknown host namespaces at runtime (RFC §9 #8)", 
     await server.close();
   }
 });
+
+for (const icons of [
+  null,
+  {},
+  [{ src: 42 }],
+  [{ src: "icon", theme: "blue" }],
+  [{ src: "icon", sizes: "48x48" }],
+  [{ src: "icon", sizes: [48] }],
+  [{ src: "icon", mimeType: 42 }],
+]) {
+  test(`invalid MCP icons fail at construction with a tool-attributed code: ${JSON.stringify(icons)}`, () => {
+    const tool = definePortableTool({
+      name: "bad-icons",
+      title: "Bad icons",
+      description: "Bad icons",
+      parameters: Type.Object({}),
+      hostExtras: fromAny({ mcp: { icons } }),
+      execute: () => ({ text: "ok" }),
+    });
+    for (const build of [mcp.createMcpServer, mcp.createMcpHttpHandler]) {
+      assert.throws(() => build({ name: "icons", version: "0", tools: [tool] }), {
+        code: "BRIDGEKIT_MCP_INVALID_ICONS",
+        message: /tool "bad-icons" has invalid MCP icons/,
+      });
+    }
+  });
+}

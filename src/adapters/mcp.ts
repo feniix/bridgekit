@@ -81,6 +81,32 @@ const ERROR_CODE_NON_OBJECT_PARAMETERS = "BRIDGEKIT_MCP_NON_OBJECT_PARAMETERS";
 const ERROR_CODE_REF_PARAMETERS = "BRIDGEKIT_MCP_REF_PARAMETERS";
 const ERROR_CODE_DUPLICATE_TOOL_NAME = "BRIDGEKIT_MCP_DUPLICATE_TOOL_NAME";
 
+function assertToolIcons(tool: PortableTool): void {
+  const icons: unknown = tool.hostExtras?.mcp?.icons;
+  if (icons === undefined) return;
+  if (
+    !Array.isArray(icons) ||
+    icons.some(
+      (icon: unknown) =>
+        typeof icon !== "object" ||
+        icon === null ||
+        !("src" in icon) ||
+        typeof icon.src !== "string" ||
+        ("mimeType" in icon && icon.mimeType !== undefined && typeof icon.mimeType !== "string") ||
+        ("sizes" in icon &&
+          icon.sizes !== undefined &&
+          (!Array.isArray(icon.sizes) || icon.sizes.some((size: unknown) => typeof size !== "string"))) ||
+        ("theme" in icon && icon.theme !== undefined && icon.theme !== "light" && icon.theme !== "dark"),
+    )
+  ) {
+    throwWithCode(
+      `createMcpServer: tool "${tool.name}" has invalid MCP icons; expected an array of icons with string src, ` +
+        "optional string mimeType, string[] sizes, and light or dark theme.",
+      "BRIDGEKIT_MCP_INVALID_ICONS",
+    );
+  }
+}
+
 function assertObjectShapedParameters(tools: readonly PortableTool<TSchema, PortableToolResult<unknown>>[]): void {
   for (const tool of tools) {
     if (!isObjectSchema(tool.parameters)) {
@@ -139,7 +165,10 @@ function assertUniqueToolNames(tools: readonly PortableTool<TSchema, PortableToo
 /** Internal serving seam: validate and snapshot once, then build isolated SDK servers cheaply. */
 export function createMcpServerFactory(options: CreateMcpServerOptions): () => Server {
   const { name, version, instructions } = options;
-  for (const tool of options.tools) assertPortableOutputSchema(tool, "createMcpServer", "BRIDGEKIT_MCP");
+  for (const tool of options.tools) {
+    assertPortableOutputSchema(tool, "createMcpServer", "BRIDGEKIT_MCP");
+    assertToolIcons(tool);
+  }
   assertObjectShapedParameters(options.tools);
   assertUniqueToolNames(options.tools);
   // Build the dispatch map and the listing payload at construction so
