@@ -252,6 +252,8 @@ export const generateSummaryTool = definePortableTool({
     },
     mcp: {
       annotations: { readOnlyHint: true },
+      icons: [{ src: "https://example.com/summary.svg", mimeType: "image/svg+xml" }],
+      _meta: { "example.com/category": "text" },
     },
   },
 });
@@ -259,9 +261,19 @@ export const generateSummaryTool = definePortableTool({
 
 `renderCall` is invoked by pi before execution to render the call line. `renderResult` is invoked by pi after execution to render the result; its `options.expanded` flag tracks the user's Ctrl+O collapsed/expanded toggle. BridgeKit forwards both functions by identity to `pi.registerTool`.
 
+MCP `icons` and `_meta` are forwarded only when supplied, including explicit empty
+arrays/objects. At server construction, BridgeKit copies icons (including their
+`sizes` arrays) and shallow-copies `_meta`; nested metadata values must remain
+immutable. BridgeKit never fetches icon URLs. The pi adapter ignores both fields.
+
 See `docs/rfc-host-extras.md` for the design rationale (which fields are in scope, why a top-level field beats a sidecar map, the closure rule for future additions). `PortableToolHostExtras` is module-augmentable for custom host adapters; declare your namespace via `declare module "@feniix/bridgekit"`.
 
 ### MCP adapter
+
+`await runMcpStdioServer(options)` returns a `McpStdioServerHandle` with
+idempotent `close(): Promise<void>` for explicit shutdown and cancellation of
+pending requests. Resolution signals startup wiring, not client negotiation or
+shutdown. Stdin EOF also cleans up the server.
 
 ```ts
 import { realpathSync } from "node:fs";
@@ -311,11 +323,34 @@ The guards match error/data shape, not provenance, so Pi wire failures also matc
 at runtime. Raw Pi values still lack portable `text`; do not cast them to
 `PortableToolResult` to use the typed guards.
 
+#### Streamable HTTP
+
+```ts
+import { createMcpHttpHandler } from "@feniix/bridgekit/mcp";
+
+const handler = createMcpHttpHandler(createMcpServerOptions(), {
+  legacy: "stateless", // default; use "reject" for modern-only endpoints
+  responseMode: "auto", // preserves progress via SSE when needed
+});
+// Mount handler.fetch(request) in your Web-standard framework.
+// Await handler.close() when the application shuts down.
+```
+
+The handler serves modern `2026-07-28` and stateless legacy clients using the
+SDK's serving implementation. It does not start a listener or install
+authentication, authorization, Host/Origin validation, CORS, or TLS. **Enforce
+those in your application before calling `fetch`**, especially before exposing a
+local server to a network. SDK HTTP options are accepted as the second argument.
+`responseMode: "json"` drops mid-call notifications; use `"auto"` for progress.
+Legacy GET/DELETE session operations return 405 because this fallback is
+stateless; sessionful legacy deployments must keep their own transport wiring.
+
 #### MCP SDK v2 and modern stdio
 
 `runMcpStdioServer(options)` serves both legacy MCP revisions and modern
-`2026-07-28` through SDK v2's `serveStdio`. Its `Promise<void>` resolves after
-startup wiring, not at shutdown. Stdin EOF closes the connection; long-running
+`2026-07-28` through SDK v2's `serveStdio`. Its `Promise<McpStdioServerHandle>`
+resolves after startup wiring, not at shutdown. Stdin EOF or `handle.close()`
+closes the connection; long-running
 tools must honor `ctx.signal` and release their own resources.
 
 `createMcpServer` now returns `@modelcontextprotocol/server` SDK v2's low-level

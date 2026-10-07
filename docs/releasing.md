@@ -96,6 +96,21 @@ pnpm audit --prod --audit-level high
 
 If any step fails, fix it on the branch — do not bypass the workflow.
 
+### MCP conformance status
+
+The local gate tests BridgeKit's dual-era stdio runner; it does **not** certify
+official MCP conformance. The checked official conformance CLI (`0.1.16`) requires
+an HTTP URL for server tests and cannot directly launch the stdio fixture.
+Do not add a nominal conformance CI job that tests an HTTP bridge instead and
+reports it as stdio coverage.
+
+For releases changing the MCP SDK or stdio lifecycle, manually recheck the
+suite's transport support and record the version and outcome in
+[the conformance research note](research/mcp-stdio-conformance.md). Once direct
+stdio support exists, run the tools/lifecycle scenarios for both `2025-11-25`
+and `2026-07-28`, inspect failures before introducing any baseline, and evaluate
+a pinned CI gate. Until then, #130 remains blocked rather than passed.
+
 ### Node version coverage
 
 CI and every release job run on Node `22` (the latest 22.x), matching pi's workflows, which build, test, and publish on a single Node 22 line with no matrix. The `engines.node` floor (`>=22.19.0`) also matches pi's packages. Reproduce CI locally with:
@@ -171,11 +186,21 @@ client are development-only compatibility/test dependencies. The no-high-level-
 registration-helper policy is unchanged: TypeBox remains JSON Schema passthrough.
 
 Release this migration as a pre-1.0 minor, not a patch: `createMcpServer` exposes a
-different SDK `Server` type/object. Keep legacy wire interoperability and the
-runner's `Promise<void>` signature. See [migration policy](mcp-v2-migration.md);
+different SDK `Server` type/object. Keep legacy wire interoperability. The
+upcoming lifecycle change also requires a minor: the runner now returns
+`Promise<McpStdioServerHandle>`. See [migration policy](mcp-v2-migration.md);
 the packed smoke test exercises both eras and pins the v2 server baseline.
 
 ## Maintainer & triage
+
+### Selected HTTP conformance checks
+
+With `scripts/mcp-http-fixture.mjs` running after a build, manually run the
+four pinned official HTTP scenarios listed in
+[the conformance record](research/mcp-stdio-conformance.md#http-follow-up-2026-10-07).
+Keep the result artifacts. These do not certify stdio or modern `2026-07-28`;
+the published `0.1.16` harness rejects that dated version. Do not make the
+full-suite or dual-era conformance claim until those blockers are resolved.
 
 Issue triage: maintainer responsibility is unassigned. Until a triage owner is named, expect best-effort response on issues filed against this repository, with priority on packaging regressions, install failures, and SDK-compatibility breaks.
 
