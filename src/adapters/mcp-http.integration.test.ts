@@ -4,6 +4,8 @@ import test from "node:test";
 import { definePortableTool, type PortableTool } from "@feniix/bridgekit";
 import { createMcpHttpHandler } from "@feniix/bridgekit/mcp";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { localhostHostValidation, localhostOriginValidation, toNodeHandler } from "@modelcontextprotocol/node";
+import { fromAny } from "@total-typescript/shoehorn";
 import { Type } from "typebox";
 
 const tools = [
@@ -23,28 +25,15 @@ for (const modern of [false, true]) {
     timeout: 15000,
   }, async () => {
     const handler = createMcpHttpHandler({ name: "http-test", version: "0.0.0", tools });
-    const listener = createServer(async (incoming, outgoing) => {
-      try {
-        const chunks: Buffer[] = [];
-        for await (const chunk of incoming) chunks.push(Buffer.from(chunk));
-        const headers = new Headers();
-        for (const [key, value] of Object.entries(incoming.headers)) {
-          if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(", ") : value);
-        }
-        const method = incoming.method ?? "GET";
-        const response = await handler.fetch(
-          new Request(`http://127.0.0.1${incoming.url}`, {
-            method,
-            headers,
-            ...(method === "POST" && { body: Buffer.concat(chunks).toString() }),
-          }),
-        );
-        outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-        outgoing.end(await response.text());
-      } catch (error) {
-        outgoing.writeHead(500);
-        outgoing.end(String(error));
-      }
+    const nodeHandler = toNodeHandler(handler);
+    const validHost = localhostHostValidation();
+    const validOrigin = localhostOriginValidation();
+    const listener = createServer((incoming, outgoing) => {
+      if (!validHost(incoming, outgoing) || !validOrigin(incoming, outgoing)) return;
+      void nodeHandler(fromAny(incoming), outgoing).catch((error: unknown) => {
+        if (outgoing.headersSent) outgoing.destroy();
+        else outgoing.writeHead(500).end(String(error));
+      });
     });
     await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
     const address = listener.address();

@@ -2,6 +2,7 @@
 import { createServer } from "node:http";
 import { definePortableTool } from "@feniix/bridgekit";
 import { createMcpHttpHandler } from "@feniix/bridgekit/mcp";
+import { localhostHostValidation, localhostOriginValidation, toNodeHandler } from "@modelcontextprotocol/node";
 import { Type } from "typebox";
 
 const handler = createMcpHttpHandler({
@@ -34,31 +35,15 @@ const handler = createMcpHttpHandler({
     }),
   ],
 });
-const listener = createServer(async (incoming, outgoing) => {
-  try {
-    const chunks = [];
-    for await (const chunk of incoming) chunks.push(Buffer.from(chunk));
-    const headers = new Headers();
-    for (const [key, value] of Object.entries(incoming.headers)) {
-      if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(", ") : value);
-    }
-    const method = incoming.method ?? "GET";
-    const response = await handler.fetch(
-      new Request(`http://127.0.0.1${incoming.url}`, {
-        method,
-        headers,
-        ...(method === "POST" && { body: Buffer.concat(chunks).toString() }),
-      }),
-    );
-    outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-    if (response.body) {
-      for await (const chunk of response.body) outgoing.write(chunk);
-    }
-    outgoing.end();
-  } catch (error) {
-    outgoing.writeHead(500);
-    outgoing.end(String(error));
-  }
+const nodeHandler = toNodeHandler(handler);
+const validHost = localhostHostValidation();
+const validOrigin = localhostOriginValidation();
+const listener = createServer((incoming, outgoing) => {
+  if (!validHost(incoming, outgoing) || !validOrigin(incoming, outgoing)) return;
+  void nodeHandler(incoming, outgoing).catch((error) => {
+    if (outgoing.headersSent) outgoing.destroy();
+    else outgoing.writeHead(500).end(String(error));
+  });
 });
 listener.listen(0, "127.0.0.1", () => {
   const address = listener.address();
