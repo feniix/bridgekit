@@ -130,6 +130,21 @@ export interface PiHostExtras {
  */
 export interface McpHostExtras {
   /**
+   * Tool icons forwarded to tools/list. The array, icon objects, and sizes
+   * arrays are copied at server construction. BridgeKit does not fetch icons.
+   */
+  icons?: readonly {
+    src: string;
+    mimeType?: string;
+    sizes?: readonly string[];
+    theme?: "light" | "dark";
+  }[];
+  /**
+   * Opaque MCP tool metadata. Shallow-copied at server construction;
+   * nested values remain caller-owned and must be treated as immutable.
+   */
+  _meta?: Record<string, unknown>;
+  /**
    * MCP tool annotations attached to `tools/list` entries. Hints clients may
    * surface to users; do not affect validation or execution.
    *

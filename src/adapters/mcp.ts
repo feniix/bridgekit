@@ -150,6 +150,8 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
   const byName = new Map(entries.map((entry) => [entry.tool.name, entry]));
   const mcpTools: Tool[] = entries.map(({ tool, outputSchema }) => {
     const annotations = tool.hostExtras?.mcp?.annotations;
+    const icons = tool.hostExtras?.mcp?.icons;
+    const meta = tool.hostExtras?.mcp?._meta;
     // MCP advisory hints from `hostExtras.mcp.annotations`. Two gates:
     //   1. `annotations !== undefined` — a tool without hostExtras builds a
     //      Tool entry whose own-property keys are byte-identical to 0.8.x.
@@ -171,6 +173,10 @@ export function createMcpServer(options: CreateMcpServerOptions): Server {
       inputSchema: toMcpObjectSchema(tool.parameters),
       ...(outputSchema !== undefined && { outputSchema }),
       ...(hasAnnotations ? { annotations: { ...annotations } } : {}),
+      ...(icons !== undefined
+        ? { icons: icons.map(({ sizes, ...icon }) => ({ ...icon, ...(sizes !== undefined && { sizes: [...sizes] }) })) }
+        : {}),
+      ...(meta !== undefined ? { _meta: { ...meta } } : {}),
     };
   });
   const server = new Server(

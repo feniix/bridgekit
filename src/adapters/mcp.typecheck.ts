@@ -1,4 +1,4 @@
-import { definePortableTool } from "@feniix/bridgekit";
+import { definePortableTool, type McpHostExtras } from "@feniix/bridgekit";
 import { createMcpServer } from "@feniix/bridgekit/mcp";
 import type { ServerContext } from "@modelcontextprotocol/server";
 import { Type } from "typebox";
@@ -69,3 +69,17 @@ type _SignalIsExactlyAbortSignal = _SdkExtra["signal"] extends AbortSignal
   : false;
 const _signalShapeIsAbortSignal: _SignalIsExactlyAbortSignal = true;
 void _signalShapeIsAbortSignal;
+
+const _metadata: McpHostExtras = {
+  icons: [{ src: "https://example.com/icon.svg", sizes: ["any"], theme: "dark" }] as const,
+  _meta: { "example.com/nested": { enabled: true } },
+};
+const _badIcon: McpHostExtras = {
+  // @ts-expect-error An icon needs a source URI.
+  icons: [{ mimeType: "image/svg+xml" }],
+};
+const _badTheme: McpHostExtras = {
+  // @ts-expect-error Theme is constrained to the MCP light/dark literals.
+  icons: [{ src: "https://example.com/icon.svg", theme: "blue" }],
+};
+void [_metadata, _badIcon, _badTheme];
