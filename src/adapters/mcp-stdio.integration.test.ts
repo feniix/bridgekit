@@ -15,6 +15,58 @@ import { fromAny } from "@total-typescript/shoehorn";
 
 const fixture = fileURLToPath(new URL("../../../scripts/mcp-stdio-fixture.mjs", import.meta.url));
 
+for (const active of [false, true]) {
+  test(`stdio close handle shuts down ${active ? "an active request" : "before negotiation"}`, {
+    timeout: 15000,
+  }, async () => {
+    const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe", "ipc"] });
+    assert.ok(child.stdout);
+    assert.ok(child.stdin);
+    const exited = once(child, "exit");
+    const lines = createInterface({ input: child.stdout });
+    const replies = lines[Symbol.asyncIterator]();
+    try {
+      const [ready] = await once(child, "message");
+      assert.deepEqual(ready, { ready: true });
+      if (active) {
+        child.stdin.write(
+          `${JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-11-25",
+              capabilities: {},
+              clientInfo: { name: "lifecycle-test", version: "0.0.0" },
+            },
+          })}\n`,
+        );
+        assert.equal((await replies.next()).done, false);
+        child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+        child.stdin.write(
+          `${JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: { name: "wait", arguments: {}, _meta: { progressToken: "started" } },
+          })}\n`,
+        );
+        const started = await replies.next();
+        assert.equal(started.done, false);
+        assert.equal(JSON.parse(started.value ?? "").method, "notifications/progress");
+      }
+      const closed = once(child, "message");
+      child.send("close");
+      assert.deepEqual((await closed)[0], { closed: true, aborted: active });
+      assert.deepEqual(await exited, [0, null]);
+      assert.equal((await replies.next()).done, true, "no result should be written after closure");
+    } finally {
+      lines.close();
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+    }
+  });
+}
+
 test("discarded modern discover probe can fall back to legacy on the same stdio pipe", { timeout: 15000 }, async () => {
   const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe"] });
   const lines = createInterface({ input: child.stdout });
@@ -43,6 +95,12 @@ test("discarded modern discover probe can fall back to legacy on the same stdio 
     });
     assert.equal(initialized.protocolVersion, "2025-11-25");
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+    const listing = await request("tools/list", {});
+    assert.ok(Array.isArray(listing.tools));
+    const echo = listing.tools.find((tool) => tool.name === "echo");
+    assert.deepEqual(echo.icons, [{ src: "https://example.com/original.svg" }]);
+    assert.deepEqual(echo._meta, { category: "original" });
+    assert.ok(!listing.tools.some((tool) => tool.name === "late-invalid"));
     const result = await request("tools/call", { name: "echo", arguments: { text: "fallback" } });
     assert.deepEqual(result.structuredContent, { text: "fallback" });
     // A synchronous progress burst is written in order and before the result.
@@ -168,7 +226,10 @@ for (const mode of ["default", "legacy", "auto", "modern-pinned"] as const) {
   });
 }
 
-test("SDK v1 client can use the dual-era public runner", { timeout: 15000 }, async () => {
+// Keep the dev-only v1 SDK for this client-specific compatibility pin (#131).
+// The v2 client's legacy mode covers the wire era, but not v1 callTool's
+// success-schema validation of domain errors or its generic-request workaround.
+test("SDK v1 client interoperates and exposes its error-schema workaround", { timeout: 15000 }, async () => {
   const client = new LegacyClient({ name: "sdk-v1-client", version: "0.0.0" });
   const transport = new LegacyTransport({ command: process.execPath, args: [fixture], stderr: "pipe" });
   try {
@@ -199,6 +260,34 @@ test("SDK v1 client can use the dual-era public runner", { timeout: 15000 }, asy
     );
     assert.equal(domain.isError, true);
     assert.deepEqual(domain.structuredContent, { reason: "offline" });
+    // Invalid arguments also produce error data outside echo's success schema.
+    // Pin both the v1 high-level rejection and the raw error result so future
+    // dependency changes cannot silently turn a tool failure into a success.
+    await assert.rejects(client.callTool({ name: "echo", arguments: { text: 42 } }), (error: unknown) => {
+      assert.ok(error instanceof McpError);
+      assert.equal(error.code, ErrorCode.InvalidParams);
+      assert.match(error.message, /Structured content does not match/);
+      return true;
+    });
+    const invalid = await client.request(
+      { method: "tools/call", params: { name: "echo", arguments: { text: 42 } } },
+      CallToolResultSchema,
+    );
+    assert.equal(invalid.isError, true);
+    const validation: { kind: string } = fromAny(invalid.structuredContent);
+    assert.equal(validation.kind, "validation");
+
+    for (const name of ["throws", "invalid_output", "missing"]) {
+      const failure = await client.request(
+        { method: "tools/call", params: { name, arguments: {} } },
+        CallToolResultSchema,
+      );
+      assert.equal(failure.isError, true, name);
+      assert.equal(failure.content[0]?.type, "text", name);
+    }
+    // Failed calls must not poison the connection or the success-schema cache.
+    const recovered = await client.callTool({ name: "echo", arguments: { text: "recovered" } });
+    assert.deepEqual(recovered.structuredContent, { text: "recovered" });
   } finally {
     await client.close();
     await transport.close();

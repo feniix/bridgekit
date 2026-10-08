@@ -3,15 +3,17 @@ import test from "node:test";
 import { definePortableTool, type PortableToolHostExtras } from "@feniix/bridgekit";
 import * as mcp from "@feniix/bridgekit/mcp";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import { fromAny } from "@total-typescript/shoehorn";
 import { type TObject, Type } from "typebox";
 
 // Pull from the namespace import so `surface.registerMcpTools === undefined`
 // (above) stays load-bearing on the same symbol the rest of the file uses.
 const { createMcpServer } = mcp;
 
-test("MCP subpath exposes createMcpServer and runMcpStdioServer without a high-level register helper", () => {
+test("MCP subpath exposes the server and both serving entrypoints without a high-level register helper", () => {
   const surface = mcp as Record<string, unknown>;
   assert.equal(typeof surface.createMcpServer, "function");
+  assert.equal(typeof surface.createMcpHttpHandler, "function");
   assert.equal(typeof surface.runMcpStdioServer, "function");
   assert.equal(surface.registerMcpTools, undefined);
 });
@@ -494,6 +496,50 @@ test("tools/list omits the `annotations` field entirely when hostExtras is absen
       false,
       `expected no 'annotations' key on Tool entry; got: ${JSON.stringify(entry)}`,
     );
+    assert.deepEqual(Object.keys(entry).sort(), ["description", "inputSchema", "name", "title"]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP icons and metadata are snapshotted without fetching or adding absent fields", async () => {
+  const icons = [{ src: "https://invalid.example/icon.svg", mimeType: "image/svg+xml", sizes: ["48x48"] }];
+  const meta = { "example.com/category": "original" };
+  const makeTool = (name: string, mcpExtras: NonNullable<PortableToolHostExtras["mcp"]>) =>
+    definePortableTool({
+      name,
+      title: name,
+      description: name,
+      parameters: Type.Object({}),
+      execute: () => ({ text: "ok" }),
+      hostExtras: { mcp: mcpExtras },
+    });
+  const server = createMcpServer({
+    name: "metadata",
+    version: "1.0.0",
+    tools: [
+      makeTool("snapshot", { icons, _meta: meta }),
+      makeTool("empty", { icons: [], _meta: {} }),
+      makeTool("absent", {}),
+    ],
+  });
+  icons[0]?.sizes.push("96x96");
+  if (icons[0]) icons[0].src = "https://invalid.example/changed.svg";
+  icons.push({ src: "https://invalid.example/extra.svg", mimeType: "image/svg+xml", sizes: [] });
+  meta["example.com/category"] = "changed";
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "metadata-client", version: "1.0.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const list = await client.listTools();
+    assert.deepEqual(list.tools[0]?.icons, [
+      { src: "https://invalid.example/icon.svg", mimeType: "image/svg+xml", sizes: ["48x48"] },
+    ]);
+    assert.deepEqual(list.tools[0]?._meta, { "example.com/category": "original" });
+    assert.deepEqual(list.tools[1]?.icons, []);
+    assert.deepEqual(list.tools[1]?._meta, {});
+    assert.deepEqual(Object.keys(list.tools[2] ?? {}).sort(), ["description", "inputSchema", "name", "title"]);
   } finally {
     await client.close();
     await server.close();
@@ -798,3 +844,30 @@ test("createMcpServer ignores unknown host namespaces at runtime (RFC §9 #8)", 
     await server.close();
   }
 });
+
+for (const icons of [
+  null,
+  {},
+  [{ src: 42 }],
+  [{ src: "icon", theme: "blue" }],
+  [{ src: "icon", sizes: "48x48" }],
+  [{ src: "icon", sizes: [48] }],
+  [{ src: "icon", mimeType: 42 }],
+]) {
+  test(`invalid MCP icons fail at construction with a tool-attributed code: ${JSON.stringify(icons)}`, () => {
+    const tool = definePortableTool({
+      name: "bad-icons",
+      title: "Bad icons",
+      description: "Bad icons",
+      parameters: Type.Object({}),
+      hostExtras: fromAny({ mcp: { icons } }),
+      execute: () => ({ text: "ok" }),
+    });
+    for (const build of [mcp.createMcpServer, mcp.createMcpHttpHandler]) {
+      assert.throws(() => build({ name: "icons", version: "0", tools: [tool] }), {
+        code: "BRIDGEKIT_MCP_INVALID_ICONS",
+        message: /tool "bad-icons" has invalid MCP icons/,
+      });
+    }
+  });
+}

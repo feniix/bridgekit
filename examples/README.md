@@ -276,7 +276,9 @@ MCP behavior:
 - `ctx.progress?.(...)` becomes `notifications/progress` when the client sent a
   `progressToken`; otherwise `ctx.progress` is `undefined`.
 - The stdio runner serves legacy and modern `2026-07-28` clients through SDK v2.
-  It retains `Promise<void>` startup behavior; stdin EOF shuts down the connection.
+  It returns `Promise<McpStdioServerHandle>` after wiring is installed; stdin EOF or
+  `await handle.close()` shuts down the connection and aborts in-flight requests.
+  `close()` does not await asynchronous tool cleanup.
 - The module stays import-passive and testable: tests can import `createMcpServerOptions()` without starting stdio.
 
 ---

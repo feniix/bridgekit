@@ -1,5 +1,12 @@
-import { definePortableTool } from "@feniix/bridgekit";
-import { createMcpServer } from "@feniix/bridgekit/mcp";
+import { definePortableTool, type McpHostExtras } from "@feniix/bridgekit";
+import {
+  type CreateMcpHttpHandlerOptions,
+  createMcpHttpHandler,
+  createMcpServer,
+  type McpHttpHandler,
+  type McpStdioServerHandle,
+  runMcpStdioServer,
+} from "@feniix/bridgekit/mcp";
 import type { ServerContext } from "@modelcontextprotocol/server";
 import { Type } from "typebox";
 
@@ -69,3 +76,28 @@ type _SignalIsExactlyAbortSignal = _SdkExtra["signal"] extends AbortSignal
   : false;
 const _signalShapeIsAbortSignal: _SignalIsExactlyAbortSignal = true;
 void _signalShapeIsAbortSignal;
+
+const _metadata: McpHostExtras = {
+  icons: [{ src: "https://example.com/icon.svg", sizes: ["any"], theme: "dark" }] as const,
+  _meta: { "example.com/nested": { enabled: true } },
+};
+const _badIcon: McpHostExtras = {
+  // @ts-expect-error An icon needs a source URI.
+  icons: [{ mimeType: "image/svg+xml" }],
+};
+const _badTheme: McpHostExtras = {
+  // @ts-expect-error Theme is constrained to the MCP light/dark literals.
+  icons: [{ src: "https://example.com/icon.svg", theme: "blue" }],
+};
+void [_metadata, _badIcon, _badTheme];
+
+const _stdioHandle: Promise<McpStdioServerHandle> = runMcpStdioServer({
+  name: "lifecycle",
+  version: "0.1.0",
+  tools: [],
+});
+void _stdioHandle;
+
+const httpOptions: CreateMcpHttpHandlerOptions = { responseMode: "auto", legacy: "stateless" };
+const httpHandler: McpHttpHandler = createMcpHttpHandler({ name: "typed-http", version: "0", tools: [] }, httpOptions);
+void httpHandler;

@@ -58,7 +58,7 @@ async function assertRuntimeExports(installDir) {
       "validatePortableToolArgs",
     ]);
     assert.deepEqual(Object.keys(pi).sort(), ["PortableToolExecutionError", "isPortableToolExecutionError", "registerPiTools"]);
-    assert.deepEqual(Object.keys(mcp).sort(), ["createMcpServer", "runMcpStdioServer"]);
+assert.deepEqual(Object.keys(mcp).sort(), ["createMcpHttpHandler", "createMcpServer", "runMcpStdioServer"]);
     assert.equal(["register", "McpTools"].join("") in mcp, false);
     assert.deepEqual(Object.keys(binWrapper).sort(), ["runBinWrapper"]);
     assert.equal(typeof binWrapper.runBinWrapper, "function");
@@ -115,7 +115,15 @@ async function assertTypesCompile(installDir) {
         type RegisterPiToolsOptions,
         registerPiTools,
       } from "@feniix/bridgekit/pi";
-      import { createMcpServer, type CreateMcpServerOptions } from "@feniix/bridgekit/mcp";
+      import {
+        createMcpHttpHandler,
+        createMcpServer,
+        type CreateMcpHttpHandlerOptions,
+        type McpHttpHandler,
+        type CreateMcpServerOptions,
+        type McpStdioServerHandle,
+        runMcpStdioServer,
+      } from "@feniix/bridgekit/mcp";
       import type { Server } from "@modelcontextprotocol/server";
       import { runBinWrapper, type BinWrapperOptions } from "@feniix/bridgekit/bin-wrapper";
 
@@ -203,6 +211,12 @@ async function assertTypesCompile(installDir) {
       void piRegistration;
       const sdkServer: Server = createMcpServer(options);
       void sdkServer;
+      const _stdioStartup: Promise<McpStdioServerHandle> = runMcpStdioServer(options);
+      void _stdioStartup;
+      const _httpOptions: CreateMcpHttpHandlerOptions = { legacy: "stateless", responseMode: "auto" };
+      const _http: McpHttpHandler = createMcpHttpHandler(options, _httpOptions);
+      const _httpResponse: Promise<Response> = _http.fetch(new Request("http://localhost/mcp"));
+      void _httpResponse;
 
       async function run(): Promise<PortableToolResult> {
         return executePortableTool(tool, { text: "hello" }, { host: "test" });
@@ -414,6 +428,17 @@ function assertPackFileList(entry) {
 
 async function assertPackedMcpProtocol(installDir) {
   await writeFile(
+    join(installDir, "close.mjs"),
+    `
+    import { runMcpStdioServer } from "@feniix/bridgekit/mcp";
+    const handle = await runMcpStdioServer({ name: "packed-close", version: "0", tools: [] });
+    await Promise.all([handle.close(), handle.close()]);
+    console.log("explicitly closed");
+    `,
+  );
+  const closed = await run(process.execPath, ["close.mjs"], { cwd: installDir });
+  assert.equal(closed.stdout.trim(), "explicitly closed");
+  await writeFile(
     join(installDir, "server.mjs"),
     `
     import { Type } from "typebox";
@@ -438,6 +463,10 @@ async function assertPackedMcpProtocol(installDir) {
       import assert from "node:assert/strict";
       import { Client } from "@modelcontextprotocol/client";
       import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+      import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+      import { createMcpHttpHandler } from "@feniix/bridgekit/mcp";
+      import { definePortableTool } from "@feniix/bridgekit";
+      import { Type } from "typebox";
       for (const modern of [false, true]) {
         const client = new Client({ name: "packed-client", version: "0.0.0" }, {
           versionNegotiation: { mode: modern ? { pin: "2026-07-28" } : "legacy" },
@@ -456,6 +485,40 @@ async function assertPackedMcpProtocol(installDir) {
           await client.close();
           await transport.close();
         }
+      }
+      const handler = createMcpHttpHandler({
+        name: "packed-http", version: "0.0.0",
+        tools: [definePortableTool({
+          name: "echo", title: "Echo", description: "Echo",
+          parameters: Type.Object({ text: Type.String() }),
+          outputSchema: Type.Object({ text: Type.String() }),
+          hostExtras: { mcp: { icons: [{ src: "https://example.com/icon.svg" }], _meta: { category: "text" } } },
+          execute: args => ({ text: args.text, structuredContent: { text: args.text } }),
+        })],
+      });
+      try {
+        for (const modern of [false, true]) {
+          const client = new Client({ name: "packed-http-client", version: "0.0.0" }, {
+            versionNegotiation: { mode: modern ? { pin: "2026-07-28" } : "legacy" },
+          });
+          const transport = new StreamableHTTPClientTransport(new URL("http://localhost/mcp"), {
+            fetch: (input, init) => handler.fetch(new Request(input, init)),
+          });
+          try {
+            await client.connect(transport);
+            assert.equal(client.getProtocolEra(), modern ? "modern" : "legacy");
+            const list = await client.listTools();
+            assert.deepEqual(list.tools[0].icons, [{ src: "https://example.com/icon.svg" }]);
+            assert.deepEqual(list.tools[0]._meta, { category: "text" });
+            const result = await client.callTool({ name: "echo", arguments: { text: "packed-http" } });
+            assert.deepEqual(result.structuredContent, { text: "packed-http" });
+          } finally {
+            await client.close();
+            await transport.close();
+          }
+        }
+      } finally {
+        await handler.close();
       }
       `,
     ],

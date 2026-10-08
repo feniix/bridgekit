@@ -4,8 +4,15 @@
 
 Use SDK v2's low-level `Server`, preserving TypeBox JSON Schema passthrough.
 Upgrade the existing `runMcpStdioServer` to dual-era `serveStdio` serving, rather
-than introducing another public runner or entrypoint. The runner still returns
-`Promise<void>` once startup is wired; it does not wait for EOF or return a close handle.
+than introducing another public runner or entrypoint. The original migration
+preserved `Promise<void>`. The #129 lifecycle change returns
+`Promise<McpStdioServerHandle>` with idempotent `close(): Promise<void>` to close
+the transport and abort in-flight requests. Resolution means startup wiring is
+installed, not that negotiation has completed or shutdown has occurred.
+Explicit `Promise<void>` annotations must be updated; callers that ignore the
+resolved value need no changes. `close()` aborts requests but does not await
+handler completion or asynchronous cleanup: consumers must coordinate tool
+cleanup before disposing shared application resources. Stdin EOF still triggers cleanup.
 The SDK closes stdio on EOF; tools must respect their cancellation signal and
 must not leave unrelated processes/timers running.
 
@@ -13,12 +20,24 @@ Each discovery probe/connection gets a fresh server, so discarded modern probes
 cannot contaminate legacy fallback handlers. Opening/transport errors reported
 by the SDK are diagnosed on stderr with a `[bridgekit-mcp]` prefix, never stdout.
 The SDK exposes no readiness promise: runner resolution means wiring completed,
-not that an asynchronous transport start or negotiation succeeded. A close handle
-is intentionally not exposed by the existing `Promise<void>` API.
+not that an asynchronous transport start or negotiation succeeded. The close
+handle permits explicit teardown in addition to stdin EOF.
 
 `createMcpServer` validates and constructs a passive SDK v2 `Server`. Connecting
 it directly with a `StdioServerTransport` still serves only the legacy era.
 Use the public runner to enable modern revision `2026-07-28`.
+
+## Streamable HTTP decision (#126)
+
+Ship `createMcpHttpHandler(options, httpOptions?)` under `./mcp`, composing
+the SDK's Web-standard handler with `createMcpServer`. It validates definitions
+eagerly and creates fresh servers per SDK request. The returned SDK handler has
+`fetch`, `close`, `notify`, and `bus`; SDK HTTP options pass through unchanged.
+The default legacy leg is stateless. No Node HTTP listener code enters the
+library. Applications own auth, authorization, Host/Origin checks, CORS, TLS,
+and listener lifecycle. See the README recipe. Source integration tests use a
+real loopback listener for both eras; packed-consumer tests use both eras over
+the Web-standard HTTP transport.
 
 ## Breaking-change policy
 
@@ -33,8 +52,13 @@ Consumers using `createMcpServer` beyond the public runner must:
 - Read `ctx.mcpReq.signal` instead of `extra.signal`.
 - Avoid mixing SDK v1 instances/transports/types with SDK v2 objects.
 
-The v1 SDK remains a development-only dependency for interoperability tests.
-The v2 client is test-only. Runtime code imports only the v2 server package.
+The v1 SDK remains a development-only dependency intentionally (#131). The v2
+client's legacy mode already covers legacy wire interoperability, but cannot pin
+v1's client-specific success-schema validation of domain errors or the generic
+request workaround described below. The v1 stdio test covers both; retaining it
+keeps that migration guidance executable. Reconsider this dependency when that
+v1 compatibility guidance is retired, not merely when legacy wire coverage changes.
+The v2 client is also test-only. Runtime code imports only the v2 server package.
 
 ## Structured output
 
@@ -102,8 +126,13 @@ Regression seams: portable execution, Pi registration/results, MCP connected pai
 spawned legacy/v2-modern stdio clients, cancellation through the public tool seam,
 EOF shutdown, and installed tarball declarations/protocol calls.
 
-HTTP/auth, tasks, resources/prompts, and additional Pi metadata are out of scope and
-tracked as GitHub issues #126-#131. Passing these tests is not an official
-conformance claim.
+HTTP/auth, tasks, resources/prompts, and additional Pi metadata were out of scope
+for the original SDK migration. The backlog pass adds HTTP serving
+(#126), MCP tool metadata (#128), and stdio lifecycle control (#129); auth and
+listener policy remain application-owned. Tasks (#127) have an approved design; implementation is pending.
+Passing the project tests is not an official conformance claim.
 
 Research and isolated evidence: [research/mcp-protocol-v2.md](research/mcp-protocol-v2.md).
+The official suite's HTTP-only server invocation currently blocks direct stdio
+conformance testing; see [research/mcp-stdio-conformance.md](research/mcp-stdio-conformance.md)
+for the checked CLI version, evidence, and follow-up criteria (#130).

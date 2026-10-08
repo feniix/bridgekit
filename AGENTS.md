@@ -89,7 +89,10 @@ with `"tools/list"` / `"tools/call"` method-string handlers and `ctx.mcpReq.sign
 TypeBox schemas pass through as JSON Schema; no high-level `registerMcpTools`
 helper is exported. Low-level results use `projectCallToolResult`. The existing
 stdio runner serves modern `2026-07-28` and legacy clients through `serveStdio`;
-direct `Server.connect` remains legacy-only. Read `docs/mcp-v2-migration.md`
+direct `Server.connect` remains legacy-only. The runner returns
+`Promise<McpStdioServerHandle>`; `close()` aborts requests without awaiting tool
+cleanup. `createMcpHttpHandler` snapshots tools once and creates isolated SDK
+servers per HTTP exchange; listener/auth/origin policy is application-owned. Read `docs/mcp-v2-migration.md`
 before changing serving/lifecycle or migrating SDK-consuming callers.
 
 ### Custom-host adapters

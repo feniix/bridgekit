@@ -6,6 +6,45 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Forward tool `icons` and `_meta` from `hostExtras.mcp`, with construction-time
+  snapshots and no new wire keys when absent (#128).
+- Add `createMcpHttpHandler` for Web-standard HTTP serving with modern MCP and
+  stateless legacy fallback. Listener and security policy remain application-owned
+  (#126). HTTP options and handler types are exported from the MCP entrypoint.
+
+### Changed (breaking)
+
+- `runMcpStdioServer` now returns `Promise<McpStdioServerHandle>` with an
+  idempotent `close()` that aborts pending requests (#129). Awaiting startup
+  means stdio wiring is ready, not that a client has connected. Callers that
+  explicitly annotated `Promise<void>` must update their annotation; existing
+  callers that ignore the resolved value need no changes.
+
+### Fixed
+
+- Snapshot validated tool definitions once for HTTP and stdio serving, including
+  discovery fallback; later caller array/metadata mutations cannot leak onto the wire.
+- Reject invalid MCP icon shapes at construction with tool-attributed
+  `BRIDGEKIT_MCP_INVALID_ICONS` errors; HTTP serving defaults to stderr diagnostics.
+- Clarify that stdio `close()` aborts requests without awaiting asynchronous tool cleanup.
+
+### Tests
+
+- Expand the SDK v1 stdio regression to cover validation-error schema rejection,
+  generic-request error results for validation, thrown handlers, invalid output,
+  and unknown tools, plus successful calls after failures (#131).
+
+### Documentation
+
+- Record why the SDK v1 dev dependency remains: its stdio test pins v1-specific
+  error-schema validation and the generic-request workaround (#131).
+- Record the official conformance suite's HTTP-only server interface and the
+  resulting blocker for direct dual-era stdio conformance testing (#130).
+- Record four passing official HTTP scenarios and the pinned harness's rejection
+  of `2026-07-28`; direct stdio/full modern conformance remains unverified (#130).
+
 ## [0.18.0] - 2026-10-06
 
 ### Added
