@@ -2,8 +2,7 @@
 
 Status: proposal for review. Nothing in this document is implemented.
 Part 1 of 3; see [02-execution-seam.md](02-execution-seam.md) and
-`03-delivery-plan.md` (not yet written; references to part 3 below are
-forward references).
+[03-delivery-plan.md](03-delivery-plan.md).
 
 This document pins down what BridgeKit would put on the wire. It exists because
 the wording of #127 predates the extension and no longer matches the spec: it
@@ -195,7 +194,7 @@ sticky routing on `Mcp-Name`.** The in-memory backend is single-process only.
   `tasks/get`/`tasks/cancel` reuse carve-out cite the SEP), which supports the
   SEP's `2026-06-30` and the SDK's `2026-07-28` being the same revision.
 
-Spike still required before implementation (blocks part 3, phase 2): exercise
+Spike still required before implementation (blocks part 3, phase 3): exercise
 the three-argument `tasks/*` registrations through `serveStdio` as well as the
 HTTP handler (the probe above used the HTTP handler only), and decide the
 `content: []` and legacy-`initialize` points above.
