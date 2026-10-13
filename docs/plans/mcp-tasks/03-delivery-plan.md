@@ -26,12 +26,16 @@ both `serveStdio` and the HTTP handler:
    is routed for modern-era clients, and what request/response shapes the SDK
    enforces (the SDK's built-in method tables carry the shared schemas).
 2. Returning `resultType: "task"` from `tools/call` reaches the client intact
-   (the stamp passes it through; confirm end to end).
+   (the stamp passes it through; confirm end to end), including whether the
+   SDK's `normalizeContentlessToolResult` adds a stray `content: []` to the
+   handle and how the handle bypasses `projectCallToolResult` (part 1, "What the
+   SDK already gives us").
 3. Where per-request client capabilities
    (`io.modelcontextprotocol/clientCapabilities`) are readable inside a handler.
 4. Whether `extensions` can be advertised in discovery capabilities from the
-   low-level `Server`, and how a legacy-era client appears (must look
-   non-declaring).
+   low-level `Server`, whether the legacy `initialize` response then also
+   carries the extension entry (harmless, or stripped on legacy connections),
+   and how a legacy-era client appears (must look non-declaring).
 5. What auth info the request context carries on stdio versus HTTP.
 
 If (1) or (3) fails, the wire contract in part 1 needs rework before any code.
@@ -51,12 +55,18 @@ If (1) or (3) fails, the wire contract in part 1 needs rework before any code.
   first-writer-wins rules from part 2.
 - Pure unit tests with fake timers; no MCP wiring.
 
-### Phase 3: modern-era wiring (stdio first)
+### Phase 3: modern-era wiring (stdio first, HTTP shares the factory)
 
 - Capability advertisement, `tools/call` task creation, `tasks/get`,
   `tasks/cancel`, `-32021` for `required` tools, `-32602` for unknown IDs.
 - Backend created once in the factory; stdio handle `close()` closes a default
   backend.
+- The factory is shared, so HTTP servers get the same wiring in this phase.
+  Resolve the HTTP handler ownership change here (part 2, "Lifecycle and
+  wiring"): `createMcpHttpHandler` must wrap the SDK handler so `close()` also
+  closes a default backend, and `createMcpServer` documents that a default
+  backend there needs an explicit `tasks.backend` or close hook. Until phase 4
+  tests land, HTTP is not claimed or documented as supported.
 - Detached execution with the execution-owned signal; progress to
   `statusMessage`.
 
@@ -90,13 +100,16 @@ If (1) or (3) fails, the wire contract in part 1 needs rework before any code.
 | Handle immediately retrievable via `tasks/get` | yes | yes | yes |
 | `isError: true` result gives `completed`, not `failed` | yes | yes | |
 | Thrown tool gives `failed` with `-32603` | yes | yes | |
-| `tasks/cancel` aborts `ctx.signal`, acks unknown-terminal | yes | yes | yes |
+| `tasks/cancel` aborts `ctx.signal`; terminal task acked, unknown/foreign-caller task gives `-32602` | yes | yes | yes |
+| `tasks/get` / `tasks/cancel` from a non-declaring client gives `-32021` | | yes | yes |
+| `tasks/get` / `tasks/cancel` on a legacy-era connection gives `-32601`; `tasks/update` gives `-32601` | | yes | yes |
+| Task rejecting after cancel signal ends `cancelled`; completing after cancel stays `completed` | yes | yes | |
 | Cancel racing completion: first writer wins | yes | | |
 | Initiating request cancel does not abort a detached task | | yes | yes |
 | Progress after handle becomes `statusMessage`, no progress notifications | | yes | |
 | TTL expiry, capacity eviction, capacity refusal | yes | | |
 | State shared across discarded probe and per-exchange servers | | yes | yes |
-| `close()` aborts running tasks of the default backend only | yes | yes | |
+| `close()` aborts running tasks of the default backend only | yes | yes | yes |
 | Unknown task ID gives `-32602` | | yes | yes |
 
 Both eras are exercised in the integration columns, consistent with how the
