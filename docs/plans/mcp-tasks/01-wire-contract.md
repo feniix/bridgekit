@@ -2,7 +2,8 @@
 
 Status: proposal for review. Nothing in this document is implemented.
 Part 1 of 3; see [02-execution-seam.md](02-execution-seam.md) and
-[03-delivery-plan.md](03-delivery-plan.md).
+`03-delivery-plan.md` (not yet written; references to part 3 below are
+forward references).
 
 This document pins down what BridgeKit would put on the wire. It exists because
 the wording of #127 predates the extension and no longer matches the spec: it
@@ -68,7 +69,11 @@ question 1).
 - Create a task only when the request's per-request client capabilities include
   the extension. The SEP forbids returning `CreateTaskResult` otherwise,
   regardless of earlier declarations. A client declaring only the legacy
-  `tasks` capability counts as non-declaring.
+  `tasks` capability counts as non-declaring. A **legacy-era connection**
+  (`2025-11-25`, capabilities from `initialize`) always counts as
+  non-declaring, even if its `initialize` capabilities happen to carry the
+  extension key: the extension is undefined on that era, so a handle would be
+  an unknown result shape. The era check comes before the capability check.
 - A tool that cannot run synchronously and receives a non-declaring client
   returns `-32021` (Missing Required Client Capability) with
   `data.requiredCapabilities`. A tool that can run synchronously just runs
@@ -76,6 +81,10 @@ question 1).
   receives from such a tool is undecided (open question 5).
 - `tasks/get`, `tasks/update` and `tasks/cancel` from a client that does not
   declare the extension also return `-32021` (SEP "Protocol Errors": MUST).
+- The three-argument `tasks/get` / `tasks/cancel` registrations are also
+  reachable on a legacy connection, where those names belong to the
+  experimental utility. The handlers must era-gate and answer `-32601` there
+  (legacy tasks are not served), never the modern shape.
 
 ### 3. Creating a task
 
@@ -117,6 +126,7 @@ This is the rule most likely to be implemented wrong:
 | Tool throws / adapter fault | `failed` | `error` as JSON-RPC `-32603` |
 | TTL elapsed before completion | `failed` | `error`, `statusMessage` says expired |
 | Cancel honoured | `cancelled` | `statusMessage` |
+| Tool throws/rejects after the cancel signal fired | `cancelled` | `statusMessage` (an abort-induced rejection is not a fault) |
 
 `failed` is reserved for JSON-RPC-level faults. Using it for `isError: true`
 violates the SEP and would make portable domain errors look like protocol
