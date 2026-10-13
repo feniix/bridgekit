@@ -2,7 +2,7 @@
 
 Status: proposal for review. Nothing in this document is implemented.
 Part 2 of 3; builds on [01-wire-contract.md](01-wire-contract.md). Continues in
-[03-delivery-plan.md](03-delivery-plan.md).
+`03-delivery-plan.md` (not yet written).
 
 This document answers #127's acceptance question: how a portable tool opts into
 task semantics without leaking MCP types into tool files, and what execution
@@ -19,9 +19,11 @@ current seams suggests the core primitive is unnecessary:
 - Whether a call is synchronous or detached is a property of the **adapter and
   backend**, not of the tool. The same `execute` can be awaited inline or run
   detached and polled.
-- So tasks become an MCP-adapter concern. `src/core/` and `src/adapters/pi.ts`
-  stay untouched, and a tool needs no code change to be task-capable, only a
-  declaration that it may be.
+- So tasks become an MCP-adapter concern. No new core *primitive* is added and
+  `src/adapters/pi.ts` stays untouched. The only core change is the additive
+  `tasks?` member on the `McpHostExtras` type in `src/core/define-tool.ts`
+  (where the existing `icons`/`_meta`/`annotations` live). A tool needs no code
+  change to be task-capable, only a declaration that it may be.
 
 This keeps the layering rule intact (tool files host-neutral; host wiring in the
 adapter) and avoids committing the portable contract to a polling model before
@@ -91,13 +93,19 @@ interface McpTaskBackend {
   /** Must resolve only once get(taskId) would succeed (SEP: strong consistency). */
   create(init: McpTaskInit): Promise<McpTaskRecord>;
   get(taskId: string, caller: McpTaskCaller): Promise<McpTaskRecord | undefined>;
-  /** Cooperative, idempotent, never throws for unknown or terminal tasks. */
-  cancel(taskId: string, caller: McpTaskCaller): Promise<void>;
+  /**
+   * Cooperative and idempotent; never throws for terminal tasks. Resolves
+   * `false` for an unknown, purged, or foreign-caller task so the adapter can
+   * answer `-32602` (part 1, section 4) without a separate, racy `get`.
+   */
+  cancel(taskId: string, caller: McpTaskCaller): Promise<boolean>;
   /** Abort running work and release resources. */
   close(): Promise<void>;
 }
 
 interface McpTaskInit {
+  /** Minted by BridgeKit (CSPRNG, at least 128 bits); backends must not mint IDs. */
+  taskId: string;
   toolName: string;
   args: unknown;
   ttlMs: number | null;
@@ -112,9 +120,9 @@ interface McpTaskInit {
 }
 ```
 
-- BridgeKit generates the `taskId` (CSPRNG, at least 128 bits) and passes it in
-  `McpTaskInit`; backends do not mint IDs. Omitted from the sketch above for
-  brevity; final shape settled in implementation.
+- BridgeKit generates the `taskId` and passes it in `McpTaskInit`; backends do
+  not mint IDs. `McpTaskRecord` and `McpTaskCaller` shapes are settled in
+  implementation.
 - Ships `createInMemoryTaskBackend({ maxTasks, defaultTtlMs, pollIntervalMs })`.
   Single process, no restart durability, documented as such.
 - **Durable production execution is consumer-owned**, per the approved plan.
@@ -129,14 +137,21 @@ in-memory backend serializes transitions per task:
   an ack, not a guarantee (SEP).
 - Cancel after terminal: no-op, still acked.
 - TTL expiry while `working`: transition to `failed` with an expiry message,
-  abort the signal, retain the record for one further `pollIntervalMs` so a
-  poller sees the reason, then purge.
+  abort the signal, retain the record for one further grace period (the task's
+  `pollIntervalMs`, or the backend default when the tool did not set one, at
+  least a few seconds so a jittery poller still sees the reason), then purge.
+  Note this makes `ttlMs` an execution deadline as well as a retention bound;
+  a finite default therefore kills any tool that outlives it (open question 5).
 - Purged ID: `tasks/get` returns `-32602`, as the SEP allows.
 
 ### Bounds
 
 - `maxTasks` caps retained records (working and terminal). Terminal records are
-  evicted oldest-first before capacity is refused.
+  evicted oldest-first before capacity is refused. Eviction before the record's
+  `ttlMs` breaks the retention promised in the handle and lets one caller's
+  flood push out another caller's unread result, so: evict only records whose
+  TTL has elapsed, and refuse at capacity otherwise; add a per-caller cap when
+  a `McpTaskCaller` is available.
 - At capacity with no evictable record, **do not** silently run synchronously:
   a tool that opted into tasks is presumed long-running and would block the
   request. Return an `isError: true` tool result stating capacity was exceeded.
@@ -152,8 +167,10 @@ application. So the backend receives a `McpTaskCaller` (opaque, derived by an
 optional consumer hook such as `resolveTaskCaller(requestCtx)`), stores it at
 `create`, and compares on `get`/`cancel`. Without the hook, caller binding is
 absent and the unguessable ID is the only guard; the README must say so.
-Whether the SDK exposes enough auth info in the request context to make this
-hook useful for stdio and HTTP is unverified (open question 2).
+A task whose caller does not match is indistinguishable from an unknown one
+(`-32602`), so IDs cannot be probed. Whether the SDK exposes enough auth info
+in the request context to make this hook useful for stdio and HTTP is
+unverified (open question 2).
 
 ## Lifecycle and wiring
 
@@ -166,8 +183,14 @@ hook useful for stdio and HTTP is unverified (open question 2).
   `hostExtras.mcp.tasks` and no backend is given, default to the in-memory
   backend.
 - Ownership: a default in-memory backend is closed by the stdio handle's
-  `close()` and by whatever the HTTP handler exposes for shutdown. A
-  consumer-supplied backend is **not** closed by BridgeKit.
+  `close()`. The HTTP handler is the SDK's `McpHttpHandler` returned as-is, whose
+  `close()` only tears down in-flight modern exchanges and does not know about
+  the backend, so `createMcpHttpHandler` must wrap it to also close the default
+  backend (a return-type change to resolve in part 3). `createMcpServer`
+  returns a bare `Server` with no handle, so a default backend there needs
+  either an explicit `tasks.backend` from the caller or a close hook; its
+  expiry timers must be `unref`'d so an unclosed backend cannot keep the
+  process alive. A consumer-supplied backend is **not** closed by BridgeKit.
 - Preserve the existing `close()` contract: it aborts requests without awaiting
   tool cleanup. Aborting task signals follows the same rule.
 
@@ -193,3 +216,9 @@ hook useful for stdio and HTTP is unverified (open question 2).
    in-memory backend's actual constraints during implementation, not here.
 4. **Status message throttling:** should `ctx.progress` -> `statusMessage` be
    rate limited so a chatty tool does not churn backend state?
+5. **TTL as deadline:** is it acceptable that `ttlMs` also bounds execution, or
+   should execution time be a separate limit from retention?
+6. **Admission:** the RFC's admission test favours descriptive, co-located
+   metadata and excludes operator runtime config. `support` qualifies;
+   `ttlMs` / `pollIntervalMs` look like runtime config and may belong in
+   `CreateMcpServerOptions.tasks` (per tool name) instead of `hostExtras`.
