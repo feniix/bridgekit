@@ -61,13 +61,21 @@ question 1).
   `server/discover` **only** when at least one registered tool opts in and a
   task backend is configured. Servers without either remain byte-identical to
   today, matching the `hostExtras` rule that unset features change no payload.
+  Caveat (verified, SDK 2.3.1): `Server` holds one capability set, and the
+  legacy `initialize` response returns the same `capabilities.extensions`
+  entry. The SEP says the extension is not defined under `2025-11-25`, so the
+  spike below must confirm this is harmless or strip it on legacy connections.
 - Create a task only when the request's per-request client capabilities include
   the extension. The SEP forbids returning `CreateTaskResult` otherwise,
-  regardless of earlier declarations.
+  regardless of earlier declarations. A client declaring only the legacy
+  `tasks` capability counts as non-declaring.
 - A tool that cannot run synchronously and receives a non-declaring client
   returns `-32021` (Missing Required Client Capability) with
   `data.requiredCapabilities`. A tool that can run synchronously just runs
-  synchronously.
+  synchronously. `-32021` exists only on the modern era; what a legacy client
+  receives from such a tool is undecided (open question 5).
+- `tasks/get`, `tasks/update` and `tasks/cancel` from a client that does not
+  declare the extension also return `-32021` (SEP "Protocol Errors": MUST).
 
 ### 3. Creating a task
 
@@ -92,7 +100,10 @@ question 1).
   `completed`; do not promise `cancelled`.
 - `tasks/update`: **not served in the first delivery.** It exists to answer
   `inputRequests`, which BridgeKit has no portable seam for. See the
-  `input_required` section.
+  `input_required` section. Note the SEP defines it as one of the extension's
+  three methods and says servers SHOULD ack or return `-32602` for unknown
+  tasks, so a server advertising the extension but answering `-32601` is a
+  deliberate deviation (open question 6).
 
 ### 5. Errors: the completed/failed split
 
@@ -138,32 +149,73 @@ handler is application-owned for listener policy, so the doc requirement is:
 **consumers running multiple instances must use a shared backend or
 sticky routing on `Mcp-Name`.** The in-memory backend is single-process only.
 
-## What the SDK already gives us (verified by inspection, 2.3.1)
+## What the SDK already gives us (verified by inspection and probe, 2.3.1)
 
 - On `tools/call`, a handler-provided non-`complete` `resultType` passes through
-  the modern-era stamp unvalidated (`EXTENDED_RESULT_TYPE_METHODS` includes
-  `tools/call`). So returning `resultType: "task"` from the low-level handler is
-  mechanically possible; the SDK will not check the task shape for us.
-- `tasks/get`, `tasks/result`, `tasks/list`, `tasks/cancel` appear in the SDK's
-  request-method tables with the shared (non-era-forked) schemas, and
-  `tasks/update` does not appear at all. Whether a modern-era `tasks/get`
-  handler is routed and validated against the extension's shape, or needs a
-  custom-method registration, is **unverified**.
+  the modern-era *stamp* (`EXTENDED_RESULT_TYPE_METHODS` includes `tools/call`),
+  but `Server` then validates the handler result against the era's
+  `CallToolResult` schema and `normalizeContentlessToolResult` injects
+  `content: []` when the result has no `content` (it skips only results
+  carrying `task`, `inputRequests` or `requestState`). A flat SEP-shaped
+  `CreateTaskResult` therefore reaches the wire with a stray `content: []`.
+  The handle must also bypass `projectCallToolResult`, which is the adapter's
+  current return path. Both need a decision in part 2/3 (strip, or accept the
+  extra field as harmless to a loose-object client).
+- The modern (`2026-07-28`) codec registry contains no `tasks/*` method. The
+  `tasks/get`, `tasks/result`, `tasks/list`, `tasks/cancel` entries belong only
+  to the legacy registry. On a modern connection, `setRequestHandler("tasks/get",
+  handler)` (two-argument form) is accepted but requests get `-32601`.
+  `tasks/get` and `tasks/cancel` are routed only through the three-argument,
+  custom-schema form (the SDK's `isExtensionReusedRequestMethod` carve-out);
+  `tasks/update` is not a spec method at all, so it is a consumer-owned method
+  with the same three-argument form. `tasks/result` and `tasks/list` already
+  return `-32601` on modern, as the SEP requires.
+- The SDK does not validate task result shapes and does not gate `tasks/*` on
+  the client's declared capability; the `-32021` checks are BridgeKit's.
+  `resultType: "complete"` is stamped on `tasks/get`/`tasks/update` results
+  automatically.
+- On HTTP the SDK already validates that `Mcp-Name` equals `params.taskId` for
+  `tasks/get`, `tasks/update` and `tasks/cancel` (`-32020` on mismatch).
+- The modern-era per-request client capabilities are readable in a handler as
+  `ctx.mcpReq.envelope?.["io.modelcontextprotocol/clientCapabilities"]`
+  (`CLIENT_CAPABILITIES_META_KEY`). On a legacy connection the
+  `initialize`-scoped value comes from the deprecated
+  `Server.getClientCapabilities()`.
+- The SDK ties SEP-2663 to its `2026-07-28` codec (header table and the
+  `tasks/get`/`tasks/cancel` reuse carve-out cite the SEP), which supports the
+  SEP's `2026-06-30` and the SDK's `2026-07-28` being the same revision.
 
-Spike required before implementation (blocks part 3, phase 2): register a
-`tasks/get` handler on a modern-era `Server` through `serveStdio` and the HTTP
-handler and observe the actual request/response shapes and capability gating.
+Spike still required before implementation (blocks part 3, phase 2): exercise
+the three-argument `tasks/*` registrations through `serveStdio` as well as the
+HTTP handler (the probe above used the HTTP handler only), and decide the
+`content: []` and legacy-`initialize` points above.
 
 ## Open questions
 
 1. **Legacy era:** approve "modern first, legacy never advertised" (this
    document), or require legacy experimental task support in the first
    delivery?
-2. **Capability source:** confirm where per-request client capabilities are
-   readable inside the `tools/call` handler on the modern era
-   (`io.modelcontextprotocol/clientCapabilities` is referenced by the SDK;
-   exact accessor not yet confirmed).
-3. **Naming:** confirm `2026-06-30` (SEP) and `2026-07-28` (SDK) are the same
-   revision.
+2. **Capability source:** resolved by inspection; see "What the SDK already
+   gives us". Confirm through `serveStdio` during the spike.
+3. **Naming:** likely the same revision (see above); confirm against the SEP
+   revision table before implementation.
 4. **Issue text:** retitle #127 to match this scope; the current text
    (`execution.taskSupport`, `tasks/list`) describes the superseded design.
+5. **Legacy-era behavior for tools that cannot run synchronously:** `-32021` is
+   modern-only. Define what a `2025-11-25` client receives (a tool-level
+   `isError` result, or such tools are not listed on legacy connections),
+   since "legacy clients keep working" only holds for synchronously-runnable
+   tools.
+6. **`tasks/update`:** keep it unregistered (`-32601`), or register it as an
+   ack for unknown/non-outstanding keys and `-32602` for unknown tasks so the
+   advertised extension has all three methods.
+7. **Task creation failure and validation ordering:** state what happens when
+   the backend is at capacity or `create` throws (the adapter's current
+   catch-all would turn it into an `isError` tool result), and whether
+   argument validation runs before creating a task so invalid calls do not
+   consume task capacity or return a handle that is immediately `completed`
+   with `isError: true`.
+8. **Tool opt-in:** the per-tool flag is removed from the wire, but this
+   document never says how a tool or the server decides to create a task;
+   pin the portable opt-in (part 2) before "registered tool opts in" and
+   "cannot run synchronously" can be evaluated.
