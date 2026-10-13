@@ -2,7 +2,7 @@
 
 Status: proposal for review. Nothing in this document is implemented.
 Part 2 of 3; builds on [01-wire-contract.md](01-wire-contract.md). Continues in
-`03-delivery-plan.md` (not yet written).
+[03-delivery-plan.md](03-delivery-plan.md).
 
 This document answers #127's acceptance question: how a portable tool opts into
 task semantics without leaking MCP types into tool files, and what execution
@@ -71,7 +71,7 @@ call runs as a task:
 
 | Context field | Synchronous call (today) | Task call |
 | --- | --- | --- |
-| `ctx.signal` | Aborts when the client cancels the request or the transport closes | Aborts on `tasks/cancel`, TTL expiry, or backend/server close. **Not** tied to the initiating request |
+| `ctx.signal` | Aborts when the client cancels the request or the transport closes | Aborts on `tasks/cancel`, TTL expiry, or backend close (default backend closed by the stdio handle). Closing a per-exchange or per-probe SDK server does **not** abort it. **Not** tied to the initiating request |
 | `ctx.progress` | `notifications/progress` on the request's token | Updates the task's `statusMessage`; no progress notifications are sent after the handle is returned |
 
 The first row is the load-bearing one: the initiating `tools/call` has already
@@ -133,8 +133,12 @@ interface McpTaskInit {
 `working` to exactly one terminal status, with **first writer wins**. The
 in-memory backend serializes transitions per task:
 
-- Completion after cancel was signalled: `completed` stands. `tasks/cancel` is
-  an ack, not a guarantee (SEP).
+- `cancelled` is written only when the execution settles after the cancel
+  signal fired and rejects (part 1, section 5): `cancel` itself signals the
+  abort and returns, it does not write a terminal status. A task that ignores
+  the signal and completes stays `completed`, and `tasks/cancel` is an ack, not
+  a guarantee (SEP). A task that settles without rejecting after the signal is
+  `completed`; first writer wins between settlement and TTL expiry.
 - Cancel after terminal: no-op, still acked.
 - TTL expiry while `working`: transition to `failed` with an expiry message,
   abort the signal, retain the record for one further grace period (the task's
@@ -146,18 +150,24 @@ in-memory backend serializes transitions per task:
 
 ### Bounds
 
-- `maxTasks` caps retained records (working and terminal). Terminal records are
-  evicted oldest-first before capacity is refused. Eviction before the record's
-  `ttlMs` breaks the retention promised in the handle and lets one caller's
-  flood push out another caller's unread result, so: evict only records whose
-  TTL has elapsed, and refuse at capacity otherwise; add a per-caller cap when
-  a `McpTaskCaller` is available.
+- `maxTasks` caps retained records (working and terminal). Never evict a record
+  before its `ttlMs` elapses: that breaks the retention promised in the handle
+  and lets one caller's flood push out another caller's unread result. Records
+  whose TTL has elapsed are purged; at capacity with none purgeable, refuse.
+  Add a per-caller cap when a `McpTaskCaller` is available.
 - At capacity with no evictable record, **do not** silently run synchronously:
   a tool that opted into tasks is presumed long-running and would block the
   request. Return an `isError: true` tool result stating capacity was exceeded.
-  (Open question 1.)
+  This applies to `support: "required"` tools. For `"optional"` tools the
+  presumption does not hold (a non-declaring client already runs them inline),
+  so whether capacity refusal may fall back to synchronous execution for them
+  is part of open question 1.
 - Unbounded `ttlMs: null` is allowed only if the consumer sets it explicitly;
-  the default is finite.
+  the default is finite. A `null`-TTL record is never purgeable by time, so a
+  backend with `maxTasks` and `null` TTLs fills permanently and then refuses
+  every create. Either `null` is rejected when `maxTasks` is finite, or
+  `null`-TTL records get an explicit consumer-side release path. Decide in
+  phase 2 (open question 5).
 
 ## Caller binding and auth
 
@@ -186,7 +196,7 @@ unverified (open question 2).
   `close()`. The HTTP handler is the SDK's `McpHttpHandler` returned as-is, whose
   `close()` only tears down in-flight modern exchanges and does not know about
   the backend, so `createMcpHttpHandler` must wrap it to also close the default
-  backend (a return-type change to resolve in part 3). `createMcpServer`
+  backend (a return-type change that part 3, phase 3 must resolve before wiring). `createMcpServer`
   returns a bare `Server` with no handle, so a default backend there needs
   either an explicit `tasks.backend` from the caller or a close hook; its
   expiry timers must be `unref`'d so an unclosed backend cannot keep the
