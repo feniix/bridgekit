@@ -13,10 +13,14 @@ import { isValidationFailure } from "../core/result-guards.js";
 type PiContent = { type: "text"; text: string };
 
 type PiToolUpdate = { content: PiContent[]; details: Record<string, unknown> };
+// Structural mirror of pi-ai's `JsonValue`. pi 1.1+ types
+// `AgentToolResult.structuredContent` with it, so `unknown` here makes
+// `pi.registerTool(tool)` fail to compile for consumers.
+type PiJsonValue = null | boolean | number | string | readonly PiJsonValue[] | { [key: string]: PiJsonValue };
 type PiToolResult = {
   content: PiContent[];
   details: Record<string, unknown>;
-  structuredContent?: unknown;
+  structuredContent?: PiJsonValue;
   isError?: boolean;
 };
 
@@ -228,7 +232,11 @@ export function registerPiTools(
         return {
           content: [{ type: "text", text: result.text } satisfies PiContent],
           details: toPiDetails(result),
-          ...(result.structuredContent !== undefined && { structuredContent: result.structuredContent }),
+          // Portable structured content is JSON by contract (MCP serializes the same
+          // value); the cast narrows the portable `unknown` to pi's wire type.
+          ...(result.structuredContent !== undefined && {
+            structuredContent: result.structuredContent as PiJsonValue,
+          }),
           isError: result.isError === true,
         };
       },
