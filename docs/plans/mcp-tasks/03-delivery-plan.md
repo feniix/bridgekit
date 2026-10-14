@@ -1,7 +1,7 @@
 # MCP tasks (#127): delivery plan
 
 Status: proposal for review. Nothing in this document is implemented.
-Part 3 of 3; builds on [01-wire-contract.md](01-wire-contract.md) and
+Part 3 of 4; builds on [01-wire-contract.md](01-wire-contract.md) and
 [02-execution-seam.md](02-execution-seam.md).
 
 Constraints inherited from `docs/plans/mcp-backlog-delivery.md`: all changes
@@ -33,9 +33,8 @@ both `serveStdio` and the HTTP handler:
 3. Where per-request client capabilities
    (`io.modelcontextprotocol/clientCapabilities`) are readable inside a handler.
 4. Whether `extensions` can be advertised in discovery capabilities from the
-   low-level `Server`, whether the legacy `initialize` response then also
-   carries the extension entry (harmless, or stripped on legacy connections),
-   and how a legacy-era client appears (must look non-declaring).
+   low-level `Server`. (Legacy-era connections are rejected before negotiation,
+   so how they would look is moot; see #141.)
 5. What auth info the request context carries on stdio versus HTTP.
 
 If (1) or (3) fails, the wire contract in part 1 needs rework before any code.
@@ -83,7 +82,8 @@ If (1) or (3) fails, the wire contract in part 1 needs rework before any code.
 
 ### Deferred, explicitly not in this delivery
 
-- Legacy-era `2025-11-25` experimental tasks (part 1, decision 1).
+- Legacy-era `2025-11-25` experimental tasks: not servable, since BridgeKit
+  rejects legacy-era openings (#141).
 - `input_required` and `tasks/update` (needs a portable elicitation seam).
 - `notifications/tasks` and `subscriptions/listen`.
 - Durable backend implementations (consumer-owned).
@@ -96,13 +96,13 @@ If (1) or (3) fails, the wire contract in part 1 needs rework before any code.
 | `optional` + declaring client returns handle | | yes | yes |
 | `optional` + non-declaring client runs synchronously | | yes | yes |
 | `required` + non-declaring client gets `-32021` | | yes | yes |
-| Legacy-era client never receives a task | | yes | yes |
+| Legacy-era opening is rejected with `-32022` before any task method is reachable | | yes | yes |
 | Handle immediately retrievable via `tasks/get` | yes | yes | yes |
 | `isError: true` result gives `completed`, not `failed` | yes | yes | |
 | Thrown tool gives `failed` with `-32603` | yes | yes | |
 | `tasks/cancel` aborts `ctx.signal`; terminal task acked, unknown/foreign-caller task gives `-32602` | yes | yes | yes |
 | `tasks/get` / `tasks/cancel` from a non-declaring client gives `-32021` | | yes | yes |
-| `tasks/get` / `tasks/cancel` on a legacy-era connection gives `-32601`; `tasks/update` gives `-32601` | | yes | yes |
+| `tasks/update` gives `-32601` while unregistered | | yes | yes |
 | Task rejecting after cancel signal ends `cancelled`; completing after cancel stays `completed` | yes | yes | |
 | Cancel racing completion: first writer wins | yes | | |
 | Initiating request cancel does not abort a detached task | | yes | yes |
@@ -112,8 +112,8 @@ If (1) or (3) fails, the wire contract in part 1 needs rework before any code.
 | `close()` aborts running tasks of the default backend only | yes | yes | yes |
 | Unknown task ID gives `-32602` | | yes | yes |
 
-Both eras are exercised in the integration columns, consistent with how the
-stdio runner is covered today (default, legacy, auto, modern-pinned).
+Integration columns exercise the modern era only, consistent with how the stdio
+runner is covered today (auto, modern-pinned, plus legacy rejection).
 
 ## Documentation and release notes
 
