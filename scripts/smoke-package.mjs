@@ -213,7 +213,7 @@ async function assertTypesCompile(installDir) {
       void sdkServer;
       const _stdioStartup: Promise<McpStdioServerHandle> = runMcpStdioServer(options);
       void _stdioStartup;
-      const _httpOptions: CreateMcpHttpHandlerOptions = { legacy: "stateless", responseMode: "auto" };
+      const _httpOptions: CreateMcpHttpHandlerOptions = { responseMode: "auto" };
       const _http: McpHttpHandler = createMcpHttpHandler(options, _httpOptions);
       const _httpResponse: Promise<Response> = _http.fetch(new Request("http://localhost/mcp"));
       void _httpResponse;
