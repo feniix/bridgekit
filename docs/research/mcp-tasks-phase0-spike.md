@@ -53,12 +53,14 @@ behaviour.
 
 ## Decisions this resolves
 
-Closes open questions 2 and 3 in part 1 (accessor confirmed on both transports;
-revision tie supported). Narrows the remaining part 1 items:
+Resolves part 1 open question 1 (capability accessor confirmed on both
+transports) and supports question 2 (the SDK ties SEP-2663 to its `2026-07-28`
+codec, so the revision names likely match; the SEP revision table should still
+be checked). Question 3 (retitling #127) is untouched. Part 2 open question 2
+(caller hook) is narrowed: auth info exists on HTTP only. Remaining items:
 
-- `content: []` on the handle: decide strip versus accept. Stripping needs a
-  post-handler hook the low-level `Server` does not obviously offer; accepting
-  is the likely answer, and the plan should say so explicitly.
+- `content: []` on the handle: decided in part 1 as **accept**. Stripping needs a
+  post-handler hook the low-level `Server` does not offer.
 - Legacy `initialize` advertising: moot. Legacy-era openings are rejected before
   negotiation (#141), so the extension entry never reaches a legacy client and
   no per-era `Server` factory is needed.
