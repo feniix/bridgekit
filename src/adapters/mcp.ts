@@ -288,10 +288,10 @@ export function createMcpServerFactory(options: CreateMcpServerOptions): () => S
  *
  * @deprecated A directly connected `Server` (`server.connect(transport)`) can
  * only speak the legacy era, which BridgeKit's serving entrypoints no longer
- * support. Use `runMcpStdioServer` or `createMcpHttpHandler`. Passing
- * `() => createMcpServer(options)` as the factory of the SDK's
- * `createMcpHandler(factory, { legacy: "reject" })` remains supported for
- * custom serving.
+ * support. Use `runMcpStdioServer` or `createMcpHttpHandler`, or for custom
+ * serving pass `createMcpServerFactory(options)` to the SDK's
+ * `createMcpHandler(factory, { legacy: "reject" })`. Do not wrap this function
+ * in a factory: it revalidates and re-snapshots the tools on every call.
  */
 export function createMcpServer(options: CreateMcpServerOptions): Server {
   return createMcpServerFactory(options)();

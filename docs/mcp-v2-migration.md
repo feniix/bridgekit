@@ -56,13 +56,16 @@ Consumer impact:
   default-constructed client is rejected; pin `{ mode: { pin: "2026-07-28" } }`
   or use `"auto"`.
 - Every legacy-era opening (`2025-11-25` and earlier) is rejected, and each
-  rejected request writes one `[bridgekit-mcp]` line to stderr by default
-  (override with the HTTP `onerror` option).
-- `legacy` is removed from the HTTP options type and ignored at runtime.
-- `CreateMcpHttpHandlerOptions` no longer accepts `legacy`.
-- `createMcpServer` is deprecated as a direct `Server.connect` target.
-  `createMcpHandler(() => createMcpServer(options), { legacy: "reject" })`
-  remains supported for custom serving.
+  rejected request writes one `[bridgekit-mcp]` line to stderr by default. The
+  HTTP handler's `onerror` option overrides it; `runMcpStdioServer` has no
+  reporter option and always writes to stderr.
+- `legacy` is removed from `CreateMcpHttpHandlerOptions` (type) and ignored at
+  runtime for untyped callers.
+- `createMcpServer` is deprecated as a direct `Server.connect` target. For custom
+  serving use the new `createMcpServerFactory(options)` with the SDK's
+  `createMcpHandler(factory, { legacy: "reject" })`; it validates and snapshots
+  tools once. Do not wrap `createMcpServer` in a factory, which revalidates and
+  re-snapshots per call.
 - Non-object output roots are no longer wrapped as `{ result }` for any served
   client; modern clients receive the natural value.
 

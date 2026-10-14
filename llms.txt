@@ -125,13 +125,15 @@ BridgeKit serves only the modern MCP `2026-07-28` era. Legacy-era openings
    no compatibility switch.
 3. Replace `createMcpServer(options)` + `server.connect(transport)` with
    `runMcpStdioServer(options)` or `createMcpHttpHandler(options, httpOptions?)`.
-   `createMcpServer` is deprecated for direct connection; passing
-   `() => createMcpServer(options)` to the SDK's `createMcpHandler(factory,
-   { legacy: "reject" })` remains supported for custom serving.
+   `createMcpServer` is deprecated for direct connection; for custom serving pass
+   `createMcpServerFactory(options)` to the SDK's `createMcpHandler(factory,
+   { legacy: "reject" })`. Do not wrap `createMcpServer` in a factory: it
+   revalidates and re-snapshots tools on every call.
 4. Remove `legacy` from HTTP options (removed from the type, ignored at runtime).
 5. Non-object structured output reaches clients as-is, not `{ result }`-wrapped.
-6. Each rejected request logs one `[bridgekit-mcp]` stderr line by default;
-   override with the HTTP `onerror` option.
+6. Each rejected request logs one `[bridgekit-mcp]` stderr line by default. The
+   HTTP handler's `onerror` option overrides it; `runMcpStdioServer` has no
+   reporter option and always writes to stderr.
 
 Details: `docs/mcp-v2-migration.md` ("Dropping legacy-era serving").
 

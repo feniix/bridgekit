@@ -14,6 +14,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Listener and security policy remain application-owned
   (#126). HTTP options and handler types are exported from the MCP entrypoint.
 
+- Export `createMcpServerFactory(options)` from the MCP entrypoint: validates and
+  snapshots tools once and returns a per-call `Server` factory for the SDK's
+  `createMcpHandler` / `serveStdio`, replacing `createMcpServer` for custom
+  serving.
+
 ### Changed (breaking)
 
 - Serve only the modern MCP `2026-07-28` era. `runMcpStdioServer` and
@@ -25,9 +30,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   client is rejected: pin `{ mode: { pin: "2026-07-28" } }` or use `"auto"`.
   `legacy` is removed from `CreateMcpHttpHandlerOptions` and ignored at runtime
   for untyped callers. `createMcpServer` is deprecated as a direct
-  `Server.connect` target (a directly connected `Server` is legacy-only); passing
-  `() => createMcpServer(options)` to the SDK's `createMcpHandler` remains the
-  way to compose custom serving. Both the `tools/list` `outputSchema` and the
+  `Server.connect` target (a directly connected `Server` is legacy-only); use the
+  new `createMcpServerFactory(options)` with the SDK's `createMcpHandler` to
+  compose custom serving. Both the `tools/list` `outputSchema` and the
   `tools/call` `structuredContent` of non-object outputs are no longer
   `{ result }`-wrapped for any served client. The SDK v1 dev dependency and its
   stdio interop test were removed (#131 retired). See `docs/mcp-v2-migration.md`.

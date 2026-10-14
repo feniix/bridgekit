@@ -57,7 +57,7 @@ for (const active of [false, true]) {
   });
 }
 
-test("modern discover probes keep the startup tool snapshot for the pinned session", { timeout: 15000 }, async () => {
+test("server/discover probes are isolated and tools/list keeps the startup snapshot", { timeout: 15000 }, async () => {
   const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe"] });
   const lines = createInterface({ input: child.stdout });
   const replies = lines[Symbol.asyncIterator]();
@@ -82,8 +82,8 @@ test("modern discover probes keep the startup tool snapshot for the pinned sessi
     assert.deepEqual(echo.icons, [{ src: "https://example.com/original.svg" }]);
     assert.deepEqual(echo._meta, { category: "original" });
     assert.ok(!listing.tools.some((tool) => tool.name === "late-invalid"));
-    const result = await request("tools/call", { name: "echo", arguments: { text: "fallback" } });
-    assert.deepEqual(result.structuredContent, { text: "fallback" });
+    const result = await request("tools/call", { name: "echo", arguments: { text: "probed" } });
+    assert.deepEqual(result.structuredContent, { text: "probed" });
     // A synchronous progress burst is written in order and before the result.
     child.stdin.write(
       `${JSON.stringify({
