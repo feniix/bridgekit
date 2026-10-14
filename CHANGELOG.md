@@ -10,12 +10,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Forward tool `icons` and `_meta` from `hostExtras.mcp`, with construction-time
   snapshots and no new wire keys when absent (#128).
-- Add `createMcpHttpHandler` for Web-standard HTTP serving with modern MCP and
-  stateless legacy fallback. Listener and security policy remain application-owned
+- Add `createMcpHttpHandler` for Web-standard HTTP serving of modern MCP.
+  Listener and security policy remain application-owned
   (#126). HTTP options and handler types are exported from the MCP entrypoint.
 
 ### Changed (breaking)
 
+- Serve only the modern MCP `2026-07-28` era. `runMcpStdioServer` and
+  `createMcpHttpHandler` reject `2025-11-25` clients with `-32022` naming the
+  supported revisions. Clients limited to `2025-11-25` (SDK v1, or v2 in
+  `legacy` negotiation mode) can no longer connect; the SDK v2 client's default
+  negotiation also opens with `2025-11-25`, so pin `{ mode: { pin: "2026-07-28" } }`
+  or use `"auto"`. `CreateMcpHttpHandlerOptions` no longer accepts `legacy`.
+  `createMcpServer` is deprecated because a directly connected `Server` is
+  legacy-only. Non-object structured output is no longer `{ result }`-wrapped
+  for any served client. See `docs/mcp-v2-migration.md`.
 - `runMcpStdioServer` now returns `Promise<McpStdioServerHandle>` with an
   idempotent `close()` that aborts pending requests (#129). Awaiting startup
   means stdio wiring is ready, not that a client has connected. Callers that

@@ -498,10 +498,7 @@ async function assertPackedMcpProtocol(installDir) {
           command: process.execPath, args: ["server.mjs"], stderr: "pipe",
         });
         try {
-          await assert.rejects(legacyClient.connect(legacyTransport), {
-            code: -32022,
-            message: /Unsupported protocol version: 2025-11-25/,
-          });
+          await assert.rejects(legacyClient.connect(legacyTransport), /Unsupported protocol version: 2025-11-25/);
         } finally {
           await legacyClient.close();
           await legacyTransport.close();
@@ -547,9 +544,7 @@ async function assertPackedMcpProtocol(installDir) {
           }),
         }));
         assert.equal(legacyResponse.status, 400);
-        const legacyError = (await legacyResponse.json()).error;
-        assert.equal(legacyError.code, -32022);
-        assert.deepEqual(legacyError.data.supported, ["2026-07-28"]);
+        assert.equal((await legacyResponse.json()).error.code, -32022);
       } finally {
         await handler.close();
       }

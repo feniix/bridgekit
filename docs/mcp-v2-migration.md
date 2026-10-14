@@ -3,8 +3,9 @@
 ## Decision
 
 Use SDK v2's low-level `Server`, preserving TypeBox JSON Schema passthrough.
-Upgrade the existing `runMcpStdioServer` to dual-era `serveStdio` serving, rather
-than introducing another public runner or entrypoint. The original migration
+Upgrade the existing `runMcpStdioServer` to `serveStdio` serving, rather than
+introducing another public runner or entrypoint. Legacy-era (`2025-11-25`)
+serving was dropped afterwards: see "Dropping legacy-era serving" below. The original migration
 preserved `Promise<void>`. The #129 lifecycle change returns
 `Promise<McpStdioServerHandle>` with idempotent `close(): Promise<void>` to close
 the transport and abort in-flight requests. Resolution means startup wiring is
@@ -17,15 +18,16 @@ The SDK closes stdio on EOF; tools must respect their cancellation signal and
 must not leave unrelated processes/timers running.
 
 Each discovery probe/connection gets a fresh server, so discarded modern probes
-cannot contaminate legacy fallback handlers. Opening/transport errors reported
+cannot contaminate later connections. Opening/transport errors reported
 by the SDK are diagnosed on stderr with a `[bridgekit-mcp]` prefix, never stdout.
 The SDK exposes no readiness promise: runner resolution means wiring completed,
 not that an asynchronous transport start or negotiation succeeded. The close
 handle permits explicit teardown in addition to stdin EOF.
 
-`createMcpServer` validates and constructs a passive SDK v2 `Server`. Connecting
-it directly with a `StdioServerTransport` still serves only the legacy era.
-Use the public runner to enable modern revision `2026-07-28`.
+`createMcpServer` validates and constructs a passive SDK v2 `Server` and is
+deprecated. Connecting it directly with a `StdioServerTransport` serves only the
+legacy era, which BridgeKit no longer supports; use the public runner or the
+HTTP handler for modern revision `2026-07-28`.
 
 ## Streamable HTTP decision (#126)
 
@@ -33,17 +35,38 @@ Ship `createMcpHttpHandler(options, httpOptions?)` under `./mcp`, composing
 the SDK's Web-standard handler with `createMcpServer`. It validates definitions
 eagerly and creates fresh servers per SDK request. The returned SDK handler has
 `fetch`, `close`, `notify`, and `bus`; SDK HTTP options pass through unchanged.
-The default legacy leg is stateless. No Node HTTP listener code enters the
-library. Applications own auth, authorization, Host/Origin checks, CORS, TLS,
-and listener lifecycle. See the README recipe. Source integration tests use a
-real loopback listener for both eras; packed-consumer tests use both eras over
-the Web-standard HTTP transport.
+Legacy-era requests are rejected (`legacy: "reject"`). No Node HTTP listener
+code enters the library. Applications own auth, authorization, Host/Origin
+checks, CORS, TLS, and listener lifecycle. See the README recipe. Source
+integration tests use a real loopback listener; packed-consumer tests use the
+Web-standard HTTP transport.
+
+## Dropping legacy-era serving
+
+BridgeKit serves only the modern `2026-07-28` era over stdio and HTTP. The
+SDK's `legacy: "reject"` mode answers `2025-11-25` openings with
+`-32022` (unsupported protocol version, `data.supported: ["2026-07-28"]`);
+the stdio connection stays open for a modern opening.
+
+Consumer impact:
+
+- Clients limited to `2025-11-25` (SDK v1, or v2 `versionNegotiation.mode:
+  "legacy"`) can no longer connect.
+- The SDK v2 client's default negotiation opens with `2025-11-25`; pin
+  `{ mode: { pin: "2026-07-28" } }` or use `"auto"`.
+- `CreateMcpHttpHandlerOptions` no longer accepts `legacy`.
+- `createMcpServer` is deprecated; a directly connected `Server` is legacy-only.
+- Non-object output roots are no longer wrapped as `{ result }` for any served
+  client; modern clients receive the natural value.
+
+The SDK v1 dev dependency and its interop test were removed with this change; the
+#131 v1-client workaround notes below are retained as historical context only.
 
 ## Breaking-change policy
 
 Ship this as pre-1.0 **minor** release `0.16.0`. The returned `Server`
 type/object changes, even though
-legacy clients remain interoperable on the wire.
+legacy clients are no longer served (see "Dropping legacy-era serving").
 
 Consumers using `createMcpServer` beyond the public runner must:
 
@@ -52,13 +75,8 @@ Consumers using `createMcpServer` beyond the public runner must:
 - Read `ctx.mcpReq.signal` instead of `extra.signal`.
 - Avoid mixing SDK v1 instances/transports/types with SDK v2 objects.
 
-The v1 SDK remains a development-only dependency intentionally (#131). The v2
-client's legacy mode already covers legacy wire interoperability, but cannot pin
-v1's client-specific success-schema validation of domain errors or the generic
-request workaround described below. The v1 stdio test covers both; retaining it
-keeps that migration guidance executable. Reconsider this dependency when that
-v1 compatibility guidance is retired, not merely when legacy wire coverage changes.
-The v2 client is also test-only. Runtime code imports only the v2 server package.
+The v1 SDK is no longer a dependency (#131 retired with legacy serving). The v2
+client is test-only. Runtime code imports only the v2 server package.
 
 ## Structured output
 
@@ -111,7 +129,7 @@ Each update sends `notifications/progress` with the token, a per-call counter
 starting at 1 as `progress`, and `update.text` as `message`; `total` is omitted and
 no numeric convention is read from `structuredContent`. Sends are awaited before
 the result and skipped once `ctx.mcpReq.signal` is aborted; a failed send never
-fails the call. Known client limitation: the official SDK clients (v1 and v2)
+fails the call. Known client limitation: the official SDK clients
 dispatch notification handlers on a microtask while responses are handled
 synchronously, so a synchronous burst of updates immediately followed by the
 result can be dropped client-side when it lands in one stdio chunk. The wire
@@ -123,7 +141,7 @@ tracked in [#132](https://github.com/feniix/bridgekit/issues/132).
 ## Verification and scope
 
 Regression seams: portable execution, Pi registration/results, MCP connected pairs,
-spawned legacy/v2-modern stdio clients, cancellation through the public tool seam,
+spawned v2-modern stdio clients and legacy-rejection, cancellation through the public tool seam,
 EOF shutdown, and installed tarball declarations/protocol calls.
 
 HTTP/auth, tasks, resources/prompts, and additional Pi metadata were out of scope

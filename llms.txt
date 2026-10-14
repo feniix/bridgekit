@@ -63,7 +63,7 @@ export function createTools() {
   TypeBox schema except a top-level `$ref` (objects, intersections, arrays,
   primitives, unions). Missing/invalid successful `structuredContent` throws
   `TypeError`; argument/domain error results are exempt. Non-object values are
-  wrapped as `{ result }` for legacy MCP clients by the SDK and on pi `details`.
+  passed as-is to MCP clients and wrapped as `{ result }` on pi `details`.
   Legacy `details` alone does not satisfy a declared output schema.
   `definePortableTool` infers/checks schema-linked success data at compile time;
   use literal `isError: true` for exempt domain failures. A third
@@ -100,13 +100,14 @@ export function createTools() {
   Their runtime predicates are shape-based, so Pi structured failures also
   match; that does not make a raw Pi result a valid portable typed value.
 - MCP uses SDK v2's low-level `Server` and method-string handlers. Cancellation
-  reads `ctx.mcpReq.signal`. `runMcpStdioServer` serves legacy and modern
-  `2026-07-28` stdio; direct `Server.connect` remains legacy-only. The runner's
+  reads `ctx.mcpReq.signal`. `runMcpStdioServer` serves modern
+  `2026-07-28` stdio only (legacy `2025-11-25` is rejected with `-32022`);
+  `createMcpServer` is deprecated because a direct `Server.connect` is legacy-only. The runner's
   `Promise<McpStdioServerHandle>` resolves at startup, not EOF; call the
   handle's idempotent `close()` to tear down explicitly. Migration details:
   `docs/mcp-v2-migration.md`.
 - `createMcpHttpHandler(options, httpOptions?)` returns the SDK's Web-standard
-  HTTP handler (`fetch`, `close`, `notify`, `bus`) with stateless legacy fallback.
+  HTTP handler (`fetch`, `close`, `notify`, `bus`), modern era only.
   It starts no listener. Applications must enforce authentication, authorization,
   Host/Origin validation, TLS, and CORS before calling `fetch`.
 - `registerPiTools(pi, tools, { errorHandling: "throw" })` opts into the pre-0.7 behavior where `isError` results throw `PortableToolExecutionError`. Selecting this value emits a `DeprecationWarning` (code `BRIDGEKIT_PI_THROW_DEPRECATED`) once per process; only the `"throw"` value is deprecated, not the option itself. Scheduled for removal in 1.0; do not adopt it for new code.

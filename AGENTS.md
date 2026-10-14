@@ -88,8 +88,9 @@ The MCP adapter uses SDK v2's **low-level** `Server` from `@modelcontextprotocol
 with `"tools/list"` / `"tools/call"` method-string handlers and `ctx.mcpReq.signal`.
 TypeBox schemas pass through as JSON Schema; no high-level `registerMcpTools`
 helper is exported. Low-level results use `projectCallToolResult`. The existing
-stdio runner serves modern `2026-07-28` and legacy clients through `serveStdio`;
-direct `Server.connect` remains legacy-only. The runner returns
+stdio runner and HTTP handler serve the modern `2026-07-28` era only
+(`legacy: "reject"`; `2025-11-25` openings get `-32022`). `createMcpServer` is
+deprecated: direct `Server.connect` is legacy-only. The runner returns
 `Promise<McpStdioServerHandle>`; `close()` aborts requests without awaiting tool
 cleanup. `createMcpHttpHandler` snapshots tools once and creates isolated SDK
 servers per HTTP exchange; listener/auth/origin policy is application-owned. Read `docs/mcp-v2-migration.md`

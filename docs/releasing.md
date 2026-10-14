@@ -98,7 +98,7 @@ If any step fails, fix it on the branch — do not bypass the workflow.
 
 ### MCP conformance status
 
-The local gate tests BridgeKit's dual-era stdio runner; it does **not** certify
+The local gate tests BridgeKit's modern-era stdio runner; it does **not** certify
 official MCP conformance. The checked official conformance CLI (`0.1.16`) requires
 an HTTP URL for server tests and cannot directly launch the stdio fixture.
 Do not add a nominal conformance CI job that tests an HTTP bridge instead and
@@ -107,8 +107,7 @@ reports it as stdio coverage.
 For releases changing the MCP SDK or stdio lifecycle, manually recheck the
 suite's transport support and record the version and outcome in
 [the conformance research note](research/mcp-stdio-conformance.md). Once direct
-stdio support exists, run the tools/lifecycle scenarios for both `2025-11-25`
-and `2026-07-28`, inspect failures before introducing any baseline, and evaluate
+stdio support exists, run the tools/lifecycle scenarios for `2026-07-28`, inspect failures before introducing any baseline, and evaluate
 a pinned CI gate. Until then, #130 remains blocked rather than passed.
 
 ### Node version coverage
@@ -181,15 +180,15 @@ Release-blocking bug categories (any of these warrants holding a release):
 ## MCP SDK stance
 
 The implementation for #117 uses `@modelcontextprotocol/server` SDK v2, with
-low-level method-string handlers and dual-era stdio serving. The v1 SDK and v2
-client are development-only compatibility/test dependencies. The no-high-level-
+low-level method-string handlers and modern-era stdio serving. The v2
+client is a development-only test dependency; the v1 SDK is no longer used. The no-high-level-
 registration-helper policy is unchanged: TypeBox remains JSON Schema passthrough.
 
 Release this migration as a pre-1.0 minor, not a patch: `createMcpServer` exposes a
-different SDK `Server` type/object. Keep legacy wire interoperability. The
+different SDK `Server` type/object, and legacy-era serving is dropped. The
 lifecycle change also requires a minor: the runner now returns
 `Promise<McpStdioServerHandle>`. See [migration policy](mcp-v2-migration.md);
-the packed smoke test exercises both eras and pins the v2 server baseline.
+the packed smoke test exercises the modern era plus legacy rejection and pins the v2 server baseline.
 
 ## Maintainer & triage
 
@@ -200,7 +199,7 @@ four pinned official HTTP scenarios listed in
 [the conformance record](research/mcp-stdio-conformance.md#http-follow-up-2026-10-07).
 Keep the result artifacts. These do not certify stdio or modern `2026-07-28`;
 the published `0.1.16` harness rejects that dated version. Do not make the
-full-suite or dual-era conformance claim until those blockers are resolved.
+full-suite or modern-era conformance claim until those blockers are resolved.
 
 Issue triage: maintainer responsibility is unassigned. Until a triage owner is named, expect best-effort response on issues filed against this repository, with priority on packaging regressions, install failures, and SDK-compatibility breaks.
 
