@@ -115,14 +115,38 @@ test("discarded modern discover probes do not affect a later modern session", { 
         params: { progressToken: "tok", progress: 2, message: "second" },
       },
     ]);
-    const final: { id?: number; result?: Record<string, unknown> } = fromAny(burst[2]);
-    assert.equal(final.id, id);
-    assert.deepEqual(final.result?.content, [{ type: "text", text: "done" }]);
-    assert.deepEqual(final.result?.structuredContent, { steps: 2 });
+    // Pin the full wire shape: no stray keys beyond the modern-era stamp.
+    assert.deepEqual(burst[2], {
+      jsonrpc: "2.0",
+      id,
+      result: {
+        _meta: { "io.modelcontextprotocol/serverInfo": { name: "stdio-fixture", version: "0.0.0" } },
+        content: [{ type: "text", text: "done" }],
+        structuredContent: { steps: 2 },
+        isError: false,
+        resultType: "complete",
+      },
+    });
   } finally {
     lines.close();
     child.stdin.end();
     if (child.exitCode === null && child.signalCode === null) child.kill();
+  }
+});
+
+test("default-constructed SDK v2 client is refused (its default negotiation mode is legacy)", {
+  timeout: 15000,
+}, async () => {
+  const client = new Client({ name: "default-client", version: "0.0.0" });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [fixture], stderr: "pipe" });
+  try {
+    await assert.rejects(client.connect(transport), {
+      code: -32022,
+      message: /Unsupported protocol version: 2025-11-25/,
+    });
+  } finally {
+    await client.close();
+    await transport.close();
   }
 });
 

@@ -162,7 +162,12 @@ function assertUniqueToolNames(tools: readonly PortableTool<TSchema, PortableToo
   }
 }
 
-/** Internal serving seam: validate and snapshot once, then build isolated SDK servers cheaply. */
+/**
+ * Validate and snapshot the tools once, then return a factory that builds an
+ * isolated SDK `Server` per call. Pass it to the SDK's `createMcpHandler` or
+ * `serveStdio` for custom serving; unlike `createMcpServer`, validation and the
+ * tool snapshot happen at this call, not once per server.
+ */
 export function createMcpServerFactory(options: CreateMcpServerOptions): () => Server {
   const { name, version, instructions } = options;
   for (const tool of options.tools) {

@@ -58,7 +58,7 @@ async function assertRuntimeExports(installDir) {
       "validatePortableToolArgs",
     ]);
     assert.deepEqual(Object.keys(pi).sort(), ["PortableToolExecutionError", "isPortableToolExecutionError", "registerPiTools"]);
-assert.deepEqual(Object.keys(mcp).sort(), ["createMcpHttpHandler", "createMcpServer", "runMcpStdioServer"]);
+assert.deepEqual(Object.keys(mcp).sort(), ["createMcpHttpHandler", "createMcpServer", "createMcpServerFactory", "runMcpStdioServer"]);
     assert.equal(["register", "McpTools"].join("") in mcp, false);
     assert.deepEqual(Object.keys(binWrapper).sort(), ["runBinWrapper"]);
     assert.equal(typeof binWrapper.runBinWrapper, "function");

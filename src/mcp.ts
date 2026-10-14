@@ -1,6 +1,7 @@
 export {
   type CreateMcpServerOptions,
   createMcpServer,
+  createMcpServerFactory,
   type McpStdioServerHandle,
   runMcpStdioServer,
 } from "./adapters/mcp.js";
