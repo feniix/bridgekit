@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-14
+
 ### Added
 
 - Forward tool `icons` and `_meta` from `hostExtras.mcp`, with construction-time
