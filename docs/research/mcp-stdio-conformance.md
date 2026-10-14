@@ -6,7 +6,7 @@
 official scenarios. The published server harness requires an HTTP URL, while
 `scripts/mcp-stdio-fixture.mjs` serves stdio. Adding an HTTP proxy or testing the
 SDK's HTTP example would measure a different serving boundary, not certify
-BridgeKit's dual-era stdio runner.
+BridgeKit's modern-only stdio runner.
 
 Neither `2025-11-25` nor `2026-07-28` has an official stdio conformance result.
 The existing Node integration tests remain the automated gate. This note does
@@ -54,13 +54,13 @@ The upstream conformance checkout inspected was
 
 Keep official conformance as a **manual transport-support recheck**, not a
 required CI job, until the harness can target the actual stdio serving boundary.
-Continue running the existing legacy/default/auto/modern-pinned stdio tests in
+Continue running the existing auto/modern-pinned stdio tests and legacy-rejection tests in
 CI. Passing those tests is not equivalent to passing the official suite.
 
 When the blocker is removed:
 
 1. Pin the conformance version and record its invocation and result artifacts.
-2. Run tools and lifecycle scenarios against the fixture for both wire eras.
+2. Run tools and lifecycle scenarios against the fixture for `2026-07-28`.
    Check required fixture names/behaviors before interpreting tool failures.
 3. Classify failures: BridgeKit-owned contract, SDK/transport, fixture mismatch,
    or unsupported resources/prompts/tasks/HTTP/auth. Do not hide failures under
@@ -106,3 +106,7 @@ Its accepted values are `2025-03-26`, `2025-06-18`, `2025-11-25`, `draft`, and
 HTTP scenarios are currently a manual pre-release check; a required CI gate
 should wait for an explicitly pinned harness that tests the desired revisions
 and serving boundaries.
+
+**Superseded (modern-only serving):** the handler now rejects `2025-11-25`;
+re-running the HTTP scenarios above fails at `server-initialize` with `-32022`.
+The results above are historical.

@@ -55,13 +55,13 @@ This catalog originally backed two scripts: `verify-bridgekit-dist.mjs` (manifes
 ## inv-mcp-sdk-major
 
 **Assertion**: `@modelcontextprotocol/server` is range-pinned to `^2.x` in `dependencies`;
-the v1 SDK and v2 client are test-only dependencies, not runtime dependencies.
+the v2 client is a test-only dependency, and the v1 SDK is not a dependency at all.
 
 **Where**: `scripts/smoke-package.mjs:assertManifestInvariants`.
 
 **Failure mode**: An unreviewed SDK major bump changes the public low-level `Server`,
 method-keyed handlers, result projection, or `ctx.mcpReq.signal` contract. Accidentally
-adding the legacy SDK/client to runtime dependencies also increases consumer install footprint.
+adding the v1 SDK or the client to runtime dependencies also increases consumer install footprint.
 
 **Motivation**: The deliberate SDK v2 migration for #117 is documented in
 `docs/releasing.md#mcp-sdk-stance` and `docs/mcp-v2-migration.md`. Keep future
@@ -70,8 +70,8 @@ baseline changes explicit and preserve low-level TypeBox passthrough.
 **Retained schema compatibility**:
 
 - `tools/list` synthesizes `type: "object"` on `allOf`-rooted object intersections
-  for input and output schemas. This retains compatibility with legacy clients;
-  the SDK v2 input schema type also requires an object root.
+  for input and output schemas. The SDK v2 input schema type requires an object
+  root, and the SDK's per-era `{ result }` wrap keys on the root `type`.
 
 **Removable?** Only when a future migration ratifies another baseline.
 
@@ -178,13 +178,14 @@ The last two pin that the internal module backing `runBinWrapper` is unreachable
 
 ## inv-packed-mcp-protocol
 
-**Assertion**: A spawned server from the installed tarball serves both legacy and
-modern-pinned `2026-07-28` SDK clients, lists its object output schema, and returns
-matching structured data.
+**Assertion**: A spawned stdio server from the installed tarball, and an in-process
+HTTP handler from the same tarball, serve a modern-pinned `2026-07-28` SDK client; lists its object output
+schema, returns matching structured data, and rejects `2025-11-25` openings with
+`-32022`.
 
 **Where**: `scripts/smoke-package.mjs:assertPackedMcpProtocol`.
 
 **Failure mode**: Source tests pass but the shipped artifact has missing dependencies,
-broken stdio wiring, or legacy-only serving.
+broken stdio wiring, or accidental legacy-era serving.
 
-**Removable?** No while dual-era stdio is the public contract.
+**Removable?** No while modern-only serving is the public contract.

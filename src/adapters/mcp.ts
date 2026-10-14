@@ -57,12 +57,12 @@ function toMcpObjectSchema(schema: TSchema): Tool["inputSchema"] {
 
 /**
  * Render an output schema for `tools/list` and for `projectCallToolResult`.
- * All-object `allOf` intersections still get `type: "object"` synthesized:
- * the SDK's legacy-era `{ result: ... }` wrap keys purely on the advertised
- * root `type`, so an unlowered intersection would silently change the wire
- * shape existing `Type.Intersect` outputs have today. Every other root
- * (array, primitive, union) passes through by reference and the SDK projects
- * it per era. The same object must feed both the listing and the projection.
+ * All-object `allOf` intersections still get `type: "object"` synthesized so
+ * existing `Type.Intersect` outputs keep their wire shape (the SDK's legacy-era
+ * `{ result: ... }` wrap, reachable only through a directly connected
+ * deprecated `createMcpServer`, keys purely on the advertised root `type`).
+ * Every other root (array, primitive, union) passes through by reference. The
+ * same object must feed both the listing and the projection.
  */
 function toMcpOutputSchema(schema: TSchema): Record<string, unknown> {
   const candidate = schema as unknown as Record<string, unknown>;
@@ -162,7 +162,12 @@ function assertUniqueToolNames(tools: readonly PortableTool<TSchema, PortableToo
   }
 }
 
-/** Internal serving seam: validate and snapshot once, then build isolated SDK servers cheaply. */
+/**
+ * Validate and snapshot the tools once, then return a factory that builds an
+ * isolated SDK `Server` per call. Pass it to the SDK's `createMcpHandler` or
+ * `serveStdio` for custom serving; unlike `createMcpServer`, validation and the
+ * tool snapshot happen at this call, not once per server.
+ */
 export function createMcpServerFactory(options: CreateMcpServerOptions): () => Server {
   const { name, version, instructions } = options;
   for (const tool of options.tools) {
@@ -278,6 +283,16 @@ export function createMcpServerFactory(options: CreateMcpServerOptions): () => S
   };
 }
 
+/**
+ * Build a single low-level SDK `Server`.
+ *
+ * @deprecated A directly connected `Server` (`server.connect(transport)`) can
+ * only speak the legacy era, which BridgeKit's serving entrypoints no longer
+ * support. Use `runMcpStdioServer` or `createMcpHttpHandler`, or for custom
+ * serving pass `createMcpServerFactory(options)` to the SDK's
+ * `createMcpHandler(factory, { legacy: "reject" })`. Do not wrap this function
+ * in a factory: it revalidates and re-snapshots the tools on every call.
+ */
 export function createMcpServer(options: CreateMcpServerOptions): Server {
   return createMcpServerFactory(options)();
 }
@@ -292,14 +307,17 @@ export interface McpStdioServerHandle {
 }
 
 /**
- * Install dual-era stdio serving and return a close handle. Resolution means
- * transport wiring is ready, not that a client has connected or shutdown.
+ * Install modern-era (`2026-07-28`) stdio serving and return a close handle.
+ * `2025-11-25` openings are answered with the unsupported-protocol-version
+ * error. Resolution means transport wiring is ready, not that a client has
+ * connected or shutdown.
  */
 export async function runMcpStdioServer(options: CreateMcpServerOptions): Promise<McpStdioServerHandle> {
-  // Validate eagerly, but each discarded probe/connection must own its server:
-  // a modern probe installs era-specific handlers before it can be discarded.
+  // Validate eagerly; the SDK asks the factory for a fresh server per
+  // discovery probe/connection, so none share handler state.
   const factory = createMcpServerFactory(options);
   const handle = serveStdio(factory, {
+    legacy: "reject",
     onerror: (error) => process.stderr.write(`[bridgekit-mcp] ${error.message}\n`),
   });
   let closing: Promise<void> | undefined;

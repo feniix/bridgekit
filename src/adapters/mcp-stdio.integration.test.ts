@@ -7,11 +7,11 @@ import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { Client as LegacyClient } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport as LegacyTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { CallToolResultSchema, ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { CLIENT_CAPABILITIES_META_KEY, PROTOCOL_VERSION_META_KEY } from "@modelcontextprotocol/server";
 import { fromAny } from "@total-typescript/shoehorn";
+
+const modernEnvelope = { [PROTOCOL_VERSION_META_KEY]: "2026-07-28", [CLIENT_CAPABILITIES_META_KEY]: {} };
+const withEnvelope = (params: Record<string, unknown>) => ({ ...params, _meta: modernEnvelope });
 
 const fixture = fileURLToPath(new URL("../../../scripts/mcp-stdio-fixture.mjs", import.meta.url));
 
@@ -32,23 +32,13 @@ for (const active of [false, true]) {
         child.stdin.write(
           `${JSON.stringify({
             jsonrpc: "2.0",
-            id: 1,
-            method: "initialize",
-            params: {
-              protocolVersion: "2025-11-25",
-              capabilities: {},
-              clientInfo: { name: "lifecycle-test", version: "0.0.0" },
-            },
-          })}\n`,
-        );
-        assert.equal((await replies.next()).done, false);
-        child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
-        child.stdin.write(
-          `${JSON.stringify({
-            jsonrpc: "2.0",
             id: 2,
             method: "tools/call",
-            params: { name: "wait", arguments: {}, _meta: { progressToken: "started" } },
+            params: {
+              name: "wait",
+              arguments: {},
+              _meta: { ...modernEnvelope, progressToken: "started" },
+            },
           })}\n`,
         );
         const started = await replies.next();
@@ -67,13 +57,13 @@ for (const active of [false, true]) {
   });
 }
 
-test("discarded modern discover probe can fall back to legacy on the same stdio pipe", { timeout: 15000 }, async () => {
+test("server/discover probes are isolated and tools/list keeps the startup snapshot", { timeout: 15000 }, async () => {
   const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe"] });
   const lines = createInterface({ input: child.stdout });
   const replies = lines[Symbol.asyncIterator]();
   let id = 0;
   const request = async (method: string, params: Record<string, unknown>) => {
-    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params })}\n`);
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params: withEnvelope(params) })}\n`);
     const next = await replies.next();
     assert.equal(next.done, false);
     const reply: { id: number; error?: unknown; result: Record<string, unknown> } = JSON.parse(next.value ?? "");
@@ -83,33 +73,28 @@ test("discarded modern discover probe can fall back to legacy on the same stdio 
   };
   try {
     for (let probe = 0; probe < 3; probe++) {
-      const discovery = await request("server/discover", {
-        _meta: { [PROTOCOL_VERSION_META_KEY]: "2026-07-28", [CLIENT_CAPABILITIES_META_KEY]: {} },
-      });
+      const discovery = await request("server/discover", {});
       assert.ok(discovery.supportedVersions);
     }
-    const initialized = await request("initialize", {
-      protocolVersion: "2025-11-25",
-      capabilities: {},
-      clientInfo: { name: "fallback-client", version: "0.0.0" },
-    });
-    assert.equal(initialized.protocolVersion, "2025-11-25");
-    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
     const listing = await request("tools/list", {});
     assert.ok(Array.isArray(listing.tools));
     const echo = listing.tools.find((tool) => tool.name === "echo");
     assert.deepEqual(echo.icons, [{ src: "https://example.com/original.svg" }]);
     assert.deepEqual(echo._meta, { category: "original" });
     assert.ok(!listing.tools.some((tool) => tool.name === "late-invalid"));
-    const result = await request("tools/call", { name: "echo", arguments: { text: "fallback" } });
-    assert.deepEqual(result.structuredContent, { text: "fallback" });
+    const result = await request("tools/call", { name: "echo", arguments: { text: "probed" } });
+    assert.deepEqual(result.structuredContent, { text: "probed" });
     // A synchronous progress burst is written in order and before the result.
     child.stdin.write(
       `${JSON.stringify({
         jsonrpc: "2.0",
         id: ++id,
         method: "tools/call",
-        params: { name: "progress", arguments: { burst: true }, _meta: { progressToken: "tok" } },
+        params: {
+          name: "progress",
+          arguments: { burst: true },
+          _meta: { ...modernEnvelope, progressToken: "tok" },
+        },
       })}\n`,
     );
     const burst: unknown[] = [];
@@ -118,7 +103,7 @@ test("discarded modern discover probe can fall back to legacy on the same stdio 
       assert.equal(next.done, false);
       burst.push(JSON.parse(next.value ?? ""));
     }
-    assert.deepEqual(burst, [
+    assert.deepEqual(burst.slice(0, 2), [
       {
         jsonrpc: "2.0",
         method: "notifications/progress",
@@ -129,12 +114,19 @@ test("discarded modern discover probe can fall back to legacy on the same stdio 
         method: "notifications/progress",
         params: { progressToken: "tok", progress: 2, message: "second" },
       },
-      {
-        jsonrpc: "2.0",
-        id,
-        result: { content: [{ type: "text", text: "done" }], structuredContent: { steps: 2 }, isError: false },
-      },
     ]);
+    // Pin the full wire shape: no stray keys beyond the modern-era stamp.
+    assert.deepEqual(burst[2], {
+      jsonrpc: "2.0",
+      id,
+      result: {
+        _meta: { "io.modelcontextprotocol/serverInfo": { name: "stdio-fixture", version: "0.0.0" } },
+        content: [{ type: "text", text: "done" }],
+        structuredContent: { steps: 2 },
+        isError: false,
+        resultType: "complete",
+      },
+    });
   } finally {
     lines.close();
     child.stdin.end();
@@ -142,19 +134,98 @@ test("discarded modern discover probe can fall back to legacy on the same stdio 
   }
 });
 
-for (const mode of ["default", "legacy", "auto", "modern-pinned"] as const) {
-  test(`public stdio runner serves ${mode} clients`, { timeout: 15000 }, async () => {
-    const modern = mode === "auto" || mode === "modern-pinned";
+test("default-constructed SDK v2 client is refused (its default negotiation mode is legacy)", {
+  timeout: 15000,
+}, async () => {
+  const client = new Client({ name: "default-client", version: "0.0.0" });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [fixture], stderr: "pipe" });
+  try {
+    await assert.rejects(client.connect(transport), {
+      code: -32022,
+      message: /Unsupported protocol version: 2025-11-25/,
+    });
+  } finally {
+    await client.close();
+    await transport.close();
+  }
+});
+
+test("SDK client in legacy negotiation mode is refused with the supported modern revisions", {
+  timeout: 15000,
+}, async () => {
+  const client = new Client({ name: "legacy-client", version: "0.0.0" }, { versionNegotiation: { mode: "legacy" } });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [fixture], stderr: "pipe" });
+  try {
+    await assert.rejects(client.connect(transport), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /Unsupported protocol version: 2025-11-25/);
+      assert.deepEqual(Object.getOwnPropertyDescriptor(error, "data")?.value, {
+        supported: ["2026-07-28"],
+        requested: "2025-11-25",
+      });
+      return true;
+    });
+  } finally {
+    await client.close();
+    await transport.close();
+  }
+});
+
+test("legacy 2025-11-25 initialize is rejected and the connection stays usable for modern clients", {
+  timeout: 15000,
+}, async () => {
+  const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe"] });
+  const lines = createInterface({ input: child.stdout });
+  const replies = lines[Symbol.asyncIterator]();
+  try {
+    child.stdin.write(
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "old-client", version: "0.0.0" },
+        },
+      })}\n`,
+    );
+    const rejectedLine = await replies.next();
+    assert.equal(rejectedLine.done, false);
+    const rejected: { id: number; result?: unknown; error?: { code: number; data?: unknown } } = JSON.parse(
+      rejectedLine.value ?? "",
+    );
+    assert.equal(rejected.id, 1);
+    assert.equal(rejected.result, undefined);
+    assert.ok(rejected.error, "legacy initialize must be answered with an error");
+    assert.equal(rejected.error.code, -32022);
+    assert.deepEqual(rejected.error.data, { supported: ["2026-07-28"], requested: "2025-11-25" });
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: withEnvelope({}) })}\n`);
+    const listingLine = await replies.next();
+    assert.equal(listingLine.done, false);
+    const listing: { id: number; error?: unknown; result?: { tools?: unknown[] } } = JSON.parse(
+      listingLine.value ?? "",
+    );
+    assert.equal(listing.id, 2);
+    assert.equal(listing.error, undefined);
+    assert.ok(Array.isArray(listing.result?.tools));
+  } finally {
+    lines.close();
+    child.stdin.end();
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+  }
+});
+
+for (const mode of ["auto", "modern-pinned"] as const) {
+  test(`public stdio runner serves ${mode} modern clients`, { timeout: 15000 }, async () => {
     const client = new Client(
       { name: "modern-client", version: "0.0.0" },
-      mode === "default"
-        ? undefined
-        : {
-            versionNegotiation: {
-              mode: mode === "modern-pinned" ? { pin: "2026-07-28" } : mode,
-              probe: { timeoutMs: 2000 },
-            },
-          },
+      {
+        versionNegotiation: {
+          mode: mode === "modern-pinned" ? { pin: "2026-07-28" } : mode,
+          probe: { timeoutMs: 2000 },
+        },
+      },
     );
     const transport = new StdioClientTransport({
       command: process.execPath,
@@ -163,22 +234,18 @@ for (const mode of ["default", "legacy", "auto", "modern-pinned"] as const) {
     });
     try {
       await client.connect(transport);
-      assert.equal(client.getProtocolEra(), modern ? "modern" : "legacy");
+      assert.equal(client.getProtocolEra(), "modern");
       const list = await client.listTools();
       assert.equal(list.tools[0]?.inputSchema.type, "object");
       assert.equal(list.tools[0]?.outputSchema?.type, "object");
       const result = await client.callTool({ name: "echo", arguments: { text: "modern" } });
       assert.deepEqual(result.structuredContent, { text: "modern" });
-      // Non-object roots: the modern era carries the natural value; the SDK
-      // wraps it as `{ result }` for legacy clients, on both list and call.
+      // Non-object roots carry their natural value on the modern era.
       const listOutput = list.tools.find((tool) => tool.name === "list_output")?.outputSchema;
       const arraySchema = { type: "array", items: { type: "number" } };
-      assert.deepEqual(
-        listOutput,
-        modern ? arraySchema : { type: "object", properties: { result: arraySchema }, required: ["result"] },
-      );
+      assert.deepEqual(listOutput, arraySchema);
       const listResult = await client.callTool({ name: "list_output", arguments: {} });
-      assert.deepEqual(listResult.structuredContent, modern ? [1, 2, 3] : { result: [1, 2, 3] });
+      assert.deepEqual(listResult.structuredContent, [1, 2, 3]);
       const progressUpdates: unknown[] = [];
       const progressResult = await client.callTool(
         { name: "progress", arguments: {} },
@@ -226,132 +293,51 @@ for (const mode of ["default", "legacy", "auto", "modern-pinned"] as const) {
   });
 }
 
-// Keep the dev-only v1 SDK for this client-specific compatibility pin (#131).
-// The v2 client's legacy mode covers the wire era, but not v1 callTool's
-// success-schema validation of domain errors or its generic-request workaround.
-test("SDK v1 client interoperates and exposes its error-schema workaround", { timeout: 15000 }, async () => {
-  const client = new LegacyClient({ name: "sdk-v1-client", version: "0.0.0" });
-  const transport = new LegacyTransport({ command: process.execPath, args: [fixture], stderr: "pipe" });
+test("EOF aborts an active timer-holding modern tool", { timeout: 15000 }, async (t) => {
+  const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe"] });
+  t.after(() => {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+  });
+  const closed = once(child, "close", { signal: t.signal });
+  // A timeout can reject this before the readline drain finishes. Observe it
+  // immediately; awaiting the original promise below still propagates errors.
+  void closed.catch(() => {});
+  const lines = createInterface({ input: child.stdout });
+  const replies = lines[Symbol.asyncIterator]();
+  const ids: number[] = [];
+  const envelope = { _meta: modernEnvelope };
+  const send = (id: number, method: string, params: Record<string, unknown>) =>
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+  const reply = async () => {
+    const next = await replies.next();
+    assert.equal(next.done, false);
+    const result: { id: number; error?: unknown; result: Record<string, unknown> } = JSON.parse(next.value ?? "");
+    ids.push(result.id);
+    assert.equal(result.error, undefined);
+    return result;
+  };
   try {
-    await client.connect(transport);
-    const list = await client.listTools();
-    assert.equal(list.tools[0]?.outputSchema?.type, "object");
-    const result = await client.callTool({ name: "echo", arguments: { text: "legacy" } });
-    assert.deepEqual(result.structuredContent, { text: "legacy" });
-    const listOutput = await client.callTool({ name: "list_output", arguments: {} });
-    assert.deepEqual(listOutput.structuredContent, { result: [1, 2, 3] });
-    const progressUpdates: unknown[] = [];
-    await client.callTool({ name: "progress", arguments: {} }, undefined, {
-      onprogress: (progress) => progressUpdates.push(progress),
-    });
-    assert.deepEqual(progressUpdates, [
-      { progress: 1, message: "first" },
-      { progress: 2, message: "second" },
-    ]);
-    await assert.rejects(client.callTool({ name: "domain", arguments: {} }), (error: unknown) => {
-      assert.ok(error instanceof McpError);
-      assert.equal(error.code, ErrorCode.InvalidParams);
-      assert.match(error.message, /Structured content does not match/);
-      return true;
-    });
-    const domain = await client.request(
-      { method: "tools/call", params: { name: "domain", arguments: {} } },
-      CallToolResultSchema,
-    );
-    assert.equal(domain.isError, true);
-    assert.deepEqual(domain.structuredContent, { reason: "offline" });
-    // Invalid arguments also produce error data outside echo's success schema.
-    // Pin both the v1 high-level rejection and the raw error result so future
-    // dependency changes cannot silently turn a tool failure into a success.
-    await assert.rejects(client.callTool({ name: "echo", arguments: { text: 42 } }), (error: unknown) => {
-      assert.ok(error instanceof McpError);
-      assert.equal(error.code, ErrorCode.InvalidParams);
-      assert.match(error.message, /Structured content does not match/);
-      return true;
-    });
-    const invalid = await client.request(
-      { method: "tools/call", params: { name: "echo", arguments: { text: 42 } } },
-      CallToolResultSchema,
-    );
-    assert.equal(invalid.isError, true);
-    const validation: { kind: string } = fromAny(invalid.structuredContent);
-    assert.equal(validation.kind, "validation");
-
-    for (const name of ["throws", "invalid_output", "missing"]) {
-      const failure = await client.request(
-        { method: "tools/call", params: { name, arguments: {} } },
-        CallToolResultSchema,
-      );
-      assert.equal(failure.isError, true, name);
-      assert.equal(failure.content[0]?.type, "text", name);
+    send(2, "tools/call", { name: "wait", arguments: {}, ...envelope });
+    send(3, "tools/call", { name: "status", arguments: {}, ...envelope });
+    const status = await reply();
+    assert.equal(status.id, 3);
+    assert.deepEqual(status.result.structuredContent, { started: true, aborted: false });
+    // Drain the iterator after EOF as well, so a stray pending-tool response
+    // cannot escape the no-post-EOF-response assertion.
+    child.stdin.end();
+    for await (const line of replies) {
+      const response: { id?: number } = JSON.parse(line);
+      if (response.id !== undefined) ids.push(response.id);
     }
-    // Failed calls must not poison the connection or the success-schema cache.
-    const recovered = await client.callTool({ name: "echo", arguments: { text: "recovered" } });
-    assert.deepEqual(recovered.structuredContent, { text: "recovered" });
+    const [code, signal] = await closed;
+    assert.equal(code, 0);
+    assert.equal(signal, null);
+    assert.equal(ids.includes(2), false);
   } finally {
-    await client.close();
-    await transport.close();
+    lines.close();
+    if (child.exitCode === null && child.signalCode === null) child.kill();
   }
 });
-
-for (const modern of [false, true]) {
-  test(`EOF aborts an active timer-holding ${modern ? "modern" : "legacy"} tool`, { timeout: 15000 }, async (t) => {
-    const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe"] });
-    t.after(() => {
-      if (child.exitCode === null && child.signalCode === null) child.kill();
-    });
-    const closed = once(child, "close", { signal: t.signal });
-    // A timeout can reject this before the readline drain finishes. Observe it
-    // immediately; awaiting the original promise below still propagates errors.
-    void closed.catch(() => {});
-    const lines = createInterface({ input: child.stdout });
-    const replies = lines[Symbol.asyncIterator]();
-    const ids: number[] = [];
-    const envelope = modern
-      ? { _meta: { [PROTOCOL_VERSION_META_KEY]: "2026-07-28", [CLIENT_CAPABILITIES_META_KEY]: {} } }
-      : {};
-    const send = (id: number, method: string, params: Record<string, unknown>) =>
-      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
-    const reply = async () => {
-      const next = await replies.next();
-      assert.equal(next.done, false);
-      const result: { id: number; error?: unknown; result: Record<string, unknown> } = JSON.parse(next.value ?? "");
-      ids.push(result.id);
-      assert.equal(result.error, undefined);
-      return result;
-    };
-    try {
-      if (!modern) {
-        send(1, "initialize", {
-          protocolVersion: "2025-11-25",
-          capabilities: {},
-          clientInfo: { name: "eof-client", version: "0.0.0" },
-        });
-        assert.equal((await reply()).id, 1);
-        child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
-      }
-      send(2, "tools/call", { name: "wait", arguments: {}, ...envelope });
-      send(3, "tools/call", { name: "status", arguments: {}, ...envelope });
-      const status = await reply();
-      assert.equal(status.id, 3);
-      assert.deepEqual(status.result.structuredContent, { started: true, aborted: false });
-      // Drain the iterator after EOF as well, so a stray pending-tool response
-      // cannot escape the no-post-EOF-response assertion.
-      child.stdin.end();
-      for await (const line of replies) {
-        const response: { id?: number } = JSON.parse(line);
-        if (response.id !== undefined) ids.push(response.id);
-      }
-      const [code, signal] = await closed;
-      assert.equal(code, 0);
-      assert.equal(signal, null);
-      assert.equal(ids.includes(2), false);
-    } finally {
-      lines.close();
-      if (child.exitCode === null && child.signalCode === null) child.kill();
-    }
-  });
-}
 
 test("stdio runner exits cleanly when stdin closes", { timeout: 15000 }, async () => {
   const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe"] });

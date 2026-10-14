@@ -58,7 +58,7 @@ async function assertRuntimeExports(installDir) {
       "validatePortableToolArgs",
     ]);
     assert.deepEqual(Object.keys(pi).sort(), ["PortableToolExecutionError", "isPortableToolExecutionError", "registerPiTools"]);
-assert.deepEqual(Object.keys(mcp).sort(), ["createMcpHttpHandler", "createMcpServer", "runMcpStdioServer"]);
+assert.deepEqual(Object.keys(mcp).sort(), ["createMcpHttpHandler", "createMcpServer", "createMcpServerFactory", "runMcpStdioServer"]);
     assert.equal(["register", "McpTools"].join("") in mcp, false);
     assert.deepEqual(Object.keys(binWrapper).sort(), ["runBinWrapper"]);
     assert.equal(typeof binWrapper.runBinWrapper, "function");
@@ -213,7 +213,7 @@ async function assertTypesCompile(installDir) {
       void sdkServer;
       const _stdioStartup: Promise<McpStdioServerHandle> = runMcpStdioServer(options);
       void _stdioStartup;
-      const _httpOptions: CreateMcpHttpHandlerOptions = { legacy: "stateless", responseMode: "auto" };
+      const _httpOptions: CreateMcpHttpHandlerOptions = { responseMode: "auto" };
       const _http: McpHttpHandler = createMcpHttpHandler(options, _httpOptions);
       const _httpResponse: Promise<Response> = _http.fetch(new Request("http://localhost/mcp"));
       void _httpResponse;
@@ -377,7 +377,9 @@ async function assertManifestInvariants() {
   // inv-mcp-sdk-major: low-level SDK v2 Server is part of the public contract.
   const mcpRange = packageJson.dependencies?.["@modelcontextprotocol/server"];
   assert.match(mcpRange ?? "", /^\^?2\./, "@modelcontextprotocol/server must remain pinned to v2.x");
-  assert.equal(packageJson.dependencies?.["@modelcontextprotocol/sdk"], undefined, "v1 SDK must be test-only");
+  for (const group of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+    assert.equal(packageJson[group]?.["@modelcontextprotocol/sdk"], undefined, `v1 SDK must not be in ${group}`);
+  }
   assert.equal(packageJson.dependencies?.["@modelcontextprotocol/client"], undefined, "MCP client must be test-only");
 
   // inv-no-source-map-urls: tsconfig.json declares sourceMap: false and the
@@ -467,16 +469,16 @@ async function assertPackedMcpProtocol(installDir) {
       import { createMcpHttpHandler } from "@feniix/bridgekit/mcp";
       import { definePortableTool } from "@feniix/bridgekit";
       import { Type } from "typebox";
-      for (const modern of [false, true]) {
+      {
         const client = new Client({ name: "packed-client", version: "0.0.0" }, {
-          versionNegotiation: { mode: modern ? { pin: "2026-07-28" } : "legacy" },
+          versionNegotiation: { mode: { pin: "2026-07-28" } },
         });
         const transport = new StdioClientTransport({
           command: process.execPath, args: ["server.mjs"], stderr: "pipe",
         });
         try {
           await client.connect(transport);
-          assert.equal(client.getProtocolEra(), modern ? "modern" : "legacy");
+          assert.equal(client.getProtocolEra(), "modern");
           const list = await client.listTools();
           assert.equal(list.tools[0].outputSchema.type, "object");
           const result = await client.callTool({ name: "echo", arguments: { text: "packed" } });
@@ -484,6 +486,23 @@ async function assertPackedMcpProtocol(installDir) {
         } finally {
           await client.close();
           await transport.close();
+        }
+      }
+      {
+        const legacyClient = new Client({ name: "packed-legacy-client", version: "0.0.0" }, {
+          versionNegotiation: { mode: "legacy" },
+        });
+        const legacyTransport = new StdioClientTransport({
+          command: process.execPath, args: ["server.mjs"], stderr: "pipe",
+        });
+        try {
+          await assert.rejects(legacyClient.connect(legacyTransport), {
+            code: -32022,
+            message: /Unsupported protocol version: 2025-11-25/,
+          });
+        } finally {
+          await legacyClient.close();
+          await legacyTransport.close();
         }
       }
       const handler = createMcpHttpHandler({
@@ -497,16 +516,16 @@ async function assertPackedMcpProtocol(installDir) {
         })],
       });
       try {
-        for (const modern of [false, true]) {
+        {
           const client = new Client({ name: "packed-http-client", version: "0.0.0" }, {
-            versionNegotiation: { mode: modern ? { pin: "2026-07-28" } : "legacy" },
+            versionNegotiation: { mode: { pin: "2026-07-28" } },
           });
           const transport = new StreamableHTTPClientTransport(new URL("http://localhost/mcp"), {
             fetch: (input, init) => handler.fetch(new Request(input, init)),
           });
           try {
             await client.connect(transport);
-            assert.equal(client.getProtocolEra(), modern ? "modern" : "legacy");
+            assert.equal(client.getProtocolEra(), "modern");
             const list = await client.listTools();
             assert.deepEqual(list.tools[0].icons, [{ src: "https://example.com/icon.svg" }]);
             assert.deepEqual(list.tools[0]._meta, { category: "text" });
@@ -517,6 +536,18 @@ async function assertPackedMcpProtocol(installDir) {
             await transport.close();
           }
         }
+        const legacyResponse = await handler.fetch(new Request("http://localhost/mcp", {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+          body: JSON.stringify({
+            jsonrpc: "2.0", id: 1, method: "initialize",
+            params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "old", version: "0" } },
+          }),
+        }));
+        assert.equal(legacyResponse.status, 400);
+        const legacyError = (await legacyResponse.json()).error;
+        assert.equal(legacyError.code, -32022);
+        assert.deepEqual(legacyError.data.supported, ["2026-07-28"]);
       } finally {
         await handler.close();
       }
@@ -584,7 +615,9 @@ try {
   console.error("✓ temporary consumer imports all public runtime subpaths from installed tarball");
   console.error("✓ temporary consumer compiles strict-plus NodeNext TypeScript against installed declarations");
   console.error("✓ unsupported deep imports fail through package exports");
-  console.error("✓ packed server serves legacy and modern stdio clients with declared structured output");
+  console.error(
+    "✓ packed server serves modern stdio and HTTP clients with declared structured output and rejects legacy clients",
+  );
 } finally {
   if (tempRoot) await rm(tempRoot, { recursive: true, force: true });
 }

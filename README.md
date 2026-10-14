@@ -94,7 +94,7 @@ import {
   type PortableValidationError,
 } from "@feniix/bridgekit";
 import { registerPiTools } from "@feniix/bridgekit/pi";
-import { createMcpServer, runMcpStdioServer } from "@feniix/bridgekit/mcp";
+import { createMcpHttpHandler, runMcpStdioServer } from "@feniix/bridgekit/mcp";
 import { runBinWrapper } from "@feniix/bridgekit/bin-wrapper";
 ```
 
@@ -128,9 +128,8 @@ const echoTool = definePortableTool({
 Any JSON Schema root is accepted except a top-level `$ref` (`Type.Ref` /
 `Type.Cyclic`): objects, intersections of objects, arrays, primitives, `null` and
 unions all work. Success calls must return matching `structuredContent`; legacy
-`details` alone does not satisfy the schema. Non-object values reach modern MCP
-clients as-is; for legacy-era clients the MCP SDK wraps both the listed schema and
-the value as `{ result: ... }`. Pi receives the raw value on `structuredContent`
+`details` alone does not satisfy the schema. Non-object values reach MCP
+clients as-is (the served modern era; legacy-era clients are not served). Pi receives the raw value on `structuredContent`
 and `{ result: value }` on renderer-facing `details`. Missing/invalid output throws a tool-attributed `TypeError` at the
 portable seam and becomes an error result through the adapters. Argument/domain
 failures are exempt from success schemas. Without `outputSchema`, existing result
@@ -329,26 +328,24 @@ at runtime. Raw Pi values still lack portable `text`; do not cast them to
 import { createMcpHttpHandler } from "@feniix/bridgekit/mcp";
 
 const handler = createMcpHttpHandler(createMcpServerOptions(), {
-  legacy: "stateless", // default; use "reject" for modern-only endpoints
   responseMode: "auto", // preserves progress via SSE when needed
 });
 // Mount handler.fetch(request) in your Web-standard framework.
 // Await handler.close() when the application shuts down.
 ```
 
-The handler serves modern `2026-07-28` and stateless legacy clients using the
-SDK's serving implementation. It does not start a listener or install
+The handler serves the modern `2026-07-28` era only; legacy-era clients (`2025-11-25` and earlier)
+receive an unsupported-protocol-version error (`-32022`, HTTP 400) naming the
+supported revisions. It does not start a listener or install
 authentication, authorization, Host/Origin validation, CORS, or TLS. **Enforce
 those in your application before calling `fetch`**, especially before exposing a
 local server to a network. SDK HTTP options are accepted as the second argument.
 `responseMode: "json"` drops mid-call notifications; use `"auto"` for progress.
-Legacy GET/DELETE session operations return 405 because this fallback is
-stateless; sessionful legacy deployments must keep their own transport wiring.
 
 #### MCP SDK v2 and modern stdio
 
-`runMcpStdioServer(options)` serves both legacy MCP revisions and modern
-`2026-07-28` through SDK v2's `serveStdio`. Its `Promise<McpStdioServerHandle>`
+`runMcpStdioServer(options)` serves modern `2026-07-28` through SDK v2's
+`serveStdio`; `2025-11-25` openings are answered with `-32022`. Its `Promise<McpStdioServerHandle>`
 resolves after startup wiring, not at shutdown. Stdin EOF or `handle.close()`
 closes the connection; long-running
 tools must honor `ctx.signal` and release their own resources. `close()` aborts
@@ -357,22 +354,22 @@ coordinate tool cleanup before disposing shared application resources.
 
 `createMcpServer` now returns `@modelcontextprotocol/server` SDK v2's low-level
 `Server`. This is a source-level breaking change for consumers using SDK methods
-or types, even though legacy clients work over the wire. A direct
-`server.connect(StdioServerTransport)` remains legacy-only; use the runner for
-modern serving. See [migration guidance](docs/mcp-v2-migration.md).
+or types. `createMcpServer` is deprecated: a directly connected `Server`
+can only speak the legacy era, which BridgeKit no longer serves. Use
+`runMcpStdioServer` or `createMcpHttpHandler`. See [migration guidance](docs/mcp-v2-migration.md).
 
-Some SDK v1 clients validate error data against cached success output schemas
-in their convenience `callTool` method; their generic request API can preserve
-that data. SDK v2 clients correctly exempt error results. HTTP is exposed through
-`createMcpHttpHandler`; tasks remain pending.
+**Legacy clients are not served.** Clients limited to the legacy era
+(`2025-11-25` and earlier: SDK v1 clients, or v2 clients in `legacy` negotiation
+mode) cannot connect. The SDK v2 client defaults to
+`versionNegotiation.mode: "legacy"`, so a default-constructed client is rejected;
+pin `versionNegotiation: { mode: { pin: "2026-07-28" } }` or use `"auto"`.
+HTTP is exposed through `createMcpHttpHandler`; tasks remain pending.
 
 HTTP option and return types are available as `CreateMcpHttpHandlerOptions` and
 `McpHttpHandler` from `@feniix/bridgekit/mcp`; consumers need not import SDK types.
 HTTP errors default to `[bridgekit-mcp]` diagnostics on stderr; `onerror` overrides
 that reporter. Tool definitions are static (`tools.listChanged: false`); the SDK
 handler's `notify.toolsChanged()` is not supported by BridgeKit's static tools.
-For legacy stateless HTTP, cancelling by a separate cancellation notification
-cannot reach a previous request's server; disconnect its HTTP exchange instead.
 Modern HTTP and stdio support request cancellation normally.
 
 ### bin-wrapper (since 0.11.0)

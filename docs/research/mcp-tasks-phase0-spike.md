@@ -1,0 +1,75 @@
+# MCP tasks (#127): phase 0 spike results
+
+Date: 2026-10-13. SDK: `@modelcontextprotocol/server` 2.3.1.
+Gates: [03-delivery-plan.md](../plans/mcp-tasks/03-delivery-plan.md), phase 0.
+
+Method: a throwaway low-level `Server` (no BridgeKit code) registered with the
+extension capability, a `tools/call` handler that returns a flat
+`resultType: "task"` handle for declaring clients and a synchronous result
+otherwise, and `tasks/get` / `tasks/cancel` / `tasks/update` handlers in the
+three-argument custom-schema form. Raw JSON-RPC was driven over a real
+`serveStdio` child process (modern and legacy sessions) and through
+`createMcpHandler(...).fetch` for HTTP. The probe scripts were not committed;
+this note is the record. Re-run before implementation if the SDK version moves.
+
+Update (#141): BridgeKit has since dropped legacy-era serving and rejects
+`2025-11-25` openings with `-32022`. The legacy-session observations below are
+kept as the record of what the SDK did during the spike; none of them need a
+BridgeKit decision any more. The modern-era findings are unchanged.
+
+Scope caveat: BridgeKit's own factory was not exercised, only the SDK
+primitives it is built on. Results below are SDK behaviour, not yet BridgeKit
+behaviour.
+
+## Answers to the phase 0 questions
+
+| # | Question | Answer |
+| --- | --- | --- |
+| 1 | Are `tasks/get` / `tasks/cancel` routed on the modern era, and with what shapes? | **Yes via the three-argument form**, on stdio and HTTP. The SDK stamps `resultType: "complete"` on the result and adds `_meta` server info; it does not validate the task shape. `tasks/update` routes the same way. Two-argument registration was reported by an earlier review as `-32601` on modern (not re-tested here). |
+| 2 | Does `resultType: "task"` from `tools/call` reach the client intact? | **Yes, with an extra field.** The wire result carries `content: []` in addition to the handle (stdio and HTTP). A modern client that treats `CreateTaskResult` as a loose object will ignore it; a strict one may not. |
+| 3 | Where are per-request client capabilities readable? | `ctx.mcpReq.envelope["io.modelcontextprotocol/clientCapabilities"]` on the modern era (`CLIENT_CAPABILITIES_META_KEY`). On a legacy connection `envelope` is `undefined`. |
+| 4 | Can the extension be advertised from the low-level `Server`, and how does a legacy client look? | **Advertisable** via `capabilities.extensions`. It appears in both `server/discover` and the **legacy `initialize` result**, so advertising cannot be era-scoped by the capability object alone. A legacy client's capabilities carry no envelope, so an envelope-based check treats it as non-declaring even if it sent the extension key in `initialize`. |
+| 5 | What auth info does the request context carry? | `ctx.http?.authInfo` (validated access token) on HTTP; `http` is absent on stdio. A caller-binding hook is meaningful on HTTP only. |
+
+## Observed behaviour worth designing around
+
+- **No capability gating from the SDK.** `tasks/get` from a non-declaring modern
+  client returned task state (stdio and HTTP). Every `-32021` check in
+  [part 1](../plans/mcp-tasks/01-wire-contract.md) is BridgeKit's to implement.
+- **Legacy connections reached the custom handlers** (historical; legacy is no
+  longer served, #141). On a clean legacy session, `tasks/get`, `tasks/cancel`
+  and `tasks/update` all returned modern-shaped results (no `resultType`, no era
+  check). No era gating is needed now that legacy openings are rejected.
+- **`tasks/result` and `tasks/list` return `-32601` on both eras** when not
+  registered, which matches the SEP for modern and is acceptable for legacy
+  because BridgeKit does not advertise legacy tasks.
+- **HTTP routing header is enforced by the SDK.** A `tasks/get` whose `Mcp-Name`
+  differs from `params.taskId` is rejected `400` / `-32020` before the handler
+  runs.
+- **Era is sticky per stdio connection.** After modern requests succeed, a
+  legacy `initialize` on the same pipe is rejected (`-32022`). This is
+  connection lifecycle, not a tasks issue; noted because it makes a mixed-era
+  probe misleading.
+
+## Decisions this resolves
+
+Resolves part 1 open question 1 (capability accessor confirmed on both
+transports) and supports question 2 (the SDK ties SEP-2663 to its `2026-07-28`
+codec, so the revision names likely match; the SEP revision table should still
+be checked). Question 3 (retitling #127) is untouched. Part 2 open question 2
+(caller hook) is narrowed: auth info exists on HTTP only. Remaining items:
+
+- `content: []` on the handle: decided in part 1 as **accept**. Stripping needs a
+  post-handler hook the low-level `Server` does not offer.
+- Legacy `initialize` advertising: moot. Legacy-era openings are rejected before
+  negotiation (#141), so the extension entry never reaches a legacy client and
+  no per-era `Server` factory is needed.
+
+## Still not verified
+
+- BridgeKit's own factory with these registrations (types, `projectCallToolResult`
+  bypass for the handle).
+- A real SDK **client** consuming a task handle; only raw JSON-RPC was used.
+  The v2 client's behaviour on `resultType: "task"` is unknown and matters for
+  the integration tests in phase 3.
+- `subscriptions/listen` and `notifications/tasks` (deferred by design).

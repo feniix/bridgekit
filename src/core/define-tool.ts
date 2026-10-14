@@ -7,9 +7,9 @@ export interface PortableToolResult<TStructured = Record<string, unknown>> {
    * Structured data for hosts that support it. Preferred by both pi and MCP
    * adapters. Any JSON value is accepted (object, array, primitive, `null`);
    * the default type parameter keeps the common object case ergonomic.
-   * Non-object values reach MCP `structuredContent` directly on the modern
-   * era, are wrapped as `{ result: value }` by the SDK for legacy clients,
-   * and are wrapped the same way in pi's renderer-facing `details`.
+   * Non-object values reach MCP `structuredContent` directly (BridgeKit
+   * serves only the modern era) and are wrapped as `{ result: value }` in pi's
+   * renderer-facing `details`.
    */
   structuredContent?: TStructured;
   /**

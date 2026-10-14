@@ -40,7 +40,8 @@ src/
     execute-tool.ts   # validatePortableToolArgs + executePortableTool
   adapters/
     pi.ts             # registerPiTools + PortableToolExecutionError
-    mcp.ts            # createMcpServer + runMcpStdioServer
+    mcp.ts            # runMcpStdioServer + deprecated createMcpServer
+    mcp-http.ts       # createMcpHttpHandler
 ```
 
 Each of the four entrypoints (`.`, `./pi`, `./mcp`, `./bin-wrapper`) maps to its own compiled file under `dist/src/`. **The split is load-bearing:** pi-only ESM/bundler consumers must not import or bundle the MCP adapter code, and MCP-only consumers must not import pi adapter code. The MCP SDK is still a normal package dependency, so npm installs include it. Do not move adapter code into the root entrypoint and do not add cross-imports between `adapters/pi.ts` and `adapters/mcp.ts`. `bin-wrapper.ts` is host-neutral packaging glue (no MCP SDK, no pi imports); its internal module ships in the tarball but is not reachable via the exports map (pinned by `inv-deep-imports-fail`).
@@ -56,9 +57,10 @@ any JSON Schema root except a top-level `$ref` (object, intersection of objects,
 array, primitive, union). Execution requires matching `structuredContent`;
 missing/invalid success data throws a tool-attributed `TypeError`. Argument/domain
 failures are exempt. Both adapters forward the schema. The MCP adapter still
-synthesizes `type: "object"` onto all-object `allOf` roots (the SDK's legacy
-`{ result }` wrap keys on the root `type`) and passes every other root through;
-the SDK projects non-object values per era. Pi preserves `structuredContent`
+synthesizes `type: "object"` onto all-object `allOf` roots (keeps wire shapes
+stable; the SDK's legacy `{ result }` wrap, which only applies to a directly
+connected deprecated `createMcpServer`, keys on the root `type`) and passes every
+other root through; served modern clients receive non-object values as-is. Pi preserves `structuredContent`
 directly and wraps non-object values as `details.result`; unset optional fields
 remain omitted. `PortableToolResult<TStructured>` defaults to an object but the
 generic accepts any value; bare `PortableTool` accepts any result shape.
@@ -88,8 +90,9 @@ The MCP adapter uses SDK v2's **low-level** `Server` from `@modelcontextprotocol
 with `"tools/list"` / `"tools/call"` method-string handlers and `ctx.mcpReq.signal`.
 TypeBox schemas pass through as JSON Schema; no high-level `registerMcpTools`
 helper is exported. Low-level results use `projectCallToolResult`. The existing
-stdio runner serves modern `2026-07-28` and legacy clients through `serveStdio`;
-direct `Server.connect` remains legacy-only. The runner returns
+stdio runner and HTTP handler serve the modern `2026-07-28` era only
+(`legacy: "reject"`; legacy-era openings, `2025-11-25` and earlier, get `-32022`). `createMcpServer` is
+deprecated: direct `Server.connect` is legacy-only. The runner returns
 `Promise<McpStdioServerHandle>`; `close()` aborts requests without awaiting tool
 cleanup. `createMcpHttpHandler` snapshots tools once and creates isolated SDK
 servers per HTTP exchange; listener/auth/origin policy is application-owned. Read `docs/mcp-v2-migration.md`

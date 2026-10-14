@@ -1,0 +1,152 @@
+# MCP tasks (#127): delivery plan
+
+Status: proposal for review. Nothing in this document is implemented.
+Part 3 of 4; builds on [01-wire-contract.md](01-wire-contract.md) and
+[02-execution-seam.md](02-execution-seam.md).
+
+Constraints inherited from `docs/plans/mcp-backlog-delivery.md`: all changes
+stay under `Unreleased`; do not release 1.0.0 and do not publish a version
+without a separate request; pre-1.0 breaks are acceptable with migration notes
+(none expected here, since tasks are additive and opt-in).
+
+## Phases
+
+Each phase is independently reviewable and leaves `main` green. Phases are
+ordered by dependency, not size.
+
+### Phase 0: spike and decisions (gates everything) — done
+
+Results: `docs/research/mcp-tasks-phase0-spike.md` (SDK 2.3.1, stdio and HTTP).
+Items 1, 2, 3 and 5 below are answered; item 4 is moot. Two things remain
+unverified and become phase 3 gates: BridgeKit's own factory with these
+registrations, and a real SDK client consuming a task handle. The original
+brief is kept for the record. Output was a short note appended to `docs/research/` plus answers to the open
+questions in parts 1 and 2. No production code.
+
+Verify, against `@modelcontextprotocol/server` 2.3.1 on the modern era through
+both `serveStdio` and the HTTP handler:
+
+1. A `tasks/get` and `tasks/cancel` handler registered on the low-level `Server`
+   is routed for modern-era clients, and what request/response shapes the SDK
+   enforces (the SDK's built-in method tables carry the shared schemas).
+2. Returning `resultType: "task"` from `tools/call` reaches the client intact
+   (the stamp passes it through; confirm end to end), including whether the
+   SDK's `normalizeContentlessToolResult` adds a stray `content: []` to the
+   handle and how the handle bypasses `projectCallToolResult` (part 1, "What the
+   SDK already gives us").
+3. Where per-request client capabilities
+   (`io.modelcontextprotocol/clientCapabilities`) are readable inside a handler.
+4. Whether `extensions` can be advertised in discovery capabilities from the
+   low-level `Server`. (Legacy-era connections are rejected before negotiation,
+   so how they would look is moot; see #141.)
+5. What auth info the request context carries on stdio versus HTTP.
+
+If (1) or (3) fails, the wire contract in part 1 needs rework before any code.
+
+### Phase 1: types and opt-in (no behaviour change)
+
+- `McpHostExtras.tasks`, `McpTaskBackend`, related types, exported from `./mcp`.
+- Validation in `createMcpServerFactory` (the construction seam shared by the
+  stdio runner and HTTP handler; `createMcpServer` is deprecated, #143): reject
+  malformed `tasks` declarations with tool-attributed errors, like icons.
+- Type fixtures in `mcp.typecheck.ts`; no-hostExtras key-set assertion
+  unchanged.
+- Gate: nothing is advertised or emitted yet.
+
+### Phase 2: in-memory backend
+
+- `createInMemoryTaskBackend` with the state machine, TTL, capacity, and
+  first-writer-wins rules from part 2.
+- Pure unit tests with fake timers; no MCP wiring.
+
+### Phase 3: modern-era wiring (stdio first, HTTP shares the factory)
+
+- Capability advertisement, `tools/call` task creation, `tasks/get`,
+  `tasks/cancel`, `-32021` for `required` tools, `-32602` for unknown IDs.
+- Backend created once in the factory; stdio handle `close()` closes a default
+  backend.
+- The factory is shared, so HTTP servers get the same wiring in this phase.
+  Resolve the HTTP handler ownership change here (part 2, "Lifecycle and
+  wiring"): `createMcpHttpHandler` must wrap the SDK handler so `close()` also
+  closes a default backend. Custom serving through the exported
+  `createMcpServerFactory` needs an explicit `tasks.backend` or close hook, which
+  is documented there; deprecated `createMcpServer` gets no tasks wiring. Until phase 4
+  tests land, HTTP is not claimed or documented as supported.
+- Detached execution with the execution-owned signal; progress to
+  `statusMessage`.
+
+### Phase 4: HTTP parity and docs
+
+- Same behaviour through `createMcpHttpHandler`, including state shared across
+  per-exchange servers.
+- README section: opting in, the signal/progress semantic differences, backend
+  guarantees ("no restart durability"), multi-instance routing on `Mcp-Name`,
+  caller-binding caveat.
+- Update `docs/mcp-v2-migration.md` (the line saying implementation is pending)
+  and the #127 row of `docs/plans/mcp-backlog-delivery.md`.
+- Packed-consumer smoke coverage for the new exports.
+
+### Deferred, explicitly not in this delivery
+
+- Legacy-era `2025-11-25` experimental tasks: not servable, since BridgeKit
+  rejects legacy-era openings (#141).
+- `input_required` and `tasks/update` (needs a portable elicitation seam).
+- `notifications/tasks` and `subscriptions/listen`.
+- Durable backend implementations (consumer-owned).
+
+## Test matrix
+
+| Concern | Unit | stdio integration | HTTP integration |
+| --- | --- | --- | --- |
+| No `tasks` declaration: payloads byte-identical | yes | yes | yes |
+| `optional` + declaring client returns handle | | yes | yes |
+| `optional` + non-declaring client runs synchronously | | yes | yes |
+| `required` + non-declaring client gets `-32021` | | yes | yes |
+| Legacy-era opening is rejected with `-32022` before any task method is reachable | | yes | yes |
+| Handle immediately retrievable via `tasks/get` | yes | yes | yes |
+| `isError: true` result gives `completed`, not `failed` | yes | yes | |
+| Thrown tool gives `failed` with `-32603` | yes | yes | |
+| `tasks/cancel` aborts `ctx.signal`; terminal task acked, unknown task gives `-32602` | yes | yes | yes |
+| Foreign-caller task gives `-32602` (caller hook is HTTP-only: stdio has no auth info) | yes | | yes |
+| Task handle wire shape pinned, including the accepted stray `content: []` | | yes | yes |
+| `tasks/get` / `tasks/cancel` from a non-declaring client gives `-32021` | | yes | yes |
+| `tasks/update` gives `-32601` while unregistered | | yes | yes |
+| Task rejecting after cancel signal ends `cancelled`; completing after cancel stays `completed` | yes | yes | |
+| Cancel racing completion: first writer wins | yes | | |
+| Initiating request cancel does not abort a detached task | | yes | yes |
+| Progress after handle becomes `statusMessage`, no progress notifications | | yes | |
+| TTL expiry, capacity eviction, capacity refusal | yes | | |
+| State shared across discarded probe and per-exchange servers | | yes | yes |
+| `close()` aborts running tasks of the default backend only | yes | yes | yes |
+| Unknown task ID gives `-32602` | | yes | yes |
+
+Integration columns exercise the modern era only, consistent with how the stdio
+runner is covered today (auto, modern-pinned, plus legacy rejection).
+
+## Documentation and release notes
+
+- `CHANGELOG.md` under `Unreleased`: added (additive, opt-in).
+- No migration notes expected. If phase 0 forces any change to existing
+  behaviour, stop and revisit.
+- Conformance: the official CLI still cannot drive stdio or `2026-07-28`
+  (#130). Tasks do not change that; do not claim conformance for the tasks
+  methods.
+
+## Housekeeping this plan implies
+
+- Retitle and rewrite #127 to match the modern-only scope; the current body
+  describes `execution.taskSupport` and `tasks/list`, which the extension
+  removes. Needs the maintainer's go-ahead before editing the issue.
+- On approval of parts 1 and 2, record the decisions in
+  `docs/plans/mcp-backlog-delivery.md` (replace the "design approved" row
+  detail with a link to this directory).
+
+## Risks
+
+| Risk | Mitigation |
+| --- | --- |
+| SDK does not route or shape modern `tasks/*` as assumed | Phase 0 spike gates all code |
+| Extension is still "incubating" and may change shape | Isolate behind `hostExtras.mcp.tasks` and one adapter module; additive only |
+| Users read the in-memory backend as durable | Name and README say single-process, no restart guarantees |
+| Detached work outlives shutdown | Default backend closed on handle `close()`; consumer backends documented as consumer-owned |
+| Signal semantics surprise tool authors | Documented table in part 2; test pinning |

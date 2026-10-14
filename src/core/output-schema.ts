@@ -43,7 +43,7 @@ export function throwWithCode(message: string, code: string, ErrorType: ErrorCon
 
 /**
  * Output schemas may use any JSON Schema root (object, array, primitive,
- * union); the MCP SDK projects non-object roots for legacy clients. Only a
+ * union); modern MCP clients receive non-object roots as-is. Only a
  * top-level `$ref` is rejected: `tools/list` ships schemas by value and clients
  * do not resolve references.
  */

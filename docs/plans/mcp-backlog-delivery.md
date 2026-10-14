@@ -21,12 +21,12 @@ close GitHub issues merely because this checklist says implemented.
 
 | Issue | Status | Evidence / next step |
 | --- | --- | --- |
-| #126 HTTP | Implemented in PR #135 | `createMcpHttpHandler`, real HTTP tests for legacy/modern, packed HTTP transport checks, README recipe/security ownership |
+| #126 HTTP | Implemented in PR #135 | `createMcpHttpHandler`, real HTTP tests for modern clients plus legacy rejection, packed HTTP transport checks, README recipe/security ownership |
 | #127 Tasks | Design approved; implementation pending | Add backend/execution primitive, revision-specific handlers, capability guards, TTL/capacity/cancellation, stdio and HTTP coverage |
 | #128 Metadata | Implemented in PR #135 | `hostExtras.mcp.icons` / `_meta`, snapshots, exact absent key set, type fixtures, packed HTTP checks |
 | #129 Lifecycle | Implemented in PR #135 | `Promise<McpStdioServerHandle>`, idempotent close, before-negotiation/in-flight shutdown tests, installed declarations |
-| #130 Conformance | Partial, blocked for direct stdio/modern | Four passing official HTTP scenarios; published harness rejects `2026-07-28` and has no stdio invocation |
-| #131 SDK v1 | Implemented in PR #135 | Retain dev dependency; error-schema rejection/workaround and recovery tests; documented rationale |
+| #130 Conformance | Partial, blocked for direct stdio/modern | Four HTTP scenarios passed on 2026-10-07 under legacy serving, no longer runnable (harness lacks `2026-07-28`, handler rejects legacy); published harness rejects `2026-07-28` and has no stdio invocation |
+| #131 SDK v1 | Implemented in PR #135 | Retired: v1 dev dependency and interop test removed with legacy-era serving (see `docs/mcp-v2-migration.md` "Dropping legacy-era serving") |
 | #132 Progress | Upstream blocked | SDK issue #2580 remains open as checked 2026-10-07; do not remove caveat or use a timing workaround |
 | #20 Stability | Pending | Record current policy and evidence-based gates without scheduling or publishing 1.0.0 |
 
@@ -36,7 +36,7 @@ The modern Tasks extension uses `io.modelcontextprotocol/tasks` capability
 negotiation, server-directed `resultType: "task"`, and
 `tasks/get`, `tasks/update`, `tasks/cancel`. It removes modern tool-level
 `execution.taskSupport` and the legacy `tasks/result` / `tasks/list` flow.
-Task support must be projected per era, not advertised identically across eras.
+Task support targets the modern era only (legacy clients are not served).
 
 The official `@modelcontextprotocol/ext-tasks` package currently offers requester
 APIs and a legacy sampling/elicitation receiver, not a modern tool-call receiver
@@ -78,6 +78,6 @@ complete pi.dev 1.x support.
 ## Validation checkpoint
 
 After metadata, lifecycle, and HTTP changes: lint/typecheck, all **155 runtime
-tests**, pack dry-run, package smoke (including both HTTP eras), and production
-audit pass. Four selected official legacy-filtered HTTP scenarios pass; that
+tests**, pack dry-run, package smoke (modern era plus legacy rejection), and production
+audit pass. Four selected official legacy-filtered HTTP scenarios passed before legacy serving was dropped; that
 does not imply full-suite, modern, or stdio conformance.
