@@ -178,9 +178,12 @@ optional consumer hook such as `resolveTaskCaller(requestCtx)`), stores it at
 `create`, and compares on `get`/`cancel`. Without the hook, caller binding is
 absent and the unguessable ID is the only guard; the README must say so.
 A task whose caller does not match is indistinguishable from an unknown one
-(`-32602`), so IDs cannot be probed. Whether the SDK exposes enough auth info
-in the request context to make this hook useful for stdio and HTTP is
-unverified (open question 2).
+(`-32602`), so IDs cannot be probed. The phase 0 spike
+(`docs/research/mcp-tasks-phase0-spike.md`) confirmed the request context
+carries `ctx.http?.authInfo` (the validated access token) on HTTP and no `http`
+object on stdio. The hook is therefore meaningful on HTTP only; on stdio the
+connection is a single local peer and the unguessable ID is the only guard.
+The test matrix needs an HTTP-only caller-binding row.
 
 ## Lifecycle and wiring
 
@@ -197,10 +200,11 @@ unverified (open question 2).
   `close()` only tears down in-flight modern exchanges and does not know about
   the backend, so `createMcpHttpHandler` must wrap it to also close the default
   backend (a return-type change that part 3, phase 3 must resolve before wiring). `createMcpServer`
-  returns a bare `Server` with no handle, so a default backend there needs
-  either an explicit `tasks.backend` from the caller or a close hook; its
-  expiry timers must be `unref`'d so an unclosed backend cannot keep the
-  process alive. A consumer-supplied backend is **not** closed by BridgeKit.
+  is deprecated and returns a bare `Server` with no handle, so tasks are not
+  wired there. Custom serving uses the exported `createMcpServerFactory`, which
+  creates the backend once and so needs an explicit `tasks.backend` from the
+  caller or a close hook; its expiry timers must be `unref`'d so an unclosed
+  backend cannot keep the process alive. A consumer-supplied backend is **not** closed by BridgeKit.
 - Preserve the existing `close()` contract: it aborts requests without awaiting
   tool cleanup. Aborting task signals follows the same rule.
 
@@ -220,8 +224,9 @@ unverified (open question 2).
 
 1. **Capacity behaviour:** `isError` tool result (proposed), JSON-RPC error, or
    synchronous fallback?
-2. **Caller hook:** is `resolveTaskCaller(requestCtx)` worth shipping before the
-   SDK request context is confirmed to carry auth info on both transports?
+2. **Caller hook:** auth info is confirmed on HTTP only (spike). Is
+   `resolveTaskCaller(requestCtx)` worth shipping for an HTTP-only guarantee, or
+   should the first delivery rely on unguessable IDs and document the gap?
 3. **`pollIntervalMs` / `ttlMs` defaults:** pick concrete numbers from the
    in-memory backend's actual constraints during implementation, not here.
 4. **Status message throttling:** should `ctx.progress` -> `statusMessage` be
