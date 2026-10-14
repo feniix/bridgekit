@@ -14,9 +14,13 @@ without a separate request; pre-1.0 breaks are acceptable with migration notes
 Each phase is independently reviewable and leaves `main` green. Phases are
 ordered by dependency, not size.
 
-### Phase 0: spike and decisions (gates everything)
+### Phase 0: spike and decisions (gates everything) — done
 
-Output is a short note appended to `docs/research/` plus answers to the open
+Results: `docs/research/mcp-tasks-phase0-spike.md` (SDK 2.3.1, stdio and HTTP).
+Items 1, 2, 3 and 5 below are answered; item 4 is moot. Two things remain
+unverified and become phase 3 gates: BridgeKit's own factory with these
+registrations, and a real SDK client consuming a task handle. The original
+brief is kept for the record. Output was a short note appended to `docs/research/` plus answers to the open
 questions in parts 1 and 2. No production code.
 
 Verify, against `@modelcontextprotocol/server` 2.3.1 on the modern era through
@@ -42,8 +46,9 @@ If (1) or (3) fails, the wire contract in part 1 needs rework before any code.
 ### Phase 1: types and opt-in (no behaviour change)
 
 - `McpHostExtras.tasks`, `McpTaskBackend`, related types, exported from `./mcp`.
-- Validation at `createMcpServer` construction: reject malformed `tasks`
-  declarations with tool-attributed errors, like icons.
+- Validation in `createMcpServerFactory` (the construction seam shared by the
+  stdio runner and HTTP handler; `createMcpServer` is deprecated, #143): reject
+  malformed `tasks` declarations with tool-attributed errors, like icons.
 - Type fixtures in `mcp.typecheck.ts`; no-hostExtras key-set assertion
   unchanged.
 - Gate: nothing is advertised or emitted yet.
@@ -63,8 +68,9 @@ If (1) or (3) fails, the wire contract in part 1 needs rework before any code.
 - The factory is shared, so HTTP servers get the same wiring in this phase.
   Resolve the HTTP handler ownership change here (part 2, "Lifecycle and
   wiring"): `createMcpHttpHandler` must wrap the SDK handler so `close()` also
-  closes a default backend, and `createMcpServer` documents that a default
-  backend there needs an explicit `tasks.backend` or close hook. Until phase 4
+  closes a default backend. Custom serving through the exported
+  `createMcpServerFactory` needs an explicit `tasks.backend` or close hook, which
+  is documented there; deprecated `createMcpServer` gets no tasks wiring. Until phase 4
   tests land, HTTP is not claimed or documented as supported.
 - Detached execution with the execution-owned signal; progress to
   `statusMessage`.
@@ -100,7 +106,9 @@ If (1) or (3) fails, the wire contract in part 1 needs rework before any code.
 | Handle immediately retrievable via `tasks/get` | yes | yes | yes |
 | `isError: true` result gives `completed`, not `failed` | yes | yes | |
 | Thrown tool gives `failed` with `-32603` | yes | yes | |
-| `tasks/cancel` aborts `ctx.signal`; terminal task acked, unknown/foreign-caller task gives `-32602` | yes | yes | yes |
+| `tasks/cancel` aborts `ctx.signal`; terminal task acked, unknown task gives `-32602` | yes | yes | yes |
+| Foreign-caller task gives `-32602` (caller hook is HTTP-only: stdio has no auth info) | yes | | yes |
+| Task handle wire shape pinned, including the accepted stray `content: []` | | yes | yes |
 | `tasks/get` / `tasks/cancel` from a non-declaring client gives `-32021` | | yes | yes |
 | `tasks/update` gives `-32601` while unregistered | | yes | yes |
 | Task rejecting after cancel signal ends `cancelled`; completing after cancel stays `completed` | yes | yes | |
