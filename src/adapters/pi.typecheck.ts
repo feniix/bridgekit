@@ -87,3 +87,25 @@ void __piToolAssignmentPin__;
 // to pass under method-bivariance regardless.
 declare const extensionApi: { registerTool: (tool: ExtensionApiToolInput) => unknown };
 registerPiTools(extensionApi, [validTool]);
+
+// Adversarial pin (0.19.1): pi 1.1+ types `AgentToolResult.structuredContent` as
+// its `JsonValue`, not `unknown`. The result bridgekit's `execute` resolves to
+// must be assignable to that shape, or `pi.registerTool(tool)` fails to compile
+// for every consumer on pi 1.1+. `PiAgentJsonValue` mirrors pi-ai's `JsonValue`.
+type PiAgentJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly PiAgentJsonValue[]
+  | { [key: string]: PiAgentJsonValue };
+type PiAgentToolResult = {
+  content: Array<{ type: "text"; text: string }>;
+  details: Record<string, unknown>;
+  structuredContent?: PiAgentJsonValue;
+  isError?: boolean;
+};
+
+declare const __bridgekitPiResult__: Awaited<ReturnType<BridgekitToolInput["execute"]>>;
+const __piResultAssignmentPin__: PiAgentToolResult = __bridgekitPiResult__;
+void __piResultAssignmentPin__;

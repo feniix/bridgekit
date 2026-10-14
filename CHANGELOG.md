@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Type the pi adapter result's `structuredContent` as a JSON value instead of
+  `unknown`, matching pi 1.1+ `AgentToolResult`. Consumers on pi 1.1 and 1.2 can
+  pass `registerPiTools` the pi `ExtensionAPI` (and wrap registered tools)
+  without casts. Runtime behaviour is unchanged.
+
 ## [0.19.0] - 2026-10-14
 
 ### Added
