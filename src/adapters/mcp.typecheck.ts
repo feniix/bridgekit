@@ -98,6 +98,9 @@ const _stdioHandle: Promise<McpStdioServerHandle> = runMcpStdioServer({
 });
 void _stdioHandle;
 
-const httpOptions: CreateMcpHttpHandlerOptions = { responseMode: "auto", legacy: "stateless" };
+const httpOptions: CreateMcpHttpHandlerOptions = { responseMode: "auto" };
+// @ts-expect-error legacy-era serving is no longer configurable
+const legacyOptions: CreateMcpHttpHandlerOptions = { legacy: "stateless" };
+void legacyOptions;
 const httpHandler: McpHttpHandler = createMcpHttpHandler({ name: "typed-http", version: "0", tools: [] }, httpOptions);
 void httpHandler;

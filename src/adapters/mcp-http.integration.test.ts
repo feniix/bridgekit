@@ -21,157 +21,141 @@ const tools = [
   }),
 ];
 
-for (const modern of [false, true]) {
-  test(`HTTP handler serves ${modern ? "modern" : "legacy"} clients over a real listener`, {
-    timeout: 15000,
-  }, async () => {
-    let markStarted: () => void = () => {};
-    let markAborted: () => void = () => {};
-    const started = new Promise<void>((resolve) => {
-      markStarted = resolve;
-    });
-    const aborted = new Promise<void>((resolve) => {
-      markAborted = resolve;
-    });
-    const handler = createMcpHttpHandler({
-      name: "http-test",
-      version: "0.0.0",
-      tools: [
-        ...tools,
-        definePortableTool({
-          name: "progress",
-          title: "Progress",
-          description: "Progress",
-          parameters: Type.Object({}),
-          execute: async (_args, ctx) => {
-            ctx.progress?.({ text: "working" });
-            await sleep(20);
-            return { text: "done" };
-          },
-        }),
-        definePortableTool({
-          name: "wait",
-          title: "Wait",
-          description: "Wait for cancellation",
-          parameters: Type.Object({}),
-          execute: async (_args, ctx) => {
-            markStarted();
-            await new Promise<void>((resolve) => {
-              if (ctx.signal?.aborted) {
+test("HTTP handler serves modern clients over a real listener", {
+  timeout: 15000,
+}, async () => {
+  let markStarted: () => void = () => {};
+  let markAborted: () => void = () => {};
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  const aborted = new Promise<void>((resolve) => {
+    markAborted = resolve;
+  });
+  const handler = createMcpHttpHandler({
+    name: "http-test",
+    version: "0.0.0",
+    tools: [
+      ...tools,
+      definePortableTool({
+        name: "progress",
+        title: "Progress",
+        description: "Progress",
+        parameters: Type.Object({}),
+        execute: async (_args, ctx) => {
+          ctx.progress?.({ text: "working" });
+          await sleep(20);
+          return { text: "done" };
+        },
+      }),
+      definePortableTool({
+        name: "wait",
+        title: "Wait",
+        description: "Wait for cancellation",
+        parameters: Type.Object({}),
+        execute: async (_args, ctx) => {
+          markStarted();
+          await new Promise<void>((resolve) => {
+            if (ctx.signal?.aborted) {
+              markAborted();
+              resolve();
+              return;
+            }
+            ctx.signal?.addEventListener(
+              "abort",
+              () => {
                 markAborted();
                 resolve();
-                return;
-              }
-              ctx.signal?.addEventListener(
-                "abort",
-                () => {
-                  markAborted();
-                  resolve();
-                },
-                { once: true },
-              );
-            });
-            return { text: "cancelled" };
-          },
-        }),
-      ],
-    });
-    const nodeHandler = toNodeHandler(handler, { maxRequestBodySize: 1024 });
-    const validHost = localhostHostValidation();
-    const validOrigin = localhostOriginValidation();
-    const listener = createServer((incoming, outgoing) => {
-      if (!validHost(incoming, outgoing) || !validOrigin(incoming, outgoing)) return;
-      void nodeHandler(fromAny(incoming), outgoing).catch((error: unknown) => {
-        if (outgoing.headersSent) outgoing.destroy();
-        else outgoing.writeHead(500).end(String(error));
-      });
-    });
-    await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
-    const address = listener.address();
-    assert.ok(address && typeof address !== "string");
-    const url = new URL(`http://127.0.0.1:${address.port}/mcp`);
-    const client = new Client(
-      { name: "http-client", version: "0.0.0" },
-      { versionNegotiation: { mode: modern ? { pin: "2026-07-28" } : "legacy" } },
-    );
-    const responseTypes: string[] = [];
-    const transport = new StreamableHTTPClientTransport(url, {
-      fetch: async (input, init) => {
-        const response = await fetch(input, init);
-        responseTypes.push(response.headers.get("content-type") ?? "");
-        return response;
-      },
-    });
-    try {
-      assert.equal(
-        await new Promise<number | undefined>((resolve, reject) => {
-          const request = httpRequest(url, { headers: { host: "attacker.example" } }, (response) => {
-            response.resume();
-            resolve(response.statusCode);
+              },
+              { once: true },
+            );
           });
-          request.on("error", reject);
-          request.end();
-        }),
-        403,
-      );
-      assert.equal((await fetch(url, { headers: { origin: "https://attacker.example" } })).status, 403);
-      assert.equal((await fetch(url, { method: "POST", body: "x".repeat(1025) })).status, 413);
-      await client.connect(transport);
-      assert.equal(client.getProtocolEra(), modern ? "modern" : "legacy");
-      const list = await client.listTools();
-      assert.deepEqual(list.tools[0]?.icons, [{ src: "https://example.com/icon.svg" }]);
-      assert.deepEqual(list.tools[0]?._meta, { category: "text" });
-      const result = await client.callTool({ name: "echo", arguments: { text: "http" } });
-      assert.deepEqual(result.structuredContent, { text: "http" });
-      const invalid = await client.callTool({ name: "echo", arguments: { text: 42 } });
-      assert.equal(invalid.isError, true);
-      const updates: string[] = [];
-      responseTypes.length = 0;
-      const progress = await client.callTool(
-        { name: "progress", arguments: {} },
-        {
-          onprogress: (update) => {
-            updates.push(update.message ?? "");
-          },
+          return { text: "cancelled" };
         },
-      );
-      assert.deepEqual(updates, ["working"]);
-      assert.deepEqual(progress.content, [{ type: "text", text: "done" }]);
-      assert.ok(
-        responseTypes.some((type) => type.startsWith("text/event-stream")),
-        "auto mode streams progress over SSE",
-      );
-      const controller = new AbortController();
-      // Legacy clients send cancellation as a separate stateless notification;
-      // explicitly disconnect the HTTP request to pin Node -> Request.signal propagation.
-      const pending = modern
-        ? client.callTool({ name: "wait", arguments: {} }, { signal: controller.signal })
-        : fetch(url, {
-            method: "POST",
-            signal: controller.signal,
-            headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
-            body: JSON.stringify({
-              jsonrpc: "2.0",
-              id: 99,
-              method: "tools/call",
-              params: { name: "wait", arguments: {} },
-            }),
-          });
-      const rejected = assert.rejects(pending);
-      await started;
-      controller.abort();
-      await rejected;
-      await aborted;
-      assert.equal((await client.callTool({ name: "echo", arguments: { text: "after-cancel" } })).isError, false);
-    } finally {
-      await client.close();
-      await transport.close();
-      await handler.close();
-      listener.closeAllConnections();
-      await new Promise<void>((resolve, reject) => listener.close((error) => (error ? reject(error) : resolve())));
-    }
+      }),
+    ],
   });
-}
+  const nodeHandler = toNodeHandler(handler, { maxRequestBodySize: 1024 });
+  const validHost = localhostHostValidation();
+  const validOrigin = localhostOriginValidation();
+  const listener = createServer((incoming, outgoing) => {
+    if (!validHost(incoming, outgoing) || !validOrigin(incoming, outgoing)) return;
+    void nodeHandler(fromAny(incoming), outgoing).catch((error: unknown) => {
+      if (outgoing.headersSent) outgoing.destroy();
+      else outgoing.writeHead(500).end(String(error));
+    });
+  });
+  await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
+  const address = listener.address();
+  assert.ok(address && typeof address !== "string");
+  const url = new URL(`http://127.0.0.1:${address.port}/mcp`);
+  const client = new Client(
+    { name: "http-client", version: "0.0.0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
+  const responseTypes: string[] = [];
+  const transport = new StreamableHTTPClientTransport(url, {
+    fetch: async (input, init) => {
+      const response = await fetch(input, init);
+      responseTypes.push(response.headers.get("content-type") ?? "");
+      return response;
+    },
+  });
+  try {
+    assert.equal(
+      await new Promise<number | undefined>((resolve, reject) => {
+        const request = httpRequest(url, { headers: { host: "attacker.example" } }, (response) => {
+          response.resume();
+          resolve(response.statusCode);
+        });
+        request.on("error", reject);
+        request.end();
+      }),
+      403,
+    );
+    assert.equal((await fetch(url, { headers: { origin: "https://attacker.example" } })).status, 403);
+    assert.equal((await fetch(url, { method: "POST", body: "x".repeat(1025) })).status, 413);
+    await client.connect(transport);
+    assert.equal(client.getProtocolEra(), "modern");
+    const list = await client.listTools();
+    assert.deepEqual(list.tools[0]?.icons, [{ src: "https://example.com/icon.svg" }]);
+    assert.deepEqual(list.tools[0]?._meta, { category: "text" });
+    const result = await client.callTool({ name: "echo", arguments: { text: "http" } });
+    assert.deepEqual(result.structuredContent, { text: "http" });
+    const invalid = await client.callTool({ name: "echo", arguments: { text: 42 } });
+    assert.equal(invalid.isError, true);
+    const updates: string[] = [];
+    responseTypes.length = 0;
+    const progress = await client.callTool(
+      { name: "progress", arguments: {} },
+      {
+        onprogress: (update) => {
+          updates.push(update.message ?? "");
+        },
+      },
+    );
+    assert.deepEqual(updates, ["working"]);
+    assert.deepEqual(progress.content, [{ type: "text", text: "done" }]);
+    assert.ok(
+      responseTypes.some((type) => type.startsWith("text/event-stream")),
+      "auto mode streams progress over SSE",
+    );
+    const controller = new AbortController();
+    const pending = client.callTool({ name: "wait", arguments: {} }, { signal: controller.signal });
+    const rejected = assert.rejects(pending);
+    await started;
+    controller.abort();
+    await rejected;
+    await aborted;
+    assert.equal((await client.callTool({ name: "echo", arguments: { text: "after-cancel" } })).isError, false);
+  } finally {
+    await client.close();
+    await transport.close();
+    await handler.close();
+    listener.closeAllConnections();
+    await new Promise<void>((resolve, reject) => listener.close((error) => (error ? reject(error) : resolve())));
+  }
+});
 
 test("HTTP construction validates tools before returning a handler", () => {
   assert.throws(
@@ -193,11 +177,8 @@ test("HTTP construction validates tools before returning a handler", () => {
   );
 });
 
-test("HTTP options can reject legacy clients and bound request bodies", async () => {
-  const handler = createMcpHttpHandler(
-    { name: "modern-only", version: "0", tools },
-    { legacy: "reject", maxRequestBodySize: 256 },
-  );
+test("HTTP handler rejects legacy clients by default and bounds request bodies", async () => {
+  const handler = createMcpHttpHandler({ name: "modern-only", version: "0", tools }, { maxRequestBodySize: 256 });
   try {
     const response = await handler.fetch(
       new Request("http://localhost/mcp", {
@@ -229,64 +210,60 @@ test("HTTP options can reject legacy clients and bound request bodies", async ()
   }
 });
 
-for (const modern of [false, true]) {
-  test(`HTTP snapshots caller options across ${modern ? "modern" : "legacy"} requests`, async () => {
-    const icon = { src: "https://example.com/original.svg" };
-    const meta = { category: "original" };
-    const mutableTools: PortableTool[] = [
-      definePortableTool({
-        name: "original",
-        title: "Original",
-        description: "Original",
-        parameters: Type.Object({}),
-        hostExtras: { mcp: { icons: [icon], _meta: meta } },
-        execute: () => ({ text: "original" }),
-      }),
-    ];
-    const options = { name: "snapshot", version: "0", tools: mutableTools };
-    const handler = createMcpHttpHandler(options);
-    icon.src = "mutated";
-    meta.category = "mutated";
-    options.name = "mutated";
-    mutableTools.push(
-      definePortableTool({
-        name: "late",
-        title: "Late",
-        description: "Late",
-        parameters: Type.String(),
-        execute: () => ({ text: "late" }),
-      }),
-    );
-    const client = new Client(
-      { name: "snapshot-client", version: "0" },
-      {
-        versionNegotiation: { mode: modern ? { pin: "2026-07-28" } : "legacy" },
-      },
-    );
-    const transport = new StreamableHTTPClientTransport(new URL("http://localhost/mcp"), {
-      fetch: (input, init) => handler.fetch(new Request(input, init)),
-    });
-    try {
-      await client.connect(transport);
-      assert.equal(client.getServerVersion()?.name, "snapshot");
-      for (let i = 0; i < 2; i++) {
-        const list = await client.listTools();
-        assert.deepEqual(
-          list.tools.map((tool) => tool.name),
-          ["original"],
-        );
-        assert.deepEqual(list.tools[0]?.icons, [{ src: "https://example.com/original.svg" }]);
-        assert.deepEqual(list.tools[0]?._meta, { category: "original" });
-        assert.equal((await client.callTool({ name: "original", arguments: {} })).isError, false);
-        assert.equal((await client.callTool({ name: "late", arguments: {} })).isError, true);
-      }
-    } finally {
-      await client.close();
-      await transport.close();
-      await handler.close();
-    }
+test("HTTP snapshots caller options across modern requests", async () => {
+  const icon = { src: "https://example.com/original.svg" };
+  const meta = { category: "original" };
+  const mutableTools: PortableTool[] = [
+    definePortableTool({
+      name: "original",
+      title: "Original",
+      description: "Original",
+      parameters: Type.Object({}),
+      hostExtras: { mcp: { icons: [icon], _meta: meta } },
+      execute: () => ({ text: "original" }),
+    }),
+  ];
+  const options = { name: "snapshot", version: "0", tools: mutableTools };
+  const handler = createMcpHttpHandler(options);
+  icon.src = "mutated";
+  meta.category = "mutated";
+  options.name = "mutated";
+  mutableTools.push(
+    definePortableTool({
+      name: "late",
+      title: "Late",
+      description: "Late",
+      parameters: Type.String(),
+      execute: () => ({ text: "late" }),
+    }),
+  );
+  const client = new Client(
+    { name: "snapshot-client", version: "0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
+  const transport = new StreamableHTTPClientTransport(new URL("http://localhost/mcp"), {
+    fetch: (input, init) => handler.fetch(new Request(input, init)),
   });
-}
+  try {
+    await client.connect(transport);
+    assert.equal(client.getServerVersion()?.name, "snapshot");
+    for (let i = 0; i < 2; i++) {
+      const list = await client.listTools();
+      assert.deepEqual(
+        list.tools.map((tool) => tool.name),
+        ["original"],
+      );
+      assert.deepEqual(list.tools[0]?.icons, [{ src: "https://example.com/original.svg" }]);
+      assert.deepEqual(list.tools[0]?._meta, { category: "original" });
+      assert.equal((await client.callTool({ name: "original", arguments: {} })).isError, false);
+      assert.equal((await client.callTool({ name: "late", arguments: {} })).isError, true);
+    }
+  } finally {
+    await client.close();
+    await transport.close();
+    await handler.close();
+  }
+});
 
 test("HTTP diagnostics default to stderr and honor a caller reporter", async (t) => {
   const diagnostics: string[] = [];
@@ -299,7 +276,6 @@ test("HTTP diagnostics default to stderr and honor a caller reporter", async (t)
     const handler = createMcpHttpHandler(
       { name: "diagnostics", version: "0", tools },
       {
-        legacy: "reject",
         ...(custom && {
           onerror: (error: Error) => {
             reported.push(error);

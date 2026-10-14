@@ -278,6 +278,13 @@ export function createMcpServerFactory(options: CreateMcpServerOptions): () => S
   };
 }
 
+/**
+ * Build a single low-level SDK `Server`.
+ *
+ * @deprecated A directly connected `Server` can only speak the legacy
+ * `2025-11-25` era, which BridgeKit's serving entrypoints no longer support.
+ * Use `runMcpStdioServer` or `createMcpHttpHandler` instead.
+ */
 export function createMcpServer(options: CreateMcpServerOptions): Server {
   return createMcpServerFactory(options)();
 }
@@ -292,14 +299,17 @@ export interface McpStdioServerHandle {
 }
 
 /**
- * Install dual-era stdio serving and return a close handle. Resolution means
- * transport wiring is ready, not that a client has connected or shutdown.
+ * Install modern-era (`2026-07-28`) stdio serving and return a close handle.
+ * `2025-11-25` openings are answered with the unsupported-protocol-version
+ * error. Resolution means transport wiring is ready, not that a client has
+ * connected or shutdown.
  */
 export async function runMcpStdioServer(options: CreateMcpServerOptions): Promise<McpStdioServerHandle> {
   // Validate eagerly, but each discarded probe/connection must own its server:
   // a modern probe installs era-specific handlers before it can be discarded.
   const factory = createMcpServerFactory(options);
   const handle = serveStdio(factory, {
+    legacy: "reject",
     onerror: (error) => process.stderr.write(`[bridgekit-mcp] ${error.message}\n`),
   });
   let closing: Promise<void> | undefined;
