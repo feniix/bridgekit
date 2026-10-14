@@ -12,6 +12,11 @@ three-argument custom-schema form. Raw JSON-RPC was driven over a real
 `createMcpHandler(...).fetch` for HTTP. The probe scripts were not committed;
 this note is the record. Re-run before implementation if the SDK version moves.
 
+Update (#141): BridgeKit has since dropped legacy-era serving and rejects
+`2025-11-25` openings with `-32022`. The legacy-session observations below are
+kept as the record of what the SDK did during the spike; none of them need a
+BridgeKit decision any more. The modern-era findings are unchanged.
+
 Scope caveat: BridgeKit's own factory was not exercised, only the SDK
 primitives it is built on. Results below are SDK behaviour, not yet BridgeKit
 behaviour.
@@ -31,10 +36,10 @@ behaviour.
 - **No capability gating from the SDK.** `tasks/get` from a non-declaring modern
   client returned task state (stdio and HTTP). Every `-32021` check in
   [part 1](../plans/mcp-tasks/01-wire-contract.md) is BridgeKit's to implement.
-- **Legacy connections reach the custom handlers.** On a clean legacy session,
-  `tasks/get`, `tasks/cancel` and `tasks/update` all returned modern-shaped
-  results (no `resultType`, no era check). Handlers must era-gate on
-  `ctx.mcpReq.envelope === undefined` and answer `-32601`.
+- **Legacy connections reached the custom handlers** (historical; legacy is no
+  longer served, #141). On a clean legacy session, `tasks/get`, `tasks/cancel`
+  and `tasks/update` all returned modern-shaped results (no `resultType`, no era
+  check). No era gating is needed now that legacy openings are rejected.
 - **`tasks/result` and `tasks/list` return `-32601` on both eras** when not
   registered, which matches the SEP for modern and is acceptable for legacy
   because BridgeKit does not advertise legacy tasks.
@@ -54,10 +59,9 @@ revision tie supported). Narrows the remaining part 1 items:
 - `content: []` on the handle: decide strip versus accept. Stripping needs a
   post-handler hook the low-level `Server` does not obviously offer; accepting
   is the likely answer, and the plan should say so explicitly.
-- Legacy `initialize` advertising: accept (harmless: legacy clients ignore
-  unknown extension keys and no legacy task is ever created) and document, or
-  build a per-era `Server` factory using `McpRequestContext`'s era. The factory
-  context exists, so the second is feasible at some complexity cost.
+- Legacy `initialize` advertising: moot. Legacy-era openings are rejected before
+  negotiation (#141), so the extension entry never reaches a legacy client and
+  no per-era `Server` factory is needed.
 
 ## Still not verified
 
