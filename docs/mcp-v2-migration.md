@@ -52,10 +52,17 @@ Consumer impact:
 
 - Clients limited to `2025-11-25` (SDK v1, or v2 `versionNegotiation.mode:
   "legacy"`) can no longer connect.
-- The SDK v2 client's default negotiation opens with `2025-11-25`; pin
-  `{ mode: { pin: "2026-07-28" } }` or use `"auto"`.
+- The SDK v2 client defaults to `versionNegotiation.mode: "legacy"`, so a
+  default-constructed client is rejected; pin `{ mode: { pin: "2026-07-28" } }`
+  or use `"auto"`.
+- Every legacy-era opening (`2025-11-25` and earlier) is rejected, and each
+  rejected request writes one `[bridgekit-mcp]` line to stderr by default
+  (override with the HTTP `onerror` option).
+- `legacy` is removed from the HTTP options type and ignored at runtime.
 - `CreateMcpHttpHandlerOptions` no longer accepts `legacy`.
-- `createMcpServer` is deprecated; a directly connected `Server` is legacy-only.
+- `createMcpServer` is deprecated as a direct `Server.connect` target.
+  `createMcpHandler(() => createMcpServer(options), { legacy: "reject" })`
+  remains supported for custom serving.
 - Non-object output roots are no longer wrapped as `{ result }` for any served
   client; modern clients receive the natural value.
 
@@ -64,9 +71,10 @@ The SDK v1 dev dependency and its interop test were removed with this change; th
 
 ## Breaking-change policy
 
-Ship this as pre-1.0 **minor** release `0.16.0`. The returned `Server`
-type/object changes, even though
-legacy clients are no longer served (see "Dropping legacy-era serving").
+`0.16.0` shipped as a pre-1.0 **minor** for the returned `Server` type/object
+change; legacy clients stayed interoperable in that release. Dropping legacy-era
+serving (Unreleased) is a further breaking pre-1.0 minor (see "Dropping
+legacy-era serving").
 
 Consumers using `createMcpServer` beyond the public runner must:
 
@@ -83,10 +91,11 @@ client is test-only. Runtime code imports only the v2 server package.
 `PortableTool.outputSchema` is optional TypeBox JSON Schema with any root except a
 top-level `$ref`. Objects, object intersections, arrays, primitives, `null` and
 unions are accepted. All-object intersections are lowered to `type: "object"` for
-MCP listing and projection, because the SDK's legacy `{ result }` wrap keys on the
-advertised root `type`; every other root passes through by reference and
-`projectCallToolResult` wraps the listed schema and the value as `{ result }` on
-the 2025 era while modern clients receive the natural value. Pi forwards the raw
+MCP listing and projection, which keeps `Type.Intersect` output wire shapes stable
+and satisfies the SDK's object-root type. The SDK's legacy `{ result }` wrap keys
+on the advertised root `type` and only applies to a directly connected
+(deprecated `createMcpServer`) legacy `Server`. Every other root passes through by
+reference; served (modern) clients receive the natural value. Pi forwards the raw
 value and wraps non-object values as `details.result`.
 
 Successful tools declaring a schema must return matching `structuredContent`;
@@ -95,7 +104,8 @@ a tool-attributed `TypeError` from portable execution; adapters surface a failed
 tool result (Pi's deprecated throw mode rethrows).
 
 Argument/domain failures are exempt from success schemas and retain their error
-data. SDK v2 clients support that exemption. SDK v1's convenience `callTool` can
+data. SDK v2 clients support that exemption. Historical (SDK v1 clients can no
+longer connect): SDK v1's convenience `callTool` can
 still validate error structured data against a cached success schema; consumers
 of that SDK may need its generic request API to read such error data. Do not drop
 portable failure details to work around that client behavior.

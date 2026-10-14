@@ -185,7 +185,8 @@ client is a development-only test dependency; the v1 SDK is no longer used. The 
 registration-helper policy is unchanged: TypeBox remains JSON Schema passthrough.
 
 Release this migration as a pre-1.0 minor, not a patch: `createMcpServer` exposes a
-different SDK `Server` type/object, and legacy-era serving is dropped. The
+different SDK `Server` type/object (0.16.0); dropping legacy-era serving is a
+separate breaking minor. The
 lifecycle change also requires a minor: the runner now returns
 `Promise<McpStdioServerHandle>`. See [migration policy](mcp-v2-migration.md);
 the packed smoke test exercises the modern era plus legacy rejection and pins the v2 server baseline.
@@ -194,12 +195,13 @@ the packed smoke test exercises the modern era plus legacy rejection and pins th
 
 ### Selected HTTP conformance checks
 
-With `scripts/mcp-http-fixture.mjs` running after a build, manually run the
-four pinned official HTTP scenarios listed in
-[the conformance record](research/mcp-stdio-conformance.md#http-follow-up-2026-10-07).
-Keep the result artifacts. These do not certify stdio or modern `2026-07-28`;
-the published `0.1.16` harness rejects that dated version. Do not make the
-full-suite or modern-era conformance claim until those blockers are resolved.
+The pinned official harness (`0.1.16`) only accepts legacy spec versions
+(`2025-03-26`, `2025-06-18`, `2025-11-25`), and BridgeKit's HTTP handler now
+rejects all legacy-era openings with `-32022`. No official HTTP scenario can
+currently run against BridgeKit. The four 2026-10-07 results in
+[the conformance record](research/mcp-stdio-conformance.md#http-follow-up-2026-10-07)
+predate modern-only serving and are historical. Do not make a conformance claim
+until a harness supports `2026-07-28`.
 
 Issue triage: maintainer responsibility is unassigned. Until a triage owner is named, expect best-effort response on issues filed against this repository, with priority on packaging regressions, install failures, and SDK-compatibility breaks.
 

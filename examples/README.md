@@ -275,7 +275,7 @@ MCP behavior:
   results are exempt. Non-object values reach MCP clients as-is and are wrapped as `{ result }` on pi `details`.
 - `ctx.progress?.(...)` becomes `notifications/progress` when the client sent a
   `progressToken`; otherwise `ctx.progress` is `undefined`.
-- The stdio runner serves modern `2026-07-28` clients through SDK v2; legacy `2025-11-25` clients are rejected.
+- The stdio runner serves modern `2026-07-28` clients through SDK v2; legacy-era clients (`2025-11-25` and earlier) are rejected.
   It returns `Promise<McpStdioServerHandle>` after wiring is installed; stdin EOF or
   `await handle.close()` shuts down the connection and aborts in-flight requests.
   `close()` does not await asynchronous tool cleanup.

@@ -377,11 +377,9 @@ async function assertManifestInvariants() {
   // inv-mcp-sdk-major: low-level SDK v2 Server is part of the public contract.
   const mcpRange = packageJson.dependencies?.["@modelcontextprotocol/server"];
   assert.match(mcpRange ?? "", /^\^?2\./, "@modelcontextprotocol/server must remain pinned to v2.x");
-  assert.equal(
-    packageJson.dependencies?.["@modelcontextprotocol/sdk"],
-    undefined,
-    "v1 SDK must not be a runtime dependency",
-  );
+  for (const group of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+    assert.equal(packageJson[group]?.["@modelcontextprotocol/sdk"], undefined, `v1 SDK must not be in ${group}`);
+  }
   assert.equal(packageJson.dependencies?.["@modelcontextprotocol/client"], undefined, "MCP client must be test-only");
 
   // inv-no-source-map-urls: tsconfig.json declares sourceMap: false and the
@@ -498,7 +496,10 @@ async function assertPackedMcpProtocol(installDir) {
           command: process.execPath, args: ["server.mjs"], stderr: "pipe",
         });
         try {
-          await assert.rejects(legacyClient.connect(legacyTransport), /Unsupported protocol version: 2025-11-25/);
+          await assert.rejects(legacyClient.connect(legacyTransport), {
+            code: -32022,
+            message: /Unsupported protocol version: 2025-11-25/,
+          });
         } finally {
           await legacyClient.close();
           await legacyTransport.close();
@@ -544,7 +545,9 @@ async function assertPackedMcpProtocol(installDir) {
           }),
         }));
         assert.equal(legacyResponse.status, 400);
-        assert.equal((await legacyResponse.json()).error.code, -32022);
+        const legacyError = (await legacyResponse.json()).error;
+        assert.equal(legacyError.code, -32022);
+        assert.deepEqual(legacyError.data.supported, ["2026-07-28"]);
       } finally {
         await handler.close();
       }

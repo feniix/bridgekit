@@ -178,8 +178,8 @@ The last two pin that the internal module backing `runBinWrapper` is unreachable
 
 ## inv-packed-mcp-protocol
 
-**Assertion**: A spawned server from the installed tarball serves a modern-pinned
-`2026-07-28` SDK client over stdio and the HTTP handler, lists its object output
+**Assertion**: A spawned stdio server from the installed tarball, and an in-process
+HTTP handler from the same tarball, serve a modern-pinned `2026-07-28` SDK client; lists its object output
 schema, returns matching structured data, and rejects `2025-11-25` openings with
 `-32022`.
 

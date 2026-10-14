@@ -177,7 +177,7 @@ test("HTTP construction validates tools before returning a handler", () => {
   );
 });
 
-test("HTTP handler rejects legacy clients by default and bounds request bodies", async () => {
+test("HTTP handler always rejects legacy clients and bounds request bodies", async () => {
   const handler = createMcpHttpHandler({ name: "modern-only", version: "0", tools }, { maxRequestBodySize: 256 });
   try {
     const response = await handler.fetch(
@@ -205,6 +205,28 @@ test("HTTP handler rejects legacy clients by default and bounds request bodies",
       }),
     );
     assert.equal(oversized.status, 413);
+  } finally {
+    await handler.close();
+  }
+});
+
+test("HTTP handler ignores a runtime legacy option from untyped callers", async () => {
+  const handler = createMcpHttpHandler({ name: "modern-only", version: "0", tools }, fromAny({ legacy: "stateless" }));
+  try {
+    const response = await handler.fetch(
+      new Request("http://localhost/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "old", version: "0" } },
+        }),
+      }),
+    );
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.code, -32022);
   } finally {
     await handler.close();
   }

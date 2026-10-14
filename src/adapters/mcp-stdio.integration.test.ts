@@ -57,7 +57,7 @@ for (const active of [false, true]) {
   });
 }
 
-test("discarded modern discover probes do not affect a later modern session", { timeout: 15000 }, async () => {
+test("modern discover probes keep the startup tool snapshot for the pinned session", { timeout: 15000 }, async () => {
   const child = spawn(process.execPath, [fixture], { stdio: ["pipe", "pipe", "pipe"] });
   const lines = createInterface({ input: child.stdout });
   const replies = lines[Symbol.asyncIterator]();
@@ -190,16 +190,21 @@ test("legacy 2025-11-25 initialize is rejected and the connection stays usable f
         },
       })}\n`,
     );
+    const rejectedLine = await replies.next();
+    assert.equal(rejectedLine.done, false);
     const rejected: { id: number; result?: unknown; error?: { code: number; data?: unknown } } = JSON.parse(
-      (await replies.next()).value ?? "",
+      rejectedLine.value ?? "",
     );
     assert.equal(rejected.id, 1);
     assert.equal(rejected.result, undefined);
     assert.ok(rejected.error, "legacy initialize must be answered with an error");
     assert.equal(rejected.error.code, -32022);
+    assert.deepEqual(rejected.error.data, { supported: ["2026-07-28"], requested: "2025-11-25" });
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: withEnvelope({}) })}\n`);
+    const listingLine = await replies.next();
+    assert.equal(listingLine.done, false);
     const listing: { id: number; error?: unknown; result?: { tools?: unknown[] } } = JSON.parse(
-      (await replies.next()).value ?? "",
+      listingLine.value ?? "",
     );
     assert.equal(listing.id, 2);
     assert.equal(listing.error, undefined);

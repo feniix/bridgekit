@@ -94,7 +94,7 @@ import {
   type PortableValidationError,
 } from "@feniix/bridgekit";
 import { registerPiTools } from "@feniix/bridgekit/pi";
-import { createMcpServer, runMcpStdioServer } from "@feniix/bridgekit/mcp";
+import { createMcpHttpHandler, runMcpStdioServer } from "@feniix/bridgekit/mcp";
 import { runBinWrapper } from "@feniix/bridgekit/bin-wrapper";
 ```
 
@@ -334,7 +334,7 @@ const handler = createMcpHttpHandler(createMcpServerOptions(), {
 // Await handler.close() when the application shuts down.
 ```
 
-The handler serves the modern `2026-07-28` era only; `2025-11-25` clients
+The handler serves the modern `2026-07-28` era only; legacy-era clients (`2025-11-25` and earlier)
 receive an unsupported-protocol-version error (`-32022`, HTTP 400) naming the
 supported revisions. It does not start a listener or install
 authentication, authorization, Host/Origin validation, CORS, or TLS. **Enforce
@@ -358,10 +358,11 @@ or types. `createMcpServer` is deprecated: a directly connected `Server`
 can only speak the legacy era, which BridgeKit no longer serves. Use
 `runMcpStdioServer` or `createMcpHttpHandler`. See [migration guidance](docs/mcp-v2-migration.md).
 
-**Legacy clients are not served.** Clients limited to MCP `2025-11-25` (SDK v1
-clients, or v2 clients in `legacy` negotiation mode) cannot connect. The SDK v2
-client's default negotiation also opens with `2025-11-25`; pin
-`versionNegotiation: { mode: { pin: "2026-07-28" } }` or use `"auto"`.
+**Legacy clients are not served.** Clients limited to the legacy era
+(`2025-11-25` and earlier: SDK v1 clients, or v2 clients in `legacy` negotiation
+mode) cannot connect. The SDK v2 client defaults to
+`versionNegotiation.mode: "legacy"`, so a default-constructed client is rejected;
+pin `versionNegotiation: { mode: { pin: "2026-07-28" } }` or use `"auto"`.
 HTTP is exposed through `createMcpHttpHandler`; tasks remain pending.
 
 HTTP option and return types are available as `CreateMcpHttpHandlerOptions` and

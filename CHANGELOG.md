@@ -17,14 +17,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed (breaking)
 
 - Serve only the modern MCP `2026-07-28` era. `runMcpStdioServer` and
-  `createMcpHttpHandler` reject `2025-11-25` clients with `-32022` naming the
-  supported revisions. Clients limited to `2025-11-25` (SDK v1, or v2 in
-  `legacy` negotiation mode) can no longer connect; the SDK v2 client's default
-  negotiation also opens with `2025-11-25`, so pin `{ mode: { pin: "2026-07-28" } }`
-  or use `"auto"`. `CreateMcpHttpHandlerOptions` no longer accepts `legacy`.
-  `createMcpServer` is deprecated because a directly connected `Server` is
-  legacy-only. Non-object structured output is no longer `{ result }`-wrapped
-  for any served client. See `docs/mcp-v2-migration.md`.
+  `createMcpHttpHandler` reject legacy-era openings (`2025-11-25` and earlier)
+  with `-32022` naming the supported revisions, and log one `[bridgekit-mcp]`
+  stderr line per rejected request. Clients limited to the legacy era (SDK v1, or
+  v2 in `legacy` negotiation mode) can no longer connect. The SDK v2 client
+  defaults to `versionNegotiation.mode: "legacy"`, so a default-constructed
+  client is rejected: pin `{ mode: { pin: "2026-07-28" } }` or use `"auto"`.
+  `legacy` is removed from `CreateMcpHttpHandlerOptions` and ignored at runtime
+  for untyped callers. `createMcpServer` is deprecated as a direct
+  `Server.connect` target (a directly connected `Server` is legacy-only); passing
+  `() => createMcpServer(options)` to the SDK's `createMcpHandler` remains the
+  way to compose custom serving. Both the `tools/list` `outputSchema` and the
+  `tools/call` `structuredContent` of non-object outputs are no longer
+  `{ result }`-wrapped for any served client. The SDK v1 dev dependency and its
+  stdio interop test were removed (#131 retired). See `docs/mcp-v2-migration.md`.
 - `runMcpStdioServer` now returns `Promise<McpStdioServerHandle>` with an
   idempotent `close()` that aborts pending requests (#129). Awaiting startup
   means stdio wiring is ready, not that a client has connected. Callers that
@@ -34,25 +40,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - Snapshot validated tool definitions once for HTTP and stdio serving, including
-  discovery fallback; later caller array/metadata mutations cannot leak onto the wire.
+  discarded discovery probes; later caller array/metadata mutations cannot leak onto the wire.
 - Reject invalid MCP icon shapes at construction with tool-attributed
   `BRIDGEKIT_MCP_INVALID_ICONS` errors; HTTP serving defaults to stderr diagnostics.
 - Clarify that stdio `close()` aborts requests without awaiting asynchronous tool cleanup.
 
-### Tests
-
-- Expand the SDK v1 stdio regression to cover validation-error schema rejection,
-  generic-request error results for validation, thrown handlers, invalid output,
-  and unknown tools, plus successful calls after failures (#131).
-
 ### Documentation
 
-- Record why the SDK v1 dev dependency remains: its stdio test pins v1-specific
-  error-schema validation and the generic-request workaround (#131).
 - Record the official conformance suite's HTTP-only server interface and the
-  resulting blocker for direct dual-era stdio conformance testing (#130).
+  resulting blocker for direct stdio conformance testing (#130).
 - Record four passing official HTTP scenarios and the pinned harness's rejection
   of `2026-07-28`; direct stdio/full modern conformance remains unverified (#130).
+  Those legacy-filtered results predate modern-only serving and no longer reproduce.
 
 ## [0.18.0] - 2026-10-06
 

@@ -57,12 +57,12 @@ function toMcpObjectSchema(schema: TSchema): Tool["inputSchema"] {
 
 /**
  * Render an output schema for `tools/list` and for `projectCallToolResult`.
- * All-object `allOf` intersections still get `type: "object"` synthesized:
- * the SDK's legacy-era `{ result: ... }` wrap keys purely on the advertised
- * root `type`, so an unlowered intersection would silently change the wire
- * shape existing `Type.Intersect` outputs have today. Every other root
- * (array, primitive, union) passes through by reference and the SDK projects
- * it per era. The same object must feed both the listing and the projection.
+ * All-object `allOf` intersections still get `type: "object"` synthesized so
+ * existing `Type.Intersect` outputs keep their wire shape (the SDK's legacy-era
+ * `{ result: ... }` wrap, reachable only through a directly connected
+ * deprecated `createMcpServer`, keys purely on the advertised root `type`).
+ * Every other root (array, primitive, union) passes through by reference. The
+ * same object must feed both the listing and the projection.
  */
 function toMcpOutputSchema(schema: TSchema): Record<string, unknown> {
   const candidate = schema as unknown as Record<string, unknown>;
@@ -286,9 +286,12 @@ export function createMcpServerFactory(options: CreateMcpServerOptions): () => S
 /**
  * Build a single low-level SDK `Server`.
  *
- * @deprecated A directly connected `Server` can only speak the legacy
- * `2025-11-25` era, which BridgeKit's serving entrypoints no longer support.
- * Use `runMcpStdioServer` or `createMcpHttpHandler` instead.
+ * @deprecated A directly connected `Server` (`server.connect(transport)`) can
+ * only speak the legacy era, which BridgeKit's serving entrypoints no longer
+ * support. Use `runMcpStdioServer` or `createMcpHttpHandler`. Passing
+ * `() => createMcpServer(options)` as the factory of the SDK's
+ * `createMcpHandler(factory, { legacy: "reject" })` remains supported for
+ * custom serving.
  */
 export function createMcpServer(options: CreateMcpServerOptions): Server {
   return createMcpServerFactory(options)();
@@ -310,8 +313,8 @@ export interface McpStdioServerHandle {
  * connected or shutdown.
  */
 export async function runMcpStdioServer(options: CreateMcpServerOptions): Promise<McpStdioServerHandle> {
-  // Validate eagerly, but each discarded probe/connection must own its server:
-  // a modern probe installs era-specific handlers before it can be discarded.
+  // Validate eagerly; the SDK asks the factory for a fresh server per
+  // discovery probe/connection, so none share handler state.
   const factory = createMcpServerFactory(options);
   const handle = serveStdio(factory, {
     legacy: "reject",
