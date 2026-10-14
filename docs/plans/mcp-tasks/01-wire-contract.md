@@ -159,8 +159,13 @@ sticky routing on `Mcp-Name`.** The in-memory backend is single-process only.
   carrying `task`, `inputRequests` or `requestState`). A flat SEP-shaped
   `CreateTaskResult` therefore reaches the wire with a stray `content: []`.
   The handle must also bypass `projectCallToolResult`, which is the adapter's
-  current return path. Both need a decision in part 2/3 (strip, or accept the
-  extra field as harmless to a loose-object client).
+  current return path. **Decision (proposal): accept the stray `content: []`.**
+  The SDK offers no post-handler hook to strip it, a loose-object client
+  ignores it, and SEP-2663 does not forbid additional members. The handle is
+  returned directly from the `tools/call` handler, bypassing
+  `projectCallToolResult`. Phase 3 tests pin the exact wire shape so a future SDK
+  change surfaces; if a strict client rejects it, revisit with a different
+  mechanism rather than silently diverging.
 - The modern (`2026-07-28`) codec registry contains no `tasks/*` method. The
   `tasks/get`, `tasks/result`, `tasks/list`, `tasks/cancel` entries belong only
   to the legacy registry. On a modern connection, `setRequestHandler("tasks/get",
@@ -184,16 +189,17 @@ sticky routing on `Mcp-Name`.** The in-memory backend is single-process only.
   `tasks/get`/`tasks/cancel` reuse carve-out cite the SEP), which supports the
   SEP's `2026-06-30` and the SDK's `2026-07-28` being the same revision.
 
-Spike required before implementation (blocks part 3, phase 3): exercise the
-three-argument `tasks/*` registrations through `serveStdio` as well as the HTTP
-handler (the probe above used the HTTP handler only), and decide the
-`content: []` point above. The phase 0 results are recorded in
-`docs/research/mcp-tasks-phase0-spike.md`.
+Phase 0 spike (done): the three-argument `tasks/*` registrations were exercised
+through both `serveStdio` and the HTTP handler; results are in
+`docs/research/mcp-tasks-phase0-spike.md`. The `content: []` point is decided
+above. Two items remain unverified and are phase 3 integration-test gates, not
+blockers for phase 1/2: BridgeKit's own factory with these registrations, and a
+real SDK client consuming a task handle.
 
 ## Open questions
 
-1. **Capability source:** resolved by inspection and the phase 0 spike; see
-   "What the SDK already gives us".
+1. **Capability source:** resolved by inspection and confirmed by the phase 0
+   spike on stdio and HTTP; see "What the SDK already gives us".
 2. **Naming:** likely the same revision (see above); confirm against the SEP
    revision table before implementation.
 3. **Issue text:** retitle #127 to match this scope; the current text
